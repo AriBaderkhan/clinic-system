@@ -9,7 +9,7 @@ const schemaRegister = Joi.object({
     phone: Joi.string().optional(),
     address: Joi.string().optional(),
     room: Joi.when('role', {
-        is: ['doctor','super_doctor'],
+        is: Joi.valid('doctor', 'super_doctor'),
         then: Joi.number().required(),
         otherwise: Joi.forbidden()
     }),
