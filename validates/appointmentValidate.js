@@ -7,8 +7,7 @@ const schemaAppointmentAdd = Joi.object({
     appointment_type: Joi.string()
         .valid('normal', 'urgent', 'walk_in')
         .default('normal'),
-    scheduled_start: Joi.date().iso().min('now').required().messages({
-        'date.min': 'Appointment start time must be in the future',
+    scheduled_start: Joi.date().iso().required().messages({
         'any.required': 'Appointment start time is required',
         'date.base': 'Appointment start time must be a valid ISO date'
     }),
