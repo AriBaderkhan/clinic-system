@@ -227,6 +227,9 @@ async function findAppointmentsWithFilters({ from, to, type, search }) {
   const baseQuery = `
     SELECT 
       a.id,
+      a.doctor_id,
+      a.patient_id,
+      
       p.name  AS patient_name,
       p.phone AS patient_phone,
       pr.full_name AS doctor_name,
