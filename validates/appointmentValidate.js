@@ -69,11 +69,13 @@ const schemaCompleteFillWork = Joi.object({
         ortho: Joi.number().min(0),
         implant: Joi.number().min(0),
         rct: Joi.number().min(0),
+        re_rct: Joi.number().min(0),
     }).optional(),
     planCompletion: Joi.object({
         ortho: Joi.boolean(),
         implant: Joi.boolean(),
         rct: Joi.boolean(),
+        re_rct: Joi.boolean(),
     }).optional().unknown(false)
 });
 

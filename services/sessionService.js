@@ -8,13 +8,50 @@ import treatmentPlanModel from '../models/treatmentPlanModel.js';
 import workCatalogModel from '../models/workCatalogModel.js';
 import treatmentPlanPaymentModel from '../models/treatmentPlanPaymentModel.js';
 
+function buildWorksSummary(worksRows) {
+  if (!worksRows || worksRows.length === 0) {
+    return {
+      items_count: 0,
+      works: [],
+    };
+  }
 
+  const groups = {}; // key: work_id-unit_price
+
+  for (const row of worksRows) {
+    const key = `${row.work_id}-${row.unit_price}`;
+
+    if (!groups[key]) {
+      groups[key] = {
+        work_name: row.work_name,
+        quantity: 0,
+        total_price: 0,
+        teeth: [],
+      };
+    }
+
+    const g = groups[key];
+
+    g.quantity += row.quantity;                    // sum quantity
+    g.total_price += Number(row.total_price);      // sum price
+
+    if (row.tooth_number !== null && row.tooth_number !== undefined) {
+      g.teeth.push(row.tooth_number);              // collect teeth
+    }
+  }
+
+  return {
+    items_count: worksRows.length,                 // raw rows count
+    works: Object.values(groups),                  // array of grouped items
+  };
+
+}
 async function serviceCreateSession(sessionData) {
   const { appointment_id, next_plan, notes, created_by } = sessionData;
 
   const appointment = await appoinmentModel.getPatientAndDoctorByAppointmentId(appointment_id);
-  if (!appointment) throw appError('APPOINTMENT_NOT_FOUND', 'Appointment not found',404);
-  if (!['completed', 'in_progress'].includes(appointment.status)) throw appError('INVALID_APPOINTMENT_STATUS', 'Only completed or in_progress appointments can have sessions',400);
+  if (!appointment) throw appError('APPOINTMENT_NOT_FOUND', 'Appointment not found', 404);
+  if (!['completed', 'in_progress'].includes(appointment.status)) throw appError('INVALID_APPOINTMENT_STATUS', 'Only completed or in_progress appointments can have sessions', 400);
 
   const createdSession = await sessionModel.createSession(appointment_id, next_plan, notes, created_by);
 
@@ -22,32 +59,246 @@ async function serviceCreateSession(sessionData) {
 }
 
 async function serviceGetAllSessions() {
-  const sessions = await sessionModel.getAllSessions();
-  if (sessions.length === 0) throw appError('FETCH_SESSIONS_FAILED', 'No sessions found',404);
-  return sessions;
+  const base = await sessionModel.getAllNormalSessions();
+  if (base.length === 0) return []
+  //   const sessionIds = base.map(s => s.session_id);
+
+  // const worksRows = await sessionModel.getWorksForSessions(sessionIds);
+  // const worksBySession = {};
+  // for (const row of worksRows) {
+  //   if (!worksBySession[row.session_id]) worksBySession[row.session_id] = [];
+  //   worksBySession[row.session_id].push(row);
+  // }
+
+  //  return base.map((s) => {
+  //   const worksSummary = buildWorksSummary(worksBySession[s.session_id] || []);
+
+  //   return {
+  //     session: {
+  //       session_id: s.session_id,
+  //       appointment_id: s.appointment_id,
+
+  //       totals: {
+  //         min_total: Number(s.min_total),
+  //         total: Number(s.total),
+  //         total_paid: Number(s.total_paid || 0),
+  //         is_paid: s.is_paid,
+  //       },
+
+  //       plan: {
+  //         next_plan: s.next_plan,
+  //         notes: s.notes,
+  //       },
+
+  //       meta: {
+  //         created_at: s.created_at,
+  //       },
+
+  //       appointment: {
+  //         start_time: s.appointment_start_time,
+  //         end_time: s.appointment_end_time,
+  //         status: s.appointment_status,
+  //       },
+
+  //       patient: {
+  //         id: s.patient_id,
+  //         full_name: s.patient_name,
+  //         phone: s.patient_phone,
+  //       },
+
+  //       doctor: {
+  //         id: s.doctor_id,
+  //         full_name: s.doctor_name,
+  //       },
+
+  //       processed_by: s.processed_by || null,
+  //     },
+
+  //     works_summary: worksSummary,
+  //   };
+  // });
+  return base
 }
 
+async function serviceGetNormalSession(session_id) {
+
+  const base = await sessionModel.getNormalSession(session_id);
+  if (!base) throw appError("SESSION_NOT_FOUND", "session not found", 404);
+
+
+
+  const worksRows = await sessionModel.getWorksForNormalSession(session_id);
+  const worksSummary = buildWorksSummary(worksRows);
+
+
+  return {
+    session: {
+      session_id: base.session_id,
+      appointment_id: base.appointment_id,
+
+      totals: {
+        min_total: Number(base.min_total),
+        total: Number(base.total),
+        total_paid: Number(base.total_paid || 0),
+        is_paid: base.is_paid,
+      },
+
+      plan: {
+        next_plan: base.next_plan,
+        notes: base.notes,
+      },
+
+      meta: {
+        created_at: base.created_at,
+      },
+
+      appointment: {
+        start_time: base.appointment_start_time,
+        end_time: base.appointment_end_time,
+        status: base.appointment_status,
+      },
+
+      patient: {
+        id: base.patient_id,
+        full_name: base.patient_name,
+        phone: base.patient_phone,
+      },
+
+      doctor: {
+        id: base.doctor_id,
+        full_name: base.doctor_name,
+      },
+
+      processed_by: base.processed_by || null,
+    },
+
+    sw_id: base.sw,
+    works_summary: worksSummary, // <-- Filling 3x, Scaling 2x, etc.
+
+  };
+}
 async function serviceGetSession(session_id) {
 
   const session = await sessionModel.getSession(session_id);
-  if (!session) throw appError('FETCH_SESSION_FAILED', 'Session not found',404);
+  if (!session) throw appError('FETCH_SESSION_FAILED', 'Session not found', 404);
   return session;
 }
 
-async function serviceUpdateSession(sessionID, fields, updatedBy) {
+async function serviceEditNormalSession(session_id, fields) {
+  const client = await pool.connect();
 
-  const session = await sessionModel.getSession(sessionID)
-  if (!session) throw appError('FETCH_SESSION_FAILED', 'Session not found',404);
-  const updatedSession = await sessionModel.updateSession(sessionID, fields, updatedBy);
-  if (!updatedSession) throw appError('UPDATE_SESSION_FAILED', 'Failed to update session',500);
-  return updatedSession;
+  const { notes, next_plan, works, total_paid } = fields;
 
+  try {
+    await client.query("BEGIN");
+
+    // 1) base session
+    const base = await sessionModel.getNormalSession(session_id, client);
+    if (!base) throw appError("SESSION_NOT_FOUND", "session not found", 404);
+
+    // Keep current paid if user didn't send total_paid
+    const currentPaid = Number(base.total_paid) || 0;
+
+    // 2) update works (ONLY normal works)
+    let normalMinTotal = Number(base.min_total) || 0;
+    let normalGrandTotal = Number(base.total) || 0;
+
+    if (works) {
+      if (!Array.isArray(works) || works.length === 0) {
+        throw appError("WORKS_REQUIRED", "works must be a non-empty array", 400);
+      }
+
+      // delete old normal works
+      await sessionModel.deleteSessionWorksBySiD(session_id, client);
+
+      // recalc from scratch
+      normalMinTotal = 0;
+      normalGrandTotal = 0;
+
+      for (const w of works) {
+        const { work_id, quantity, tooth_number } = w;
+
+        const catalog = await workCatalogModel.getWorkById(work_id, client);
+        if (!catalog) throw appError("WORK_NOT_FOUND", "Work not found", 404);
+
+        const minUnit = Number(catalog.min_price) || 0;
+        const unit = minUnit; // for now
+
+        const qty = Number(quantity) || 1;
+
+        const rowMin = minUnit * qty;
+        const rowTotal = unit * qty;
+
+        await sessionModel.createSessionWork(
+          {
+            sessionId: session_id,
+            workId: work_id,
+            quantity: qty,
+            toothNumber: tooth_number ?? null,
+            minUnitPrice: minUnit,
+            unitPrice: unit,
+            totalMinPrice: rowMin,
+            totalPrice: rowTotal,
+            treatmentPlanId: null, // ✅ normal only
+          },
+          client
+        );
+
+        normalMinTotal += rowMin;
+        normalGrandTotal += rowTotal;
+      }
+    }
+
+    // 3) decide paid
+    let finalPaid = currentPaid;
+    if (total_paid !== undefined && total_paid !== null && total_paid !== "") {
+      finalPaid = Number(total_paid);
+      if (Number.isNaN(finalPaid) || finalPaid < 0) {
+        throw appError("INVALID_TOTAL_PAID", "total_paid must be number >= 0", 400);
+      }
+    }
+
+    const is_paid = finalPaid >= normalGrandTotal;
+
+    // 4) update session totals + paid + paid flag
+    const updatedTotals = await sessionModel.updateSessionTotal(
+      {
+        min_total: normalMinTotal,
+        total: normalGrandTotal,
+        total_paid: finalPaid,
+        is_paid,
+        sessionId: session_id,
+      },
+      client
+    );
+    if (!updatedTotals) throw appError("SESSION_UPDATE_FAILED", "session Update failed", 500);
+
+    // 5) update notes / next_plan (only if provided)
+    // (use your existing model method, or add one simple update query in model)
+    if (notes !== undefined || next_plan !== undefined) {
+      const notess = {notes,next_plan}
+      const updatedPlan = await sessionModel.updateSessionNotesFields(session_id, notess ,client);
+      if (!updatedPlan) throw appError("SESSION_UPDATE_FAILED", "session Update failed", 500);
+    }
+
+    await client.query("COMMIT");
+
+    // return fresh details (optional)
+    const after = await sessionModel.getNormalSession(session_id, client);
+    return after;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
 }
+
 
 async function serviceDeleteSession(sessionID) {
 
   const deletedsession = await sessionModel.deleteSession(sessionID);
-  if (!deletedsession) throw appError('DELETE_SESSION_FAILED', 'session failed to delete',500);
+  if (!deletedsession) throw appError('DELETE_SESSION_FAILED', 'session failed to delete', 500);
 
   return deletedsession;
 }
@@ -173,58 +424,58 @@ async function servicePaySession({ sessionId, normalAmount, planPayments, note, 
 
     // ✅ lock session row (prevents double-pay race)
     const session = await sessionModel.getSessionWithAppointmentForUpdate(sessionId, client);
-    if (!session) throw appError("SESSION_NOT_FOUND", "Session not found",404);
+    if (!session) throw appError("SESSION_NOT_FOUND", "Session not found", 404);
     console.log('load session 3')
 
     if (session.appointment_status !== "completed") {
-      throw appError("APPOINTMENT_NOT_COMPLETED", "Appointment is not completed",400);
+      throw appError("APPOINTMENT_NOT_COMPLETED", "Appointment is not completed", 400);
     }
 
-const total = Number(session.total) || 0;
-const totalPaid = Number(session.total_paid) || 0;
+    const total = Number(session.total) || 0;
+    const totalPaid = Number(session.total_paid) || 0;
 
-const payNormal =
-  normalAmount !== null &&
-  normalAmount !== "" &&
-  Number(normalAmount) > 0;
+    const payNormal =
+      normalAmount !== null &&
+      normalAmount !== "" &&
+      Number(normalAmount) > 0;
 
-const payPlans =
-  Array.isArray(planPayments) && planPayments.length > 0;
+    const payPlans =
+      Array.isArray(planPayments) && planPayments.length > 0;
 
-// what is actually due
-const sessionDue = total > totalPaid;
-const planDue = await sessionModel.hasPlanDue(sessionId, client);
+    // what is actually due
+    const sessionDue = total > totalPaid;
+    const planDue = await sessionModel.hasPlanDue(sessionId, client);
 
-// ❗ RULE: allow empty ONLY if nothing is due
-if (!payNormal && !payPlans) {
-  if (sessionDue || planDue) {
-    throw appError(
-      "NO_PAYMENT_PROVIDED",
-      "No payment amount specified",
-      400
-    );
-  }
+    // ❗ RULE: allow empty ONLY if nothing is due
+    if (!payNormal && !payPlans) {
+      if (sessionDue || planDue) {
+        throw appError(
+          "NO_PAYMENT_PROVIDED",
+          "No payment amount specified",
+          400
+        );
+      }
 
-  // ✅ nothing due → valid request → just exit
-  return { ok: true, message: "Nothing due for this session" };
-}
+      // ✅ nothing due → valid request → just exit
+      return { ok: true, message: "Nothing due for this session" };
+    }
 
     // -------------------------
     // 1) NORMAL SESSION PAYMENT
     // -------------------------
     if (payNormal) {
       if (session.is_paid) {
-        throw appError("SESSION_ALREADY_PAID", "This session is already paid",400);
+        throw appError("SESSION_ALREADY_PAID", "This session is already paid", 400);
       }
 
       const numericAmount = Number(normalAmount);
       if (!numericAmount || numericAmount <= 0) {
-        throw appError("INVALID_PAYMENT_AMOUNT", "Invalid amount",400);
+        throw appError("INVALID_PAYMENT_AMOUNT", "Invalid amount", 400);
       }
 
       // RULE: cannot pay below min_total (unchanged)
       if (numericAmount < Number(session.min_total)) {
-        throw appError("AMOUNT_BELOW_MIN", "Amount cannot be less than minimum total",400);
+        throw appError("AMOUNT_BELOW_MIN", "Amount cannot be less than minimum total", 400);
       }
 
 
@@ -258,7 +509,7 @@ if (!payNormal && !payPlans) {
         const amount = Number(detail.amount);
 
         if (!plan_id || !Number.isFinite(plan_id)) {
-          throw appError("INVALID_PLAN_ID", `Invalid treatment plan ID: ${detail.plan_id}`,400);
+          throw appError("INVALID_PLAN_ID", `Invalid treatment plan ID: ${detail.plan_id}`, 400);
         }
 
         if (!allowedPlanIds.has(plan_id)) {
@@ -270,14 +521,14 @@ if (!payNormal && !payPlans) {
         }
 
         if (!Number.isFinite(amount) || amount <= 0) {
-          throw appError("INVALID_PLAN_AMOUNT", `Invalid amount for treatment plan ID ${plan_id}`,400);
+          throw appError("INVALID_PLAN_AMOUNT", `Invalid amount for treatment plan ID ${plan_id}`, 400);
         }
 
         // ✅ lock plan row (prevents race overpay on same plan)
         const plan = await treatmentPlanModel.getTreatmentPlanByIdForUpdate(plan_id, client);
         console.log('get treatment plan for update')
         if (!plan) {
-          throw appError("PLAN_NOT_FOUND", `Treatment plan ID ${plan_id} not found`,404);
+          throw appError("PLAN_NOT_FOUND", `Treatment plan ID ${plan_id} not found`, 404);
         }
 
         // if (plan.status !== "active") {
@@ -298,7 +549,7 @@ if (!payNormal && !payPlans) {
         if (amount > remainingAmount) {
           throw appError(
             "AMOUNT_EXCEEDS_REMAINING",
-            `Amount for treatment plan ID ${plan_id} exceeds remaining balance of ${remainingAmount}`,400
+            `Amount for treatment plan ID ${plan_id} exceeds remaining balance of ${remainingAmount}`, 400
           );
         }
 
@@ -320,7 +571,7 @@ if (!payNormal && !payPlans) {
         if (amount < minInstallment && remainingAmount > minInstallment) {
           throw appError(
             "AMOUNT_BELOW_MIN_INSTALLMENT",
-            `Amount for treatment plan ID ${plan_id} cannot be less than minimum installment amount of ${minInstallment}`,400
+            `Amount for treatment plan ID ${plan_id} cannot be less than minimum installment amount of ${minInstallment}`, 400
           );
         }
 
@@ -385,6 +636,6 @@ if (!payNormal && !payPlans) {
 
 
 export default {
-  serviceCreateSession, serviceGetAllSessions, serviceGetSession, serviceUpdateSession, serviceDeleteSession, serviceGetAllUnPaidSessions,
+  serviceCreateSession, serviceGetAllSessions, serviceGetNormalSession, serviceGetSession, serviceEditNormalSession, serviceDeleteSession, serviceGetAllUnPaidSessions,
   servicePaySession
 }

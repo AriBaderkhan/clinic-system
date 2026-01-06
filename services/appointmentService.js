@@ -222,15 +222,17 @@ async function serviceSetComplete({ appointmentId, doctorId, next_plan, notes, w
             const code = catalog.code.toLowerCase()
 
 
+
             // if works include the treatment plans
             // 🔹 ORTHO / IMPLANT / RCT
             let rawTreatmentPlanId = null;
-            if (['ortho', 'implant', 'rct'].includes(code)) {
+            if (['ortho', 'implant', 'rct', 're_rct'].includes(code)) {
                 let plan = await treatmentPlanModel.getActivePlan(
                     appt.patient_id,
                     code,
                     client
                 );
+           
 
                 // first time ever
                 if (!plan) {
@@ -253,6 +255,7 @@ async function serviceSetComplete({ appointmentId, doctorId, next_plan, notes, w
                     }, client
                     );
                 }
+                // console.log(code)
                 rawTreatmentPlanId = plan.id;
                 console.log(rawTreatmentPlanId)
                 if (rawTreatmentPlanId && planCompletion?.[code] === true) {
