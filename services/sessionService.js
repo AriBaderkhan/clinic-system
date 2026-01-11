@@ -474,9 +474,9 @@ async function servicePaySession({ sessionId, normalAmount, planPayments, note, 
       }
 
       // RULE: cannot pay below min_total (unchanged)
-      if (numericAmount < Number(session.min_total)) {
-        throw appError("AMOUNT_BELOW_MIN", "Amount cannot be less than minimum total", 400);
-      }
+      // if (numericAmount < Number(session.min_total)) {
+      //   throw appError("AMOUNT_BELOW_MIN", "Amount cannot be less than minimum total", 400);
+      // }
 
 
       await sessionPaymentModel.createSessionPayment(

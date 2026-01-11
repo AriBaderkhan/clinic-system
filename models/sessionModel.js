@@ -207,7 +207,7 @@ async function getAllUnPaidSessions() {
     WHERE a.status = 'completed'
       AND (
         -- (A) normal session unpaid
-        s.total > COALESCE(s.total_paid, 0)
+        COALESCE(s.total_paid, 0) = 0
 
         OR
 

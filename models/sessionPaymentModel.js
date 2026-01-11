@@ -13,27 +13,51 @@ async function createSessionPayment({ sessionId, amount, note, createdBy }, clie
 }
 
 
+// async function recalcSessionTotals(sessionId, client = pool) {
+//   const sumQuery = `
+//     SELECT COALESCE(SUM(amount), 0) AS total_paid
+//     FROM session_payments
+//     WHERE session_id = $1
+//   `;
+//   const { rows: sumRows } = await client.query(sumQuery, [sessionId]);
+//   const totalPaid = Number(sumRows[0].total_paid);
+
+//   const updateQuery = `
+//     UPDATE sessions
+//     SET
+//       total_paid = $2,
+//       is_paid = ($2 > 0),
+//       updated_at = NOW()
+//     WHERE id = $1
+//     RETURNING *
+//   `;
+//   const { rows } = await client.query(updateQuery, [sessionId, totalPaid]);
+//   return rows[0];
+// }
+
 async function recalcSessionTotals(sessionId, client = pool) {
   const sumQuery = `
-    SELECT COALESCE(SUM(amount), 0) AS total_paid
+    SELECT COALESCE(SUM(amount), 0)::bigint AS total_paid
     FROM session_payments
     WHERE session_id = $1
   `;
   const { rows: sumRows } = await client.query(sumQuery, [sessionId]);
-  const totalPaid = Number(sumRows[0].total_paid);
+  const totalPaid = Number(sumRows[0]?.total_paid || 0);
 
   const updateQuery = `
     UPDATE sessions
     SET
-      total_paid = $2,
-      is_paid = (total <= $2),
+      total_paid = $2::bigint,
+      is_paid = ($2::bigint > 0),
       updated_at = NOW()
     WHERE id = $1
-    RETURNING *
+    RETURNING *;
   `;
+
   const { rows } = await client.query(updateQuery, [sessionId, totalPaid]);
-  return rows[0];
+  return rows[0] || null;
 }
+
 
 
 export default { createSessionPayment, recalcSessionTotals }
