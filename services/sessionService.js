@@ -568,12 +568,12 @@ async function servicePaySession({ sessionId, normalAmount, planPayments, note, 
         }
 
         const minInstallment = Number(catalog.min_installment_amount) || 0;
-        if (amount < minInstallment && remainingAmount > minInstallment) {
-          throw appError(
-            "AMOUNT_BELOW_MIN_INSTALLMENT",
-            `Amount for treatment plan ID ${plan_id} cannot be less than minimum installment amount of ${minInstallment}`, 400
-          );
-        }
+        // if (amount < minInstallment && remainingAmount > minInstallment) {
+        //   throw appError(
+        //     "AMOUNT_BELOW_MIN_INSTALLMENT",
+        //     `Amount for treatment plan ID ${plan_id} cannot be less than minimum installment amount of ${minInstallment}`, 400
+        //   );
+        // }
 
         await treatmentPlanPaymentModel.createTreatmentPlanPayment(
           {

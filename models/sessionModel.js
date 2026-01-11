@@ -206,13 +206,15 @@ async function getAllUnPaidSessions() {
     JOIN profiles pr ON d.id = pr.user_id
     WHERE a.status = 'completed'
       AND (
+      (
         -- (A) normal session unpaid
-        COALESCE(s.total_paid, 0) = 0
-
-        OR
+        COALESCE(s.total, 0) > 0
+        AND COALESCE(s.total_paid, 0) = 0
+      )
+      OR
 
         -- (B) plan installment for THIS session missing
-        EXISTS (
+      EXISTS (
           SELECT 1
           FROM session_works sw
           JOIN treatment_plans tp ON tp.id = sw.treatment_plan_id
@@ -232,7 +234,7 @@ async function getAllUnPaidSessions() {
               FROM treatment_payments tpp
               WHERE tpp.session_id = s.id
                 AND tpp.treatment_plan_id = tp.id
-            ), 0) < 50000
+            ), 0) = 0
         )
       )
     ORDER BY a.started_at DESC
