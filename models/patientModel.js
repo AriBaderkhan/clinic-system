@@ -8,10 +8,30 @@ async function createPatient(name, phone, age, gender, address, created_by) {
     return rows[0] || null;
 }
 
-async function getAllPatients() {
-    const query = `SELECT id,name,phone,age,gender,address,created_by,updated_by FROM patients`;
-    const { rows } = await pool.query(query);
-    return rows;
+// async function getAllPatients(q) {
+//     const query = `SELECT id,name,phone,age,gender,address,created_by,updated_by FROM patients`;
+//     const { rows } = await pool.query(query);
+//     return rows;
+// }
+
+async function getAllPatients(q) {
+  let query = `
+    SELECT id, name, phone, age, gender, address, created_by, updated_by
+    FROM patients
+  `;
+
+  const values = [];
+
+  if (q) {
+    query += `
+      WHERE name ILIKE $1
+         OR phone ILIKE $1
+    `;
+    values.push(`%${q}%`);
+  }
+
+  const { rows } = await pool.query(query, values);
+  return rows;
 }
 
 async function getPatient(patientId) {

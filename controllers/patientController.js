@@ -14,8 +14,8 @@ const controllerCreatePatient = asyncWrap(async (req, res) => {
 })
 
 const controllerGetAllPatients = asyncWrap(async (req, res) => {
-
-    const result = await patientService.serviceGetAllPatients();
+    const { q} = req.query;
+    const result = await patientService.serviceGetAllPatients(q);
     return res.status(200).json({ message: 'All Patients are here\n', patients: result })
 })
 

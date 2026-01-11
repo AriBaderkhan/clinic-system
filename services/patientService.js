@@ -11,10 +11,10 @@ async function serviceCreatePatient(patientData) {
     return patient;
 }
 
-async function serviceGetAllPatients() {
-    const patients = await patientModel.getAllPatients();
+async function serviceGetAllPatients(q) {
+    const patients = await patientModel.getAllPatients(q);
 
-    if (!patients || patients.length === 0) throw appError('FETCH_PATIENTS_FAILIED', 'No patients found',404);
+    if (!patients || patients.length === 0) return [];
     return patients;
 }
 
