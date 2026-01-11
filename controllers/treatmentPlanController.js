@@ -21,7 +21,67 @@ const controllerGetSessionsForTp = asyncWrap(async (req, res) => {
         message: `All sessions for Treatment Plan with id ${tpId} is here\n`,
         data: result
     })
-
-
 })
-export default { controllerGetActivePlan, controllerGetSessionsForTp }
+
+const controllerGetAllTreatmentPlansForSection = asyncWrap(async (req, res) => {
+    const { isPaid, isCompleted, q } = req.query;
+
+    const parseBool = (v) => {
+        if (v === undefined || v === null || v === "") return undefined;
+        if (v === "true") return true;
+        if (v === "false") return false;
+        return undefined; // or throw error if you want strict
+    };
+
+    const result = await treatmentPlanService.serviceGetAllTreatmentPlansForSection({
+        isPaid: parseBool(isPaid),
+        isCompleted: parseBool(isCompleted),
+        search: q,
+    });
+
+    return res.status(200).json({
+        message: "Treatment Plans retrieved successfully",
+        data: result
+    });
+})
+
+const controllerEditTp = asyncWrap(async (req, res) => {
+    const {type , agreed_total} = req.body;
+    const tpId = Number(req.params.treatmentPlanId)
+
+    const result = await treatmentPlanService.serviceEditTp(type, agreed_total, tpId);
+
+    return res.status(200).json({
+        message: `Edited the Treatment Plan with id ${tpId} successfully`,
+        data: result
+    })
+})
+
+
+const controllereDeleteTp = asyncWrap(async (req, res) => {
+    const tpId = Number(req.params.treatmentPlanId)
+
+    const result = await treatmentPlanService.serviceDeleteTp(tpId)
+    return res.status(204).send()
+})
+
+const controllerUpdatePaidForTpSession = asyncWrap(async (req, res) => {
+  const tpId = Number(req.params.treatmentPlanId);
+  const sessionId = Number(req.params.sessionId);
+  const { amount } = req.body;
+
+  const result = await treatmentPlanService.serviceUpdatePaidForTpSession(
+    tpId,
+    sessionId,
+    amount
+  );
+
+  return res.status(200).json({
+    message: "Paid amount updated",
+    data: result,
+  });
+});
+
+export default { controllerGetActivePlan, controllerGetSessionsForTp, controllerGetAllTreatmentPlansForSection,
+    controllerEditTp,  controllereDeleteTp, controllerUpdatePaidForTpSession
+ }

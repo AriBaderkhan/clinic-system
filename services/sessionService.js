@@ -276,8 +276,8 @@ async function serviceEditNormalSession(session_id, fields) {
     // 5) update notes / next_plan (only if provided)
     // (use your existing model method, or add one simple update query in model)
     if (notes !== undefined || next_plan !== undefined) {
-      const notess = {notes,next_plan}
-      const updatedPlan = await sessionModel.updateSessionNotesFields(session_id, notess ,client);
+      const notess = { notes, next_plan }
+      const updatedPlan = await sessionModel.updateSessionNotesFields(session_id, notess, client);
       if (!updatedPlan) throw appError("SESSION_UPDATE_FAILED", "session Update failed", 500);
     }
 
