@@ -258,7 +258,7 @@ async function serviceEditNormalSession(session_id, fields) {
       }
     }
 
-    const is_paid = finalPaid >= normalGrandTotal;
+    const is_paid = finalPaid >= 0;
 
     // 4) update session totals + paid + paid flag
     const updatedTotals = await sessionModel.updateSessionTotal(
