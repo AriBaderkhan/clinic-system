@@ -62,7 +62,7 @@ async function serviceGetAppointment(appointmentId) {
 }
 
 async function serviceUpdateAppointment(appointmentDataForUpdate) {
-    const { appointmentId, doctor_id, scheduled_start, updatedBy } =
+    const { appointmentId, patient_id,doctor_id, scheduled_start, updatedBy } =
         appointmentDataForUpdate;
 
     // 1) Load current appointment
@@ -72,16 +72,17 @@ async function serviceUpdateAppointment(appointmentDataForUpdate) {
     }
 
     // 2) Only allow editing scheduled / checked_in
-    if (!['scheduled', 'checked_in'].includes(appt.status)) {
-        throw appError(
-            'INVALID_APPOINTMENT_STATUS',
-            'Only scheduled or checked_in appointments can be updated',
-            400
-        );
-    }
+    // if (!['scheduled', 'checked_in'].includes(appt.status)) {
+    //     throw appError(
+    //         'INVALID_APPOINTMENT_STATUS',
+    //         'Only scheduled or checked_in appointments can be updated',
+    //         400
+    //     );
+    // }
 
     // 3) Build fields object based on provided values
     const fields = {
+        ...(patient_id ? { patient_id } : {}),
         ...(doctor_id ? { doctor_id } : {}),
         ...(scheduled_start ? { scheduled_start } : {}),
     };

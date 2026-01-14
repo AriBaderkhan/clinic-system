@@ -21,10 +21,9 @@ function validateCreateAppointment(req, res, next) {
 
 // Update
 const schemaAppointmentUpdate = schemaAppointmentAdd
-    .fork(['doctor_id', 'scheduled_start'], (field) => field.optional())
+    .fork(['patient_id', 'doctor_id', 'scheduled_start'], (field) => field.optional())
     .keys({
         appointment_type: Joi.forbidden(),
-        patient_id: Joi.forbidden()
     })
     .min(1)
 

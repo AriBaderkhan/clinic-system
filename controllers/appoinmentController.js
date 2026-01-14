@@ -26,11 +26,11 @@ const controllerGetAppointment = asyncWrap(async (req, res) => {
 })
 
 const controllerUpdateAppointment = asyncWrap(async (req, res) => {
-    const { doctor_id, scheduled_start } = req.body;
+    const { patient_id,doctor_id, scheduled_start } = req.body;
     const appointmentId = Number(req.params.appointmentId);
     const updatedBy = req.user.id;
 
-    const appointmentDataForUpdate = { appointmentId, doctor_id, scheduled_start, updatedBy }
+    const appointmentDataForUpdate = { appointmentId, patient_id,doctor_id, scheduled_start, updatedBy }
 
     const result = await appointmentService.serviceUpdateAppointment(appointmentDataForUpdate)
     res.status(200).json({ message: `Appointment with id ${appointmentId} updated successfully`, appointment: result });
