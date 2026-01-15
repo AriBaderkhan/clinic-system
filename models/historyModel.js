@@ -44,6 +44,8 @@ async function getSessionDetails(session_id) {
       s.notes,
       s.created_at,
 
+      sp.note AS payment_note,
+
       a.started_at  AS appointment_start_time,
       a.finished_at AS appointment_end_time,
       a.status      AS appointment_status,
@@ -57,6 +59,7 @@ async function getSessionDetails(session_id) {
       pr2.full_name AS processed_by
     FROM sessions s
     JOIN appointments a ON a.id = s.appointment_id
+    JOIN session_payments sp ON sp.session_id = s.id
     JOIN patients p     ON p.id = a.patient_id
     JOIN doctors d      ON d.id = a.doctor_id
     JOIN profiles pr    ON pr.user_id = d.id
