@@ -13,8 +13,12 @@ const controllerCreateSession = asyncWrap(async (req, res) => {
 })
 
 const controllerGetAllSessions = asyncWrap(async (req, res) => {
+    const { day, q } = req.query;
 
-    const result = await sessionService.serviceGetAllSessions()
+    const result = await sessionService.serviceGetAllSessions({
+        day,
+        search: q,
+    })
     return res.status(200).json({ message: 'All Sessions are here', sessions: result });
 })
 

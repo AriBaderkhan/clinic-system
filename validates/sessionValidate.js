@@ -48,4 +48,24 @@ function validateEditSession(req, res, next) {
     next();
 }
 
-export default { validateCreateSession, validateUpdateSession, validateEditSession}
+
+const listSessionsFiltersSchema = Joi.object({
+    day: Joi.string()
+        .valid("today", "yesterday", "last_week", "last_month")
+        .optional(),
+
+    search: Joi.string()
+        .trim()
+        .min(1)
+        .max(100)
+        .optional(),
+
+}).unknown(false).optional()
+
+function validateListASessionFilters(req, res, next) {
+    const { error } = listSessionsFiltersSchema.validate(req.body);
+    if (error) return res.status(400).json({ message: error.details[0].message })
+    next();
+}
+
+export default { validateCreateSession, validateUpdateSession, validateEditSession,validateListASessionFilters}

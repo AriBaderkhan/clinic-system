@@ -7,6 +7,7 @@ import appoinmentModel from '../models/appoinmentModel.js';
 import treatmentPlanModel from '../models/treatmentPlanModel.js';
 import workCatalogModel from '../models/workCatalogModel.js';
 import treatmentPlanPaymentModel from '../models/treatmentPlanPaymentModel.js';
+import dateRange from '../utils/dateRange.js';
 
 function buildWorksSummary(worksRows) {
   if (!worksRows || worksRows.length === 0) {
@@ -58,8 +59,16 @@ async function serviceCreateSession(sessionData) {
   return createdSession;
 }
 
-async function serviceGetAllSessions() {
-  const base = await sessionModel.getAllNormalSessions();
+async function serviceGetAllSessions({ day,  search }) {
+
+  const range = day ? dateRange.getDateRange(day) : null;
+  
+  // here is the problem for all session it will include only normal sessions below
+  const base = await sessionModel.getAllNormalSessions({  
+        from: range ? range.from : null,
+        to: range ? range.to : null,
+        search: search,
+    });
   if (base.length === 0) return []
   //   const sessionIds = base.map(s => s.session_id);
 

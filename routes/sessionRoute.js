@@ -13,7 +13,7 @@ import sessionController from '../controllers/sessionController.js';
 router.use(authMiddleware);
 router.post('/appointment/:appointmentId', roleCheck('doctor'), sessionValidate.validateCreateSession, sessionController.controllerCreateSession); 
 // /api/sessions/
-router.get('/', roleCheck('doctor','reception','assistant'), sessionController.controllerGetAllSessions);
+router.get('/', roleCheck('doctor','reception','assistant'), sessionValidate.validateListASessionFilters, sessionController.controllerGetAllSessions);
 router.get('/:sessionId/normal', roleCheck('doctor','reception','assistant'),validateIdParam('sessionId'), sessionController.controllerGetNormalSession);
 router.put('/:sessionId/normal', roleCheck('doctor','reception','assistant'),validateIdParam('sessionId'),sessionValidate.validateEditSession, sessionController.controllerEditNormalSession);
 

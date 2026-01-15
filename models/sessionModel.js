@@ -11,8 +11,8 @@ async function createSession(appointment_id, next_plan, notes, created_by, clien
 
 
 // add these 
-async function getAllNormalSessions() {
-  const query = `
+async function getAllNormalSessions({ from, to, search }) {
+  const baseQuery = `
   SELECT 
       s.id AS session_id,
       s.appointment_id,
@@ -32,17 +32,52 @@ async function getAllNormalSessions() {
   JOIN appointments a ON a.id = s.appointment_id
   JOIN patients p     ON p.id = a.patient_id
   JOIN doctors d      ON d.id = a.doctor_id
-  JOIN profiles pr    ON pr.user_id = d.id
-  WHERE EXISTS (
+  JOIN profiles pr    ON pr.user_id = d.id `;
+
+  const where = [];
+  const values = [];
+  let idx = 1;
+
+     if (from) {
+    where.push(`s.created_at >= $${idx}`);
+    values.push(from);
+    idx++;
+  }
+
+  if (to) {
+    where.push(`s.created_at < $${idx}`);
+    values.push(to);
+    idx++;
+  }
+  
+  if (search) {
+    where.push(
+      `(p.name ILIKE $${idx} OR pr.full_name ILIKE $${idx})`
+    );
+    values.push(`%${search}%`);
+    idx++;
+  }
+
+  where.push(`
+  EXISTS (
     SELECT 1
     FROM session_works sw
     WHERE sw.session_id = s.id
      AND sw.treatment_plan_id IS NULL
-  )
+  )`)
+
+    let query = baseQuery;
+  if (where.length > 0) {
+    query += ` WHERE ` + where.join(" AND ");
+  }
+
+  query += `
   ORDER BY
     CASE WHEN s.is_paid = false THEN 0 ELSE 1 END,  -- unpaid first
-    s.created_at DESC;`;
-  const { rows } = await pool.query(query);
+    s.created_at DESC
+`;
+
+  const { rows } = await pool.query(query, values);
   return rows;
 }
 
