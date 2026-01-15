@@ -109,13 +109,11 @@ async function serviceGetSessionDetails(session_id) {
       },
 
       processed_by: base.processed_by || null,
-      payment_note: base.payment_note
+      payment_note: base.payment_note  // <== added field for session payemtn details
     },
 
-    works_summary: worksSummary, // <-- Filling 3x, Scaling 2x, etc.
-    payments,
-    
-                    // <-- leave empty for now if you want
+    works_summary: worksSummary,     // <-- Filling 3x, Scaling 2x, etc.
+    payments,                        // <-- leave empty for now if you want
   };
 }
 

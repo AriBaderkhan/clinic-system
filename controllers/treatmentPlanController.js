@@ -46,10 +46,10 @@ const controllerGetAllTreatmentPlansForSection = asyncWrap(async (req, res) => {
 })
 
 const controllerEditTp = asyncWrap(async (req, res) => {
-    const {type , agreed_total} = req.body;
+    const {type , agreed_total, is_completed} = req.body;
     const tpId = Number(req.params.treatmentPlanId)
 
-    const result = await treatmentPlanService.serviceEditTp(type, agreed_total, tpId);
+    const result = await treatmentPlanService.serviceEditTp(type, agreed_total,is_completed, tpId);
 
     return res.status(200).json({
         message: `Edited the Treatment Plan with id ${tpId} successfully`,

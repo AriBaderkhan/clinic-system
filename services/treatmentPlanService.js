@@ -17,14 +17,22 @@ async function serviceGetAllTreatmentPlansForSection({ isPaid, isCompleted, sear
     return tps;
 }
 
-async function serviceEditTp(type, agreed_total, tpId) {
-    if (type === undefined && agreed_total === undefined) {
+async function serviceEditTp(type, agreed_total,is_completed, tpId) {
+    if (type === undefined && agreed_total === undefined && is_completed === undefined) {
         throw appError('NOTHING_TO_UPDATE', "Nothing to update", 400);
     }
 
+    let status;
+    if(is_completed === true){
+       status = "completed";
+    } else{
+     status = "active";
+    }
     const fields = {};
     if (type !== undefined) fields.type = type;
     if (agreed_total !== undefined) fields.agreed_total = agreed_total;
+    if (is_completed !== undefined) fields.is_completed = is_completed;
+    if (status !== undefined) fields.status = status;
 
     const result = await treatmentPlanModel.editTp(tpId, fields);
     return result;

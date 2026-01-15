@@ -153,7 +153,7 @@ async function editTp(tpId, fields) {
   if (keys.length === 0) throw new Error("No fields provided");
 
   // optional: allow only specific fields (protect from random keys)
-  const allowed = new Set(["type", "agreed_total"]);
+  const allowed = new Set(["type", "agreed_total","is_completed","status"]);
   for (const k of keys) {
     if (!allowed.has(k)) throw new Error(`Field not allowed: ${k}`);
   }

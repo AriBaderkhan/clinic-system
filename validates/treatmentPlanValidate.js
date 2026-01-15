@@ -3,6 +3,7 @@ import Joi from 'joi';
 const editTpSchema = Joi.object({
     type: Joi.string().valid("ortho", "implant", "rct", "re_rct").optional(),
     agreed_total: Joi.number().min(0).optional(),
+    is_completed: Joi.boolean().optional(),
 
 }).min(1);
 
