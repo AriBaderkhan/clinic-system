@@ -377,8 +377,7 @@ async function serviceGetAllUnPaidSessions() {
   return baseSessions.map(s => {
     const ws = worksBySession[s.session_id] || { items_count: 0, works: [] };
 
-    // console.log("selectedForPayment", s);
-    console.log("treatment_planssssssssssssssssssssssss", s?.treatment_plans);
+
 
     return {
       session_id: s.session_id,
@@ -425,16 +424,14 @@ async function serviceGetAllUnPaidSessions() {
 // SERVICE: Pay session
 async function servicePaySession({ sessionId, normalAmount, planPayments, note, userId }) {
   const client = await pool.connect();
-  console.log('connect 1 ')
+
 
   try {
     await client.query("BEGIN");
-    console.log('begin 2 ')
 
     // ✅ lock session row (prevents double-pay race)
     const session = await sessionModel.getSessionWithAppointmentForUpdate(sessionId, client);
     if (!session) throw appError("SESSION_NOT_FOUND", "Session not found", 404);
-    console.log('load session 3')
 
     if (session.appointment_status !== "completed") {
       throw appError("APPOINTMENT_NOT_COMPLETED", "Appointment is not completed", 400);
@@ -497,10 +494,8 @@ async function servicePaySession({ sessionId, normalAmount, planPayments, note, 
         },
         client
       );
-      console.log('create session payment 4 ') // it stops here 
 
       await sessionPaymentModel.recalcSessionTotals(sessionId, client);
-      console.log('5 recale')
     }
 
     // -------------------------
@@ -512,7 +507,6 @@ async function servicePaySession({ sessionId, normalAmount, planPayments, note, 
       const plansInSession = await sessionModel.getTreatmentPlansForSession(sessionId, client);
       const allowedPlanIds = new Set(plansInSession.map((tp) => Number(tp.id)));
 
-      console.log('get treatmentplan for this session 6')
       for (const detail of planPayments) {
         const plan_id = Number(detail.plan_id);
         const amount = Number(detail.amount);
@@ -535,7 +529,6 @@ async function servicePaySession({ sessionId, normalAmount, planPayments, note, 
 
         // ✅ lock plan row (prevents race overpay on same plan)
         const plan = await treatmentPlanModel.getTreatmentPlanByIdForUpdate(plan_id, client);
-        console.log('get treatment plan for update')
         if (!plan) {
           throw appError("PLAN_NOT_FOUND", `Treatment plan ID ${plan_id} not found`, 404);
         }
@@ -565,9 +558,7 @@ async function servicePaySession({ sessionId, normalAmount, planPayments, note, 
 
         // RULE: min installment from work_catalog (unchanged)
         const code = String(plan.type || "").toUpperCase(); // ORTHO/IMPLANT/RCT
-        console.log(code)
         const catalog = await workCatalogModel.getWorkByType(code, client);
-        console.log('get work 7')
         if (!catalog) {
           throw appError(
             "WORK_CATALOG_NOT_FOUND",
@@ -595,9 +586,7 @@ async function servicePaySession({ sessionId, normalAmount, planPayments, note, 
           client
         );
 
-        console.log('create treamtent pyemnt 8')
         const updatedPlan = await treatmentPlanPaymentModel.recalcTreatmentPlanTotals(plan_id, client);
-        console.log('clg 9 recalegh')
         updatedPlans.push(updatedPlan);
       }
     }
@@ -605,9 +594,7 @@ async function servicePaySession({ sessionId, normalAmount, planPayments, note, 
     // refresh session after recalcs
     const sessionAfter = await sessionModel.getSessionPaymentContext(sessionId, client);
 
-    console.log('refresh 10 ')
     await client.query("COMMIT");
-    console.log('commit')
 
     return {
       session: {
@@ -630,16 +617,13 @@ async function servicePaySession({ sessionId, normalAmount, planPayments, note, 
       })),
 
     };
-    console.log('retuurn')
 
 
   } catch (error) {
     await client.query("ROLLBACK");
-    console.log(error, "roolback")
     throw error;
   } finally {
     client.release();
-    console.log('release done ')
   }
 }
 

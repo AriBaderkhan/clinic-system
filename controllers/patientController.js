@@ -7,9 +7,9 @@ const controllerCreatePatient = asyncWrap(async (req, res) => {
 
     const patientData = { name, phone, age, gender, address, created_by }
 
-    console.log('done reched')
+
     const result = await patientService.serviceCreatePatient(patientData);
-    console.log('done service')
+
     return res.status(201).json({ message: `Patient Added succesfully`, data: result });
 })
 

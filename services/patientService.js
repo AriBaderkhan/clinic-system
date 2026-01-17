@@ -7,7 +7,6 @@ async function serviceCreatePatient(patientData) {
     const patient = await patientModel.createPatient(name, phone, age, gender, address, created_by);
     
     if (!patient) throw appError('INSERT_FAILED', 'Failed to create patient',500);
-    console.log('done service in service')
     return patient;
 }
 

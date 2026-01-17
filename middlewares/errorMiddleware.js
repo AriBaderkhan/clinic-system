@@ -57,13 +57,6 @@ function errorMiddleware(err, req, res, next) {
     }
 
 
-    // console.log('Unexpected Error', {
-    //     path: req.originalUrl,
-    //     method: req.method,
-    //     err,
-    //     request_id: requestId
-    // })
-
     return res.status(500).json({
         message: "Internal Server Error",
         code: "INTERNAL_ERROR",

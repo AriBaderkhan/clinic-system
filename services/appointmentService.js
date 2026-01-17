@@ -256,9 +256,7 @@ async function serviceSetComplete({ appointmentId, doctorId, next_plan, notes, w
                     }, client
                     );
                 }
-                // console.log(code)
                 rawTreatmentPlanId = plan.id;
-                console.log(rawTreatmentPlanId)
                 if (rawTreatmentPlanId && planCompletion?.[code] === true) {
                     await treatmentPlanModel.markCompleted(rawTreatmentPlanId, client);
                 }
@@ -318,11 +316,10 @@ async function serviceSetComplete({ appointmentId, doctorId, next_plan, notes, w
         }
     } catch (error) {
         await client.query("ROLLBACK");
-        console.log(error, "roolback")
         throw error;
     } finally {
         client.release();
-        console.log('release done ')
+
     }
 }
 

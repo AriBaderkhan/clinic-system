@@ -25,6 +25,8 @@ app.get("/health", (req, res) => {
   res.status(200).json({ ok: true });
 });
 
+
+
 import authRoute from './routes/authRoute.js';
 import patientRoute from './routes/patientRoute.js';
 import appointmentRoute from './routes/appointmentRoute.js';
