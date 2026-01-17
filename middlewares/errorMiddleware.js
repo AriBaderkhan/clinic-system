@@ -1,8 +1,19 @@
 function errorMiddleware(err, req, res, next) {
-    if (err & err.status) {
-        return res.status(req.status).sjon({
+    const requestId = req.requestId || 'N/A';
+
+    // 🔴 CENTRAL LOG — runs for EVERY error
+    console.error(err?.message || 'Unexpected Error', {
+        request_id: requestId,
+        path: req.originalUrl,
+        method: req.method,
+        error: err,
+    });
+
+    if (err && err.status) {
+        return res.status(err.status).json({
             message: err.message || "Error",
-            code: err.code || "Error"
+            code: err.code || "Error",
+            support_code: requestId
         })
     }
 
@@ -13,6 +24,7 @@ function errorMiddleware(err, req, res, next) {
             return res.status(400).json({
                 message: "Invalid reference id.",
                 code: "FK_VIOLATION",
+                support_code: requestId
             });
         }
 
@@ -21,6 +33,7 @@ function errorMiddleware(err, req, res, next) {
             return res.status(400).json({
                 message: "Invalid data (check constraint).",
                 code: "CHECK_VIOLATION",
+                support_code: requestId
             });
         }
 
@@ -29,6 +42,7 @@ function errorMiddleware(err, req, res, next) {
             return res.status(409).json({
                 message: "Duplicate value.",
                 code: "UNIQUE_VIOLATION",
+                support_code: requestId
             });
         }
 
@@ -37,20 +51,23 @@ function errorMiddleware(err, req, res, next) {
             return res.status(400).json({
                 message: "Invalid input format.",
                 code: "INVALID_FORMAT",
+                support_code: requestId
             });
         }
     }
 
 
-    console.log('Unexpected Error', {
-        path: req.originalUrl,
-        method: req.method,
-        err,
-    })
+    // console.log('Unexpected Error', {
+    //     path: req.originalUrl,
+    //     method: req.method,
+    //     err,
+    //     request_id: requestId
+    // })
 
     return res.status(500).json({
         message: "Internal Server Error",
         code: "INTERNAL_ERROR",
+        support_code: requestId
     });
 }
 

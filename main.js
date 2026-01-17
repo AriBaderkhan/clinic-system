@@ -6,6 +6,8 @@ dotenv.config();
 import express from 'express';
 const app = express();
 
+import requestIdMiddleware from './middlewares/requestIdMiddleware.js';
+app.use(requestIdMiddleware);
 
 
 // PROBLEM : broweser block the request from your frontend to backend
@@ -51,7 +53,7 @@ app.use("/api/reports", reportsRoute);
 
 
 app.use((req, res) => {
-    res.status(404).json({ message: "Route not found", code: "ROUTE_NOT_FOUND" });
+    res.status(404).json({ message: "Route not found", code: "ROUTE_NOT_FOUND", support_code: req.requestId || 'N/A' });
 });
 
 app.use(errorMiddleware)
