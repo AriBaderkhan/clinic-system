@@ -2,12 +2,16 @@ function errorMiddleware(err, req, res, next) {
     const requestId = req.requestId || 'N/A';
 
     // 🔴 CENTRAL LOG — runs for EVERY error
-    console.error(err?.message || 'Unexpected Error', {
+    console.error(JSON.stringify({
+        level: "error",
         request_id: requestId,
+        message: err?.message || "Unexpected Error",
         path: req.originalUrl,
         method: req.method,
-        error: err,
-    });
+        code: err?.code,
+        status: err?.status,
+        stack: err?.stack,
+    }));
 
     if (err && err.status) {
         return res.status(err.status).json({
