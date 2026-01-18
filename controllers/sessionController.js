@@ -38,8 +38,9 @@ const controllerGetSession = asyncWrap(async (req, res) => {
 const controllerEditNormalSession = asyncWrap(async (req, res) => {
     const session_id = Number(req.params.sessionId);
     const fields = req.body;
+    const userId = req.user.id;
 
-    const result = await sessionService.serviceEditNormalSession(session_id, fields);
+    const result = await sessionService.serviceEditNormalSession(session_id, fields, userId);
     return res.status(200).json({ message: `Session with id ${session_id} updated successfully`, data: result });
 })
 

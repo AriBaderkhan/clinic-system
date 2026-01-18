@@ -193,7 +193,7 @@ async function serviceGetSession(session_id) {
   return session;
 }
 
-async function serviceEditNormalSession(session_id, fields) {
+async function serviceEditNormalSession(session_id, fields, userId) {
   const client = await pool.connect();
 
   const { notes, next_plan, works, total_paid } = fields;
@@ -258,6 +258,7 @@ async function serviceEditNormalSession(session_id, fields) {
       }
     }
 
+     let sessionsAfterRecalc = null;
     // 3) decide paid
     let finalPaid = currentPaid;
     if (total_paid !== undefined && total_paid !== null && total_paid !== "") {
@@ -267,15 +268,55 @@ async function serviceEditNormalSession(session_id, fields) {
       }
     }
 
-    const is_paid = finalPaid >= 0;
+    // const is_paid = finalPaid >= 0;
 
-    // 4) update session totals + paid + paid flag
+    // // 4) update session totals + paid + paid flag
+    // const updatedTotals = await sessionModel.updateSessionTotal(
+    //   {
+    //     min_total: normalMinTotal,
+    //     total: normalGrandTotal,
+    //     total_paid: finalPaid,
+    //     is_paid,
+    //     sessionId: session_id,
+    //   },
+    //   client
+    // );
+    // if (!updatedTotals) throw appError("SESSION_UPDATE_FAILED", "session Update failed", 500);
+
+    // ✅ update amount in session_payments (via model)
+      const updatedPayment = await sessionPaymentModel.upsertSessionPaymentBySessionId({
+        sessionId: session_id,
+        amount: finalPaid,
+        createdBy: userId,
+
+      },client
+      );
+      if (!updatedPayment) {
+        throw appError("PAYMENT_UPDATE_FAILED", "session payment not found for this session", 404);
+      }
+
+      // ✅ recalc -> updates sessions.total_paid and sessions.is_paid correctly
+      sessionsAfterRecalc = await sessionPaymentModel.recalcSessionTotals(session_id, client);
+      if (!sessionsAfterRecalc) {
+        throw appError("SESSION_RECALC_FAILED", "failed to recalc session totals", 500);
+      }
+    
+
+    // 4) update session totals (min_total/total) + keep paid from recalc if it happened
+    const paidToSave =
+      sessionsAfterRecalc?.total_paid !== undefined
+        ? Number(sessionsAfterRecalc.total_paid || 0)
+        : Number(base.total_paid || 0);
+
+    const isPaidToSave =
+      sessionsAfterRecalc?.is_paid !== undefined ? sessionsAfterRecalc.is_paid : base.is_paid;
+
     const updatedTotals = await sessionModel.updateSessionTotal(
       {
         min_total: normalMinTotal,
         total: normalGrandTotal,
-        total_paid: finalPaid,
-        is_paid,
+        total_paid: paidToSave,
+        is_paid: isPaidToSave,
         sessionId: session_id,
       },
       client

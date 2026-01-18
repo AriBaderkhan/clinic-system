@@ -3,7 +3,7 @@ import pool from '../db_connection.js'
 
 async function getPaymentsHistory() {
 
-    const query = `
+  const query = `
     SELECT 
         sp.session_id,
         sp.amount,
@@ -26,8 +26,8 @@ async function getPaymentsHistory() {
         JOIN profiles pr2 ON pr2.user_id = sp.created_by
         ORDER BY sp.created_at DESC
     `;
-    const { rows } = await pool.query(query);
-    return rows;
+  const { rows } = await pool.query(query);
+  return rows;
 }
 
 
@@ -59,7 +59,7 @@ async function getSessionDetails(session_id) {
       pr2.full_name AS processed_by
     FROM sessions s
     JOIN appointments a ON a.id = s.appointment_id
-    JOIN session_payments sp ON sp.session_id = s.id
+    LEFT JOIN session_payments sp ON sp.session_id = s.id
     JOIN patients p     ON p.id = a.patient_id
     JOIN doctors d      ON d.id = a.doctor_id
     JOIN profiles pr    ON pr.user_id = d.id
