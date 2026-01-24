@@ -28,19 +28,19 @@ async function serviceCreateAppointment(appointmentData) {
         );
     }
 
-    if (appointment_type === 'normal') {
-        const doctorIsFree = await appointmentModel.isDoctorAvailableInOneHourWindow(
-            doctor_id,
-            scheduled_start
-        );
-        if (!doctorIsFree) {
-            throw appError(
-                'APPOINTMENT_OVERLAP',
-                'Doctor already booked in this time slot (minimum 1 hour between appointments)',
-                409
-            );
-        }
-    }
+    // if (appointment_type === 'normal') {
+    //     const doctorIsFree = await appointmentModel.isDoctorAvailableInOneHourWindow(
+    //         doctor_id,
+    //         scheduled_start
+    //     );
+    //     if (!doctorIsFree) {
+    //         throw appError(
+    //             'APPOINTMENT_OVERLAP',
+    //             'Doctor already booked in this time slot (minimum 1 hour between appointments)',
+    //             409
+    //         );
+    //     }
+    // }
 
     const appointment = await appointmentModel.createAppointment(patient_id, doctor_id, scheduled_start, created_by, appointment_type);
     if (!appointment) throw appError('APPOINTMENT_CREATE_FAILED', 'Appointment create failed', 500);
@@ -117,21 +117,21 @@ async function serviceUpdateAppointment(appointmentDataForUpdate) {
         );
     }
 
-    // 7) Rule B: 1-hour spacing ONLY for normal appointments
-    if (appt.appointment_type === 'normal') {
-        const doctorIsFree = await appointmentModel.isDoctorAvailableInOneHourWindowForUpdate(
-            newDoctorId,
-            newScheduledStart,
-            appointmentId
-        );
-        if (!doctorIsFree) {
-            throw appError(
-                'APPOINTMENT_OVERLAP',
-                'Doctor already booked in this time slot (minimum 1 hour between appointments)',
-                409
-            );
-        }
-    }
+    // 7) Rule B: 1-hour spacing ONLY for normal appointments    // REMOVE FOR NOW
+    // if (appt.appointment_type === 'normal') {
+    //     const doctorIsFree = await appointmentModel.isDoctorAvailableInOneHourWindowForUpdate(
+    //         newDoctorId,
+    //         newScheduledStart,
+    //         appointmentId
+    //     );
+    //     if (!doctorIsFree) {
+    //         throw appError(
+    //             'APPOINTMENT_OVERLAP',
+    //             'Doctor already booked in this time slot (minimum 1 hour between appointments)',
+    //             409
+    //         );
+    //     }
+    // }
 
     // 8) Perform the update
     const updated = await appointmentModel.updateAppointment(appointmentId, fields, updatedBy);

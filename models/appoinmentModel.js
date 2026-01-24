@@ -241,39 +241,39 @@ async function findAppointmentsWithFilters({ from, to, type, search }) {
     JOIN doctors   d  ON a.doctor_id = d.id
     JOIN profiles  pr ON d.id = pr.user_id `;
 
-  const where = [];
-  const values = [];
-  let idx = 1;
+    const where = [];
+    const values = [];
+    let idx = 1;
 
-  if (from) {
-    where.push(`a.scheduled_start >= $${idx}`);
-    values.push(from);
-    idx++;
-  }
+    if (from) {
+      where.push(`a.scheduled_start >= $${idx}`);
+      values.push(from);
+      idx++;
+    }
 
-  if (to) {
-    where.push(`a.scheduled_start < $${idx}`);
-    values.push(to);
-    idx++;
-  }
+    if (to) {
+      where.push(`a.scheduled_start < $${idx}`);
+      values.push(to);
+      idx++;
+    }
 
-  if (type) {
-    where.push(`a.appointment_type = $${idx}`);
-    values.push(type);
-    idx++;
-  }
-  if (search) {
-    where.push(
-      `(p.name ILIKE $${idx} OR p.phone ILIKE $${idx} OR pr.full_name ILIKE $${idx})`
-    );
-    values.push(`%${search}%`);
-    idx++;
-  }
+    if (type) {
+      where.push(`a.appointment_type = $${idx}`);
+      values.push(type);
+      idx++;
+    }
+    if (search) {
+      where.push(
+        `(p.name ILIKE $${idx} OR p.phone ILIKE $${idx} OR pr.full_name ILIKE $${idx})`
+      );
+      values.push(`%${search}%`);
+      idx++;
+    }
 
-  let query = baseQuery;
-  if (where.length > 0) {
-    query += ` WHERE ` + where.join(" AND ");
-  }
+    let query = baseQuery;
+    if (where.length > 0) {
+      query += ` WHERE ` + where.join(" AND ");
+    }
 
   query += `
   ORDER BY
