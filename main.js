@@ -1,5 +1,9 @@
 import errorMiddleware from './middlewares/errorMiddleware.js';
 
+import http from 'http';
+import { Server } from 'socket.io';
+import setupSocket from './socket.js';
+
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -14,7 +18,7 @@ app.use(requestIdMiddleware);
 // SOLVE : Cors allows this connection , it provides the permission
 // credentials:true : Allows authentication data (cookies / authorization headers) to be sent
 import cors from 'cors';
-app.use(cors({  
+app.use(cors({
     origin: process.env.CORS_ORIGIN,
     credentials: true
 }));
@@ -22,7 +26,7 @@ app.use(cors({
 app.use(express.json());
 
 app.get("/health", (req, res) => {
-  res.status(200).json({ ok: true });
+    res.status(200).json({ ok: true });
 });
 
 
@@ -61,6 +65,17 @@ app.use((req, res) => {
 app.use(errorMiddleware)
 
 
-app.listen(PORT, () => {
+const server = http.createServer(app);
+
+export const io = new Server(server, {
+    cors: {
+        origin: process.env.CORS_ORIGIN,
+        credentials: true
+    }
+});
+
+setupSocket(io);
+
+server.listen(PORT, () => {
     console.log(`Server Runing on Port ${PORT}`);
 });

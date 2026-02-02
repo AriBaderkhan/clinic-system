@@ -312,6 +312,10 @@ async function serviceSetComplete({ appointmentId, doctorId, next_plan, notes, w
             totals: {
                 min_total: normalMinTotal,
                 total: normalGrandTotal
+            },
+            details: {
+                doctor_name: appt.doctor_name,
+                patient_name: appt.patient_name,
             }
         }
     } catch (error) {

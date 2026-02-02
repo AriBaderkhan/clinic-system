@@ -117,11 +117,10 @@ async function theMostWorkDone(from,to) {
     ORDER BY total_qty DESC
     LIMIT 1;
   `;
-  const values = [from,to]
+  const values = [from,to];
   const { rows } = await pool.query(query, values);
-  const the_most_work_done = rows[0] ;
-  return the_most_work_done
-
+  const the_most_work_done = rows[0];
+  return the_most_work_done;
 }
 
 async function theLeastWorkDone(from,to) {

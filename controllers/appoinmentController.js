@@ -1,6 +1,6 @@
 import appointmentService from '../services/appointmentService.js';
 import asyncWrap from '../utils/asyncWrap.js';
-
+import { io } from '../main.js';
 
 const controllerCreateAppointment = asyncWrap(async (req, res) => {
     const { patient_id, doctor_id, scheduled_start, appointment_type } = req.body;
@@ -67,6 +67,11 @@ const controllerSetComplete = asyncWrap(async (req, res) => {
     const userId = req.user.id;
 
     const result = await appointmentService.serviceSetComplete({ appointmentId, doctorId: userId, next_plan, notes, works, agreementTotals, planCompletion });
+
+    io.to('reception_room').emit('appointment_completed', { 
+        message: ` Dr. ${result.details.doctor_name} has completed appointment for patient ${result.details.patient_name}`
+     });
+
     return res.status(200).json({ message: 'Completed ', data: result });
 })
 
