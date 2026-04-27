@@ -1,9 +1,9 @@
 import pool from '../db_connection.js';
 
 
-async function createSession(appointment_id, next_plan, notes, created_by, client = pool) {
-  const query = `INSERT INTO sessions (appointment_id,next_plan,notes,created_by) VALUES ($1,$2,$3,$4) RETURNING *`;
-  const values = [appointment_id, next_plan, notes, created_by];
+async function createSession(appointment_id, next_plan, notes, created_by, tenant_id, branch_id, client = pool) {
+  const query = `INSERT INTO sessions (appointment_id,next_plan,notes,created_by,tenant_id,branch_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`;
+  const values = [appointment_id, next_plan, notes, created_by, tenant_id, branch_id];
   const { rows } = await client.query(query, values);
   return rows[0] || null;
 }
@@ -11,7 +11,7 @@ async function createSession(appointment_id, next_plan, notes, created_by, clien
 
 
 // add these 
-async function getAllNormalSessions({ from, to, search }) {
+async function getAllNormalSessions({ from, to, search }, tenant_id, branch_id) {
   const baseQuery = `
   SELECT 
       s.id AS session_id,
@@ -29,16 +29,18 @@ async function getAllNormalSessions({ from, to, search }) {
       d.id         AS doctor_id,
       pr.full_name AS doctor_name
   FROM sessions s
-  JOIN appointments a ON a.id = s.appointment_id
-  JOIN patients p     ON p.id = a.patient_id
-  JOIN doctors d      ON d.id = a.doctor_id
-  JOIN profiles pr    ON pr.user_id = d.id `;
+  JOIN appointments a ON a.id = s.appointment_id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
+  JOIN patients p     ON p.id = a.patient_id AND p.tenant_id = a.tenant_id 
+  JOIN doctors d      ON d.id = a.doctor_id AND d.tenant_id = a.tenant_id AND d.branch_id = a.branch_id
+  JOIN profiles pr    ON pr.user_id = d.id 
+  WHERE s.tenant_id = $1
+  AND s.branch_id = $2`;
 
   const where = [];
-  const values = [];
-  let idx = 1;
+  const values = [tenant_id, branch_id];
+  let idx = 3;
 
-     if (from) {
+  if (from) {
     where.push(`s.created_at >= $${idx}`);
     values.push(from);
     idx++;
@@ -49,7 +51,7 @@ async function getAllNormalSessions({ from, to, search }) {
     values.push(to);
     idx++;
   }
-  
+
   if (search) {
     where.push(
       `(p.name ILIKE $${idx} OR pr.full_name ILIKE $${idx})`
@@ -63,12 +65,14 @@ async function getAllNormalSessions({ from, to, search }) {
     SELECT 1
     FROM session_works sw
     WHERE sw.session_id = s.id
-     AND sw.treatment_plan_id IS NULL
+      AND sw.tenant_id = s.tenant_id
+      AND sw.branch_id = s.branch_id
+      AND sw.treatment_plan_id IS NULL
   )`)
 
-    let query = baseQuery;
+  let query = baseQuery;
   if (where.length > 0) {
-    query += ` WHERE ` + where.join(" AND ");
+    query += ` AND ` + where.join(" AND ");
   }
 
   query += `
@@ -81,7 +85,7 @@ async function getAllNormalSessions({ from, to, search }) {
   return rows;
 }
 
-async function getNormalSession(session_id, client = pool) {
+async function getNormalSession(session_id, tenant_id, branch_id, client = pool) {
   const query = `
   SELECT 
       s.id AS session_id,
@@ -106,26 +110,28 @@ async function getNormalSession(session_id, client = pool) {
       pr.full_name AS doctor_name,
       pr2.full_name AS processed_by
     FROM sessions s
-    JOIN appointments a ON a.id = s.appointment_id
-    JOIN patients p     ON p.id = a.patient_id
-    JOIN doctors d      ON d.id = a.doctor_id
+    JOIN appointments a ON a.id = s.appointment_id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
+    JOIN patients p     ON p.id = a.patient_id AND p.tenant_id = a.tenant_id 
+    JOIN doctors d      ON d.id = a.doctor_id AND d.tenant_id = a.tenant_id AND d.branch_id = a.branch_id
     JOIN profiles pr    ON pr.user_id = d.id
     JOIN profiles pr2   ON pr2.user_id = s.created_by
     WHERE s.id = $1
+    AND s.tenant_id = $2
+    AND s.branch_id = $3
   `;
-  const value = [session_id]
+  const value = [session_id, tenant_id, branch_id];
   const { rows } = await client.query(query, value);
   return rows[0] || null;
 }
 
-async function getSession(session_id) {
-  const query = `SELECT * FROM sessions WHERE id=$1`;
-  const value = [session_id];
-  const { rows } = await pool.query(query, value);
+async function getSession(session_id, tenant_id, branch_id, client = pool) {
+  const query = `SELECT * FROM sessions WHERE id=$1 AND tenant_id=$2 AND branch_id=$3`;
+  const value = [session_id, tenant_id, branch_id];
+  const { rows } = await client.query(query, value);
   return rows[0] || null;
 }
 
-async function updateSession(sessionID, fields, updatedBy) {
+async function updateSession(sessionID, fields, updatedBy, tenant_id, branch_id) {
   const allowedFields = ['complaint', 'diagnosis', 'next_plan', 'notes'];
 
   const keys = Object.keys(fields).filter((key) => allowedFields.includes(key));
@@ -140,23 +146,23 @@ async function updateSession(sessionID, fields, updatedBy) {
 
   const setClause = keys.map((key, idx) => `${key} = $${idx + 1}`).join(", ");
 
-  const query = `UPDATE sessions SET ${setClause}, updated_at = NOW() WHERE id = $${keys.length + 1} RETURNING *;`;
-  const allValues = [...values, sessionID];
+  const query = `UPDATE sessions SET ${setClause}, updated_at = NOW() WHERE id = $${keys.length + 1} AND tenant_id=$${keys.length + 2} AND branch_id=$${keys.length + 3} RETURNING *;`;
+  const allValues = [...values, sessionID, tenant_id, branch_id];
   const { rows } = await pool.query(query, allValues)
   return rows[0] || null;
 
 }
 
-async function deleteSession(sessionID) {
-  const query = `DELETE FROM sessions WHERE id=$1 RETURNING *`;
-  const value = [sessionID];
+async function deleteSession(sessionID, tenant_id, branch_id) {
+  const query = `DELETE FROM sessions WHERE id=$1 AND tenant_id=$2 AND branch_id=$3 RETURNING *`;
+  const value = [sessionID, tenant_id, branch_id];
   const { rows } = await pool.query(query, value);
   return rows[0] || null;
 }
 
-async function deleteSessionWorksBySiD(session_id, client = pool) {
-  const query = `DELETE FROM session_works sw WHERE sw.session_id=$1 `;
-  const value = [session_id];
+async function deleteSessionWorksBySiD(session_id, tenant_id, branch_id, client = pool) {
+  const query = `DELETE FROM session_works sw WHERE sw.session_id=$1 AND sw.tenant_id=$2 AND sw.branch_id=$3 RETURNING *`;
+  const value = [session_id, tenant_id, branch_id];
   const { rows } = await client.query(query, value);
   return rows[0] || null;
 }
@@ -171,7 +177,7 @@ async function createSessionWork({
   totalMinPrice,
   totalPrice,
   treatmentPlanId
-}, client = pool) {
+}, tenant_id, branch_id, client = pool) {
   const query = `
     INSERT INTO session_works (
       session_id,
@@ -182,9 +188,11 @@ async function createSessionWork({
       unit_price,
       total_min_price,
       total_price,
-      treatment_plan_id
+      treatment_plan_id,
+      tenant_id,
+      branch_id
     )
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
     RETURNING *;
   `;
 
@@ -197,21 +205,23 @@ async function createSessionWork({
     unitPrice,
     totalMinPrice,
     totalPrice,
-    treatmentPlanId
+    treatmentPlanId,
+    tenant_id,
+    branch_id
   ];
 
   const { rows } = await client.query(query, values);
   return rows[0] || null;
 }
 
-async function updateSessionTotal({ min_total, total, total_paid, is_paid, sessionId }, client = pool) {
-  const query = `UPDATE sessions SET min_total=$1, total=$2, total_paid=$3, is_paid=$4 WHERE id=$5 RETURNING *`;
-  const values = [min_total, total, total_paid, is_paid, sessionId];
+async function updateSessionTotal({ min_total, total, total_paid, is_paid, sessionId }, tenant_id, branch_id, client = pool) {
+  const query = `UPDATE sessions SET min_total=$1, total=$2, total_paid=$3, is_paid=$4 WHERE id=$5 AND tenant_id=$6 AND branch_id=$7 RETURNING *`;
+  const values = [min_total, total, total_paid, is_paid, sessionId, tenant_id, branch_id];
   const { rows } = await client.query(query, values);
   return rows[0] || null;
 }
 
-async function getAllUnPaidSessions() {
+async function getAllUnPaidSessions(tenant_id, branch_id) {
   const query = `
     /* UNPAID_SESSIONS_V2 */
     SELECT 
@@ -235,11 +245,13 @@ async function getAllUnPaidSessions() {
       d.id AS doctor_id,
       pr.full_name AS doctor_name
     FROM sessions s
-    JOIN appointments a ON a.id = s.appointment_id
-    JOIN patients p ON p.id = a.patient_id
-    JOIN doctors d ON d.id = a.doctor_id
+    JOIN appointments a ON a.id = s.appointment_id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
+    JOIN patients p ON p.id = a.patient_id AND p.tenant_id = a.tenant_id 
+    JOIN doctors d ON d.id = a.doctor_id AND d.tenant_id = a.tenant_id AND d.branch_id = a.branch_id
     JOIN profiles pr ON d.id = pr.user_id
     WHERE a.status = 'completed'
+      AND s.tenant_id = $1
+      AND s.branch_id = $2
       AND (
       (
         -- (A) normal session unpaid
@@ -254,6 +266,8 @@ async function getAllUnPaidSessions() {
           FROM session_works sw
           JOIN treatment_plans tp ON tp.id = sw.treatment_plan_id
           WHERE sw.session_id = s.id
+            AND sw.tenant_id = s.tenant_id
+            AND sw.branch_id = s.branch_id
             AND sw.treatment_plan_id IS NOT NULL
 
             -- plan overall still has remaining (optional but ok)
@@ -261,6 +275,8 @@ async function getAllUnPaidSessions() {
               SELECT SUM(tpp2.amount)
               FROM treatment_payments tpp2
               WHERE tpp2.treatment_plan_id = tp.id
+                AND tpp2.tenant_id = s.tenant_id
+                AND tpp2.branch_id = s.branch_id
             ), 0)
 
             -- but THIS session hasn't paid at least 50,000 for THIS plan
@@ -269,16 +285,18 @@ async function getAllUnPaidSessions() {
               FROM treatment_payments tpp
               WHERE tpp.session_id = s.id
                 AND tpp.treatment_plan_id = tp.id
+                AND tpp.tenant_id = s.tenant_id
+                AND tpp.branch_id = s.branch_id
             ), 0) = 0
         )
       )
     ORDER BY a.started_at DESC
   `;
-  const { rows } = await pool.query(query);
+  const { rows } = await pool.query(query, [tenant_id, branch_id]);
   return rows;
 }
 
-async function getWorksForSessions(session_id) {
+async function getWorksForSessions(session_ids, tenant_id, branch_id) {
   // if (!sessionIds.length) return [];
 
   const query = `
@@ -291,18 +309,20 @@ async function getWorksForSessions(session_id) {
       sw.total_price,
       wc.name AS work_name
     FROM session_works sw
-    JOIN work_catalog wc ON wc.id = sw.work_id
+    JOIN work_catalog wc ON wc.id = sw.work_id AND wc.tenant_id = sw.tenant_id AND wc.branch_id = sw.branch_id
     WHERE sw.session_id = ANY($1::int[])
+      AND sw.tenant_id = $2
+      AND sw.branch_id = $3
       AND sw.treatment_plan_id IS NULL
     ORDER BY sw.session_id, wc.name, sw.tooth_number
   `;
 
-  const value = [session_id];
+  const value = [session_ids, tenant_id, branch_id];
   const { rows } = await pool.query(query, value);
   return rows;
 }
 
-async function getWorksForNormalSession(session_id) {
+async function getWorksForNormalSession(session_id, tenant_id, branch_id) {
 
 
   const query = `
@@ -317,19 +337,21 @@ async function getWorksForNormalSession(session_id) {
       sw.total_price,
       wc.name AS work_name
     FROM session_works sw
-    JOIN work_catalog wc ON wc.id = sw.work_id
-    JOIN sessions s ON s.id=sw.session_id
+    JOIN work_catalog wc ON wc.id = sw.work_id AND wc.tenant_id = sw.tenant_id AND wc.branch_id = sw.branch_id
+    JOIN sessions s ON s.id=sw.session_id AND s.tenant_id = sw.tenant_id AND s.branch_id = sw.branch_id
     WHERE sw.session_id = $1
+      AND sw.tenant_id = $2
+      AND sw.branch_id = $3
       AND sw.treatment_plan_id IS NULL
     ORDER BY sw.session_id, wc.name, sw.tooth_number
   `;
 
-  const value = [session_id];
+  const value = [session_id, tenant_id, branch_id];
   const { rows } = await pool.query(query, value);
   return rows;
 }
 
-async function getSessionWithAppointment(sessionId) {
+async function getSessionWithAppointment(sessionId, tenant_id, branch_id) {
   const query = `
     SELECT
       s.id,
@@ -338,16 +360,18 @@ async function getSessionWithAppointment(sessionId) {
       s.total_paid,
       s.is_paid,
       a.status AS appointment_status,
-      a.patient_id,
+      a.patient_id
     FROM sessions s
-    JOIN appointments a ON a.id = s.appointment_id
+    JOIN appointments a ON a.id = s.appointment_id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
     WHERE s.id = $1
+      AND s.tenant_id = $2
+      AND s.branch_id = $3
   `;
-  const { rows } = await pool.query(query, [sessionId]);
+  const { rows } = await pool.query(query, [sessionId, tenant_id, branch_id]);
   return rows[0] || null;
 }
 
-async function getSessionWithAppointmentForUpdate(sessionId, client = pool) {
+async function getSessionWithAppointmentForUpdate(sessionId, tenant_id, branch_id, client = pool) {
   const query = `
     SELECT
       s.id AS session_id,
@@ -358,28 +382,32 @@ async function getSessionWithAppointmentForUpdate(sessionId, client = pool) {
       a.status AS appointment_status,
       a.patient_id
     FROM sessions s
-    JOIN appointments a ON a.id = s.appointment_id
+    JOIN appointments a ON a.id = s.appointment_id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
     WHERE s.id = $1
+      AND s.tenant_id = $2
+      AND s.branch_id = $3
     FOR UPDATE
   `;
-  const { rows } = await client.query(query, [sessionId]);
+  const { rows } = await client.query(query, [sessionId, tenant_id, branch_id]);
   return rows[0] || null;
 }
 
-async function getTreatmentPlansForSession(sessionId, client = pool) {
+async function getTreatmentPlansForSession(sessionId, tenant_id, branch_id, client = pool) {
   const query = `
     SELECT DISTINCT tp.*
     FROM session_works sw
-    JOIN treatment_plans tp ON tp.id = sw.treatment_plan_id
+    JOIN treatment_plans tp ON tp.id = sw.treatment_plan_id AND tp.tenant_id = sw.tenant_id AND tp.branch_id = sw.branch_id
     WHERE sw.session_id = $1
       AND sw.treatment_plan_id IS NOT NULL
+      AND sw.tenant_id = $2
+      AND sw.branch_id = $3
     ORDER BY tp.created_at DESC
   `;
-  const { rows } = await client.query(query, [sessionId]);
+  const { rows } = await client.query(query, [sessionId, tenant_id, branch_id]);
   return rows || [];
 }
 
-async function getSessionPaymentContext(sessionId, client = pool) {
+async function getSessionPaymentContext(sessionId, tenant_id, branch_id, client = pool) {
   const query = `
     SELECT
       s.id AS session_id,
@@ -392,14 +420,16 @@ async function getSessionPaymentContext(sessionId, client = pool) {
       a.patient_id,
       a.doctor_id
     FROM sessions s
-    JOIN appointments a ON a.id = s.appointment_id
+    JOIN appointments a ON a.id = s.appointment_id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
     WHERE s.id = $1
+      AND s.tenant_id = $2
+      AND s.branch_id = $3
   `;
-  const { rows } = await client.query(query, [sessionId]);
+  const { rows } = await client.query(query, [sessionId, tenant_id, branch_id]);
   return rows[0] || null;
 }
 
-async function getTreatmentPlansForSessions(sessionIds) {
+async function getTreatmentPlansForSessions(sessionIds, tenant_id, branch_id) {
   const query = `
     SELECT DISTINCT
       sw.session_id,
@@ -411,33 +441,37 @@ async function getTreatmentPlansForSessions(sessionIds) {
       tp.is_completed,
       tp.status
     FROM session_works sw
-    JOIN treatment_plans tp ON tp.id = sw.treatment_plan_id
+    JOIN treatment_plans tp ON tp.id = sw.treatment_plan_id AND tp.tenant_id = sw.tenant_id AND tp.branch_id = sw.branch_id
     WHERE sw.session_id = ANY($1)
       AND sw.treatment_plan_id IS NOT NULL
+      AND sw.tenant_id = $2
+      AND sw.branch_id = $3
   `;
 
-  const { rows } = await pool.query(query, [sessionIds]);
+  const { rows } = await pool.query(query, [sessionIds, tenant_id, branch_id]);
   return rows;
 }
 
 // sessionModel.js
-async function hasPlanDue(sessionId, client = pool) {
+async function hasPlanDue(sessionId, tenant_id, branch_id, client = pool) {
   const q = `
     SELECT EXISTS (
       SELECT 1
       FROM session_works sw
-      JOIN treatment_plans tp ON tp.id = sw.treatment_plan_id
+      JOIN treatment_plans tp ON tp.id = sw.treatment_plan_id AND tp.tenant_id = sw.tenant_id AND tp.branch_id = sw.branch_id
       WHERE sw.session_id = $1
+        AND sw.tenant_id = $2
+        AND sw.branch_id = $3
         AND tp.agreed_total > COALESCE(tp.total_paid, 0)
     ) AS has_plan_due;
   `;
-  const { rows } = await client.query(q, [sessionId]);
+  const { rows } = await client.query(q, [sessionId, tenant_id, branch_id]);
   return rows[0].has_plan_due === true;
 }
 
 
 
-async function updateSessionNotesFields(session_id, notess, client = pool) {
+async function updateSessionNotesFields(session_id, notess, tenant_id, branch_id, client = pool) {
   const keys = Object.keys(notess);
   const values = Object.values(notess);
 
@@ -450,10 +484,12 @@ async function updateSessionNotesFields(session_id, notess, client = pool) {
        SET ${setClause},
            updated_at = NOW()
      WHERE id = $${keys.length + 1}
+       AND tenant_id = $${keys.length + 2}
+       AND branch_id = $${keys.length + 3}
      RETURNING *;
   `;
 
-  const allValues = [...values, session_id];
+  const allValues = [...values, session_id, tenant_id, branch_id];
   const { rows } = await client.query(query, allValues);
   return rows[0] || null;
 }

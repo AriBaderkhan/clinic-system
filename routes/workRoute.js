@@ -2,12 +2,14 @@ import express from "express";
 const router = express.Router();
 
 import authMiddleware from "../middlewares/authMiddleware.js";
-import roleCheck from "../middlewares/roleMiddleware.js";
+import permissionMiddleware from "../middlewares/permissionMiddleware.js";
 import pool from "../db_connection.js";
+import branchAssigmentMiddleware from '../middlewares/branchAssigmentMiddleware.js';
 
 router.use(authMiddleware);
+router.use(branchAssigmentMiddleware);
 
-router.get("/", roleCheck("reception",'doctor','super_doctor'), async (req, res) => {
+router.get("/", permissionMiddleware('manage_work'), async (req, res) => {
   try {
     const { rows } = await pool.query(
       "SELECT id, code, name, min_price FROM work_catalog ORDER BY id ASC"

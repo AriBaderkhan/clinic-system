@@ -2,22 +2,25 @@ import express from 'express'
 const router = express.Router();
 
 import authMiddleware from '../middlewares/authMiddleware.js';
-import roleCheck from '../middlewares/roleMiddleware.js';
+import permissionMiddleware from '../middlewares/permissionMiddleware.js';
 import monthlyExpensesController from '../controllers/monthlyExpensesController.js';
 import validateIdParam from '../validates/idValidate.js';
 import monthlyExpensesValidate from '../validates/monthlyExpensesValidate.js';
-
+import branchAssigmentMiddleware from '../middlewares/branchAssigmentMiddleware.js';
 
 router.use(authMiddleware);
+router.use(branchAssigmentMiddleware);
+router.use(permissionMiddleware('manage_expenses'))
 
+router.post('/', monthlyExpensesValidate.createExpenses, monthlyExpensesController.controllerCreateMonthlyExpneses)
+router.get('/', monthlyExpensesController.controllerGetAllMonthlyExpneses)
+router.get('/:expensesId', validateIdParam('expensesId'), monthlyExpensesController.controllerGetMonthlyExpneses)
+router.put('/:expensesId', validateIdParam('expensesId'), monthlyExpensesValidate.updateExpenses, monthlyExpensesController.controllerUpdateMonthlyExpneses)
+router.delete('/:expensesId', validateIdParam('expensesId'), monthlyExpensesController.controllerDeleteMonthlyExpneses)
 
-router.post('/',roleCheck('reception', 'super_doctor'),monthlyExpensesValidate.validateCreateMonthlyExpenses,monthlyExpensesController.controllerCreateMonthlyExpneses)
-router.get('/',roleCheck('reception', 'super_doctor'),monthlyExpensesController.controllerGetAllMonthlyExpneses)
-router.get('/:expensesId',roleCheck('reception', 'super_doctor'),validateIdParam('expensesId'),monthlyExpensesController.controllerGetMonthlyExpneses)
-router.put('/:expensesId',roleCheck('reception', 'super_doctor'),validateIdParam('expensesId'),monthlyExpensesValidate.validateUpdateMonthlyExpenses,monthlyExpensesController.controllerUpdateMonthlyExpneses)
-router.delete('/:expensesId', roleCheck('reception', 'super_doctor'), validateIdParam('expensesId'), monthlyExpensesController.controllerDeleteMonthlyExpneses)
+router.get('/available_months', monthlyExpensesController.getAvailableMonths)
 
+router.get('/available_types', monthlyExpensesController.getAvailableTypes)
 
 
 export default router
-

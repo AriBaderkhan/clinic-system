@@ -1,14 +1,14 @@
 import pool from '../db_connection.js';
 
 
-async function createAppointment(patient_id, doctor_id, scheduled_start, created_by, appointment_type) {
-  const query = `INSERT INTO appointments (patient_id, doctor_id, scheduled_start, created_by, appointment_type) VALUES ($1,$2,$3,$4,$5) RETURNING *`;
-  const values = [patient_id, doctor_id, scheduled_start, created_by, appointment_type];
+async function createAppointment(patient_id, doctor_id, scheduled_start, created_by, appointment_type, tenant_id, branch_id) {
+  const query = `INSERT INTO appointments (patient_id, doctor_id, scheduled_start, created_by, appointment_type,tenant_id,branch_id) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`;
+  const values = [patient_id, doctor_id, scheduled_start, created_by, appointment_type, tenant_id, branch_id];
   const { rows } = await pool.query(query, values);
   return rows[0];
 }
 
-async function getAllAppointments() {
+async function getAllAppointments(tenant_id, branch_id) {
   const query = `
     SELECT 
       a.id,
@@ -19,14 +19,15 @@ async function getAllAppointments() {
       a.status,
       a.appointment_type
     FROM appointments a
-    JOIN patients  p  ON a.patient_id = p.id
-    JOIN doctors   d  ON a.doctor_id = d.id
-    JOIN profiles  pr ON d.id = pr.user_id;`;
-  const { rows } = await pool.query(query)
+    JOIN patients  p  ON a.patient_id = p.id AND a.tenant_id = p.tenant_id
+    JOIN doctors   d  ON a.doctor_id = d.id AND a.tenant_id = d.tenant_id AND a.branch_id = d.branch_id
+    JOIN profiles  pr ON d.id = pr.user_id
+    WHERE a.tenant_id = $1 AND a.branch_id = $2;`;
+  const { rows } = await pool.query(query, [tenant_id, branch_id])
   return rows;
 }
 
-async function getAppointment(appointmentId,client = pool) {
+async function getAppointment(appointmentId, tenant_id, branch_id, client = pool) {
   const query = `
     SELECT 
       a.id,
@@ -43,17 +44,17 @@ async function getAppointment(appointmentId,client = pool) {
       a.cancel_reason,
       a.appointment_type
     FROM appointments a
-    JOIN patients  p  ON a.patient_id = p.id
-    JOIN doctors   d  ON a.doctor_id = d.id
+    JOIN patients  p  ON a.patient_id = p.id AND a.tenant_id = p.tenant_id
+    JOIN doctors   d  ON a.doctor_id = d.id AND a.tenant_id = d.tenant_id AND a.branch_id = d.branch_id
     JOIN profiles  pr ON d.id = pr.user_id
-    WHERE a.id = $1;
+    WHERE a.id = $1 AND a.tenant_id = $2 AND a.branch_id = $3;
   `;
-  const values = [appointmentId];
+  const values = [appointmentId, tenant_id, branch_id];
   const { rows } = await client.query(query, values);
   return rows[0];
 }
 
-async function updateAppointment(appointmentId, fields, updatedBy) {
+async function updateAppointment(appointmentId, fields, updatedBy, tenant_id, branch_id) {
   const keys = Object.keys(fields);
   const values = Object.values(fields);
 
@@ -73,35 +74,37 @@ async function updateAppointment(appointmentId, fields, updatedBy) {
     UPDATE appointments
        SET ${setClause},
            updated_at = NOW()
-     WHERE id = $${keys.length + 1}
+     WHERE id = $${keys.length + 1} AND tenant_id = $${keys.length + 2} AND branch_id = $${keys.length + 3}
      RETURNING *;
   `;
 
-  const allValues = [...values, appointmentId];
+  const allValues = [...values, appointmentId, tenant_id, branch_id];
   const { rows } = await pool.query(query, allValues);
   return rows[0] || null;
 }
 
-async function deleteAppointment(appointmentId) {
+async function deleteAppointment(appointmentId, tenant_id, branch_id) {
 
-  const query = `DELETE FROM appointments WHERE id=$1 RETURNING *`;
-  const values = [appointmentId]
+  const query = `DELETE FROM appointments WHERE id=$1 AND tenant_id = $2 AND branch_id = $3 RETURNING *`;
+  const values = [appointmentId, tenant_id, branch_id]
   const { rows } = await pool.query(query, values);
   return rows[0];
 }
 // END OF CRUD 
 
 // Checking availability for doctor
-async function isDoctorSlotTakenExact(doctor_id, scheduled_start) {
+async function isDoctorSlotTakenExact(doctor_id, scheduled_start, tenant_id, branch_id) {
   const query = `
     SELECT 1
     FROM appointments
     WHERE doctor_id = $1
       AND status NOT IN ('cancelled', 'no_show','completed')
       AND scheduled_start = $2
+      AND tenant_id = $3
+      AND branch_id = $4
     LIMIT 1;
   `;
-  const values = [doctor_id, scheduled_start];
+  const values = [doctor_id, scheduled_start, tenant_id, branch_id];
   const { rows } = await pool.query(query, values);
   return rows.length > 0; // true = slot already taken
 }
@@ -110,22 +113,24 @@ async function isDoctorSlotTakenExact(doctor_id, scheduled_start) {
 // so it doesn’t matter whether the existing appointment time is before or after the requested time.
 // EXTRACT: SQL function used to extract a specific value from a date/time or interval.
 // EPOCH: a field inside EXTRACT that converts the time difference (interval) into the total duration in seconds.
-async function isDoctorAvailableInOneHourWindow(doctor_id, scheduled_start) {
+async function isDoctorAvailableInOneHourWindow(doctor_id, scheduled_start, tenant_id, branch_id) {
   const query = `
         SELECT 1
         FROM appointments
         WHERE doctor_id = $1
           AND status NOT IN ('cancelled', 'no_show','completed')
           AND ABS(EXTRACT(EPOCH FROM (scheduled_start - $2))) < 3600
+          AND tenant_id = $3
+          AND branch_id = $4
         LIMIT 1;
     `;
-  const values = [doctor_id, scheduled_start];
+  const values = [doctor_id, scheduled_start, tenant_id, branch_id];
   const { rows } = await pool.query(query, values);
 
   return rows.length === 0;
 }
 
-async function isDoctorSlotTakenExactForUpdate(doctor_id, scheduled_start, appointmentId) {
+async function isDoctorSlotTakenExactForUpdate(doctor_id, scheduled_start, appointmentId, tenant_id, branch_id) {
   // <> like != means (not equal)
   const query = `
     SELECT 1
@@ -134,9 +139,11 @@ async function isDoctorSlotTakenExactForUpdate(doctor_id, scheduled_start, appoi
        AND id <> $3
        AND status NOT IN ('cancelled', 'no_show','completed')
        AND scheduled_start = $2
+       AND tenant_id = $4
+       AND branch_id = $5
      LIMIT 1;
   `;
-  const values = [doctor_id, scheduled_start, appointmentId];
+  const values = [doctor_id, scheduled_start, appointmentId, tenant_id, branch_id];
   const { rows } = await pool.query(query, values);
   return rows.length > 0; // true = some other appointment already at that exact time
 }
@@ -144,7 +151,9 @@ async function isDoctorSlotTakenExactForUpdate(doctor_id, scheduled_start, appoi
 async function isDoctorAvailableInOneHourWindowForUpdate(
   doctor_id,
   scheduled_start,
-  appointmentId
+  appointmentId,
+  tenant_id,
+  branch_id
 ) {
   const query = `
     SELECT 1
@@ -153,9 +162,11 @@ async function isDoctorAvailableInOneHourWindowForUpdate(
        AND id <> $3
        AND status NOT IN ('cancelled', 'no_show','completed')
        AND ABS(EXTRACT(EPOCH FROM (scheduled_start - $2))) < 3600
+       AND tenant_id = $4
+       AND branch_id = $5
      LIMIT 1;
   `;
-  const values = [doctor_id, scheduled_start, appointmentId];
+  const values = [doctor_id, scheduled_start, appointmentId, tenant_id, branch_id];
   const { rows } = await pool.query(query, values);
   // true = NO conflicting appointment found
   return rows.length === 0;
@@ -165,57 +176,57 @@ async function isDoctorAvailableInOneHourWindowForUpdate(
 
 
 // STATUS CHANGING 
-async function setAppointmentCheckIn(appointmentId, userId) {
+async function setAppointmentCheckIn(appointmentId, userId, tenant_id, branch_id) {
   const query = `
     UPDATE appointments
        SET status='checked_in', check_in_time=NOW(), updated_by=$2
-     WHERE id=$1 AND status='scheduled'
+     WHERE id=$1 AND status='scheduled' AND tenant_id = $3 AND branch_id = $4
      RETURNING *`;
-  const values = [appointmentId, userId];
+  const values = [appointmentId, userId, tenant_id, branch_id];
   const { rows } = await pool.query(query, values);
   return rows[0] || null;
 }
 
-async function setAppointmentStart(appointmentId, userId) {
+async function setAppointmentStart(appointmentId, userId, tenant_id, branch_id) {
   const query = `
     UPDATE appointments
        SET status='in_progress', started_at=NOW(), updated_by=$2
-     WHERE id=$1 AND status='checked_in'
+     WHERE id=$1 AND status='checked_in' AND tenant_id = $3 AND branch_id = $4
      RETURNING *`;
-  const values = [appointmentId, userId];
+  const values = [appointmentId, userId, tenant_id, branch_id];
   const { rows } = await pool.query(query, values);
   return rows[0] || null;
 }
 
-async function setAppointmentComplete(appointmentId, doctorId,client = pool) {
+async function setAppointmentComplete(appointmentId, doctorId, tenant_id, branch_id, client = pool) {
   const query = `
     UPDATE appointments
        SET status='completed', finished_at=NOW(), updated_by=$2
-     WHERE id=$1 AND status='in_progress'
+     WHERE id=$1 AND status='in_progress' AND tenant_id = $3 AND branch_id = $4
      RETURNING *`;
-  const values = [appointmentId, doctorId];
+  const values = [appointmentId, doctorId, tenant_id, branch_id];
   const { rows } = await client.query(query, values);
   return rows[0] || null;
 }
 
-async function setAppointmentCancel(appointmentId, userId, cancel_reason) {
+async function setAppointmentCancel(appointmentId, userId, cancel_reason, tenant_id, branch_id) {
   const query = `
     UPDATE appointments
        SET status='cancelled', cancel_reason=$3, updated_by=$2
-     WHERE id=$1 AND status IN ('scheduled','checked_in')
+     WHERE id=$1 AND status IN ('scheduled','checked_in') AND tenant_id = $4 AND branch_id = $5
      RETURNING *`;
-  const values = [appointmentId, userId, cancel_reason];
+  const values = [appointmentId, userId, cancel_reason, tenant_id, branch_id];
   const { rows } = await pool.query(query, values);
   return rows[0] || null;
 }
 
-async function setAppointmentNoShow(appointmentId, userId, cancel_reason) {
+async function setAppointmentNoShow(appointmentId, userId, cancel_reason, tenant_id, branch_id) {
   const query = `
     UPDATE appointments
        SET status='no_show', cancel_reason=$3, updated_by=$2
-     WHERE id=$1 AND status='scheduled'
+     WHERE id=$1 AND status='scheduled' AND tenant_id = $4 AND branch_id = $5
      RETURNING *`;
-  const values = [appointmentId, userId, cancel_reason];
+  const values = [appointmentId, userId, cancel_reason, tenant_id, branch_id];
   const { rows } = await pool.query(query, values);
   return rows[0] || null;
 }
@@ -223,7 +234,7 @@ async function setAppointmentNoShow(appointmentId, userId, cancel_reason) {
 
 
 // for filtters and searches by type and p.name, p.phone and d.name DYNAMIC
-async function findAppointmentsWithFilters({ from, to, type, search }) {
+async function findAppointmentsWithFilters({ from, to, type, search }, tenant_id, branch_id) {
   const baseQuery = `
     SELECT 
       a.id,
@@ -237,43 +248,44 @@ async function findAppointmentsWithFilters({ from, to, type, search }) {
       a.status,
       a.appointment_type
     FROM appointments a
-    JOIN patients  p  ON a.patient_id = p.id
-    JOIN doctors   d  ON a.doctor_id = d.id
-    JOIN profiles  pr ON d.id = pr.user_id `;
+    JOIN patients  p  ON a.patient_id = p.id AND a.tenant_id = p.tenant_id
+    JOIN doctors   d  ON a.doctor_id = d.id AND a.tenant_id = d.tenant_id AND a.branch_id = d.branch_id
+    JOIN profiles  pr ON d.id = pr.user_id
+    WHERE a.tenant_id = $1 AND a.branch_id = $2 `;
 
-    const where = [];
-    const values = [];
-    let idx = 1;
+  const where = [];
+  const values = [tenant_id, branch_id];
+  let idx = 3;
 
-    if (from) {
-      where.push(`a.scheduled_start >= $${idx}`);
-      values.push(from);
-      idx++;
-    }
+  if (from) {
+    where.push(`a.scheduled_start >= $${idx}`);
+    values.push(from);
+    idx++;
+  }
 
-    if (to) {
-      where.push(`a.scheduled_start < $${idx}`);
-      values.push(to);
-      idx++;
-    }
+  if (to) {
+    where.push(`a.scheduled_start < $${idx}`);
+    values.push(to);
+    idx++;
+  }
 
-    if (type) {
-      where.push(`a.appointment_type = $${idx}`);
-      values.push(type);
-      idx++;
-    }
-    if (search) {
-      where.push(
-        `(p.name ILIKE $${idx} OR p.phone ILIKE $${idx} OR pr.full_name ILIKE $${idx})`
-      );
-      values.push(`%${search}%`);
-      idx++;
-    }
+  if (type) {
+    where.push(`a.appointment_type = $${idx}`);
+    values.push(type);
+    idx++;
+  }
+  if (search) {
+    where.push(
+      `(p.name ILIKE $${idx} OR p.phone ILIKE $${idx} OR pr.full_name ILIKE $${idx})`
+    );
+    values.push(`%${search}%`);
+    idx++;
+  }
 
-    let query = baseQuery;
-    if (where.length > 0) {
-      query += ` WHERE ` + where.join(" AND ");
-    }
+  let query = baseQuery;
+  if (where.length > 0) {
+    query += ` AND  ` + where.join(" AND ");
+  }
 
   query += `
   ORDER BY
@@ -294,7 +306,7 @@ async function findAppointmentsWithFilters({ from, to, type, search }) {
 }
 
 // for dashboard
-async function activeTodayAppt({ from, to }) {
+async function activeTodayAppt({ from, to }, tenant_id, branch_id) {
   const query = `
     SELECT 
       a.id,
@@ -307,12 +319,13 @@ async function activeTodayAppt({ from, to }) {
       p.phone AS patient_phone,
       pr.full_name AS doctor_name
     FROM appointments a
-    JOIN patients p ON p.id = a.patient_id
-    JOIN doctors   d  ON a.doctor_id = d.id
+    JOIN patients p ON p.id = a.patient_id AND a.tenant_id = p.tenant_id
+    JOIN doctors   d  ON a.doctor_id = d.id AND a.tenant_id = d.tenant_id AND a.branch_id = d.branch_id
     JOIN profiles  pr ON d.id = pr.user_id
     WHERE a.scheduled_start >= $1
       AND a.scheduled_start <  $2
       AND a.status IN ('scheduled','checked_in','in_progress')
+      AND a.tenant_id = $3 AND a.branch_id = $4
      ORDER BY
     CASE a.status
       WHEN 'in_progress' THEN 1
@@ -322,16 +335,16 @@ async function activeTodayAppt({ from, to }) {
     END,
     a.scheduled_start DESC
   `;
-  const values = [from, to]
+  const values = [from, to, tenant_id, branch_id];
   const { rows } = await pool.query(query, values);
   return rows;
 }
 
-async function getSessionByApptId(appointmentId) {
-  const query = ` SELECT id AS session_id, appointment_id, created_at FROM sessions WHERE appointment_id = $1 LIMIT 1; `;
-  const value = [appointmentId];
+async function getSessionByApptId(appointmentId, tenant_id, branch_id) {
+  const query = ` SELECT id AS session_id, appointment_id, created_at FROM sessions WHERE appointment_id = $1 AND tenant_id = $2 AND branch_id = $3 LIMIT 1; `;
+  const value = [appointmentId, tenant_id, branch_id];
   const { rows } = await pool.query(query, value);
-  return rows[0] || null; 
+  return rows[0] || null;
 }
 
 export default {
@@ -345,7 +358,6 @@ export default {
   setAppointmentComplete,
   setAppointmentCancel,
   setAppointmentNoShow,
-  getPatientAndDoctorByAppointmentId,
   isDoctorSlotTakenExact,
   isDoctorAvailableInOneHourWindow,
   isDoctorSlotTakenExactForUpdate,
@@ -354,16 +366,3 @@ export default {
   activeTodayAppt,
   getSessionByApptId
 };
-
-async function getPatientAndDoctorByAppointmentId(appointmentId) {
-  return new Promise((resolve, reject) => {
-    const query = `SELECT patient_id, doctor_id, status FROM appointments WHERE id=$1;`;
-    const value = [appointmentId]
-    pool.query(query, value, (err, result) => {
-      if (err) return reject(err);
-      resolve(result.rows[0]);
-    })
-  })
-}
-
-// module.exports = { addAppointment ,  getAllAppointments , getAppointment , deleteAppointmentByID , updateAppointment}

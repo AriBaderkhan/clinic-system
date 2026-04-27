@@ -2,13 +2,15 @@ import express from 'express'
 const router = express.Router();
 
 import authMiddleware from '../middlewares/authMiddleware.js';
-import roleCheck from '../middlewares/roleMiddleware.js';
+import permissionMiddleware from '../middlewares/permissionMiddleware.js';
 import historyController from '../controllers/historyController.js';
 import validateIdParam from '../validates/idValidate.js';
+import branchAssigmentMiddleware from '../middlewares/branchAssigmentMiddleware.js';
 
 router.use(authMiddleware)
+router.use(branchAssigmentMiddleware)
 
-router.get('/payments', roleCheck('reception'), historyController.controllerPaymentsHistory)
-router.get('/session/:sessionId/details', roleCheck('reception','doctor','super_doctor'), validateIdParam('sessionId'), historyController.controllerGetSessionDetails)
+router.get('/payments', permissionMiddleware('view_payment'), historyController.controllerPaymentsHistory)
+router.get('/session/:sessionId/details', permissionMiddleware('view_session'), validateIdParam('sessionId'), historyController.controllerGetSessionDetails)
 // add doc and super
 export default router;

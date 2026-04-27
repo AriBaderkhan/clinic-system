@@ -47,28 +47,17 @@ function buildWorksSummary(worksRows) {
   };
 
 }
-async function serviceCreateSession(sessionData) {
-  const { appointment_id, next_plan, notes, created_by } = sessionData;
 
-  const appointment = await appoinmentModel.getPatientAndDoctorByAppointmentId(appointment_id);
-  if (!appointment) throw appError('APPOINTMENT_NOT_FOUND', 'Appointment not found', 404);
-  if (!['completed', 'in_progress'].includes(appointment.status)) throw appError('INVALID_APPOINTMENT_STATUS', 'Only completed or in_progress appointments can have sessions', 400);
-
-  const createdSession = await sessionModel.createSession(appointment_id, next_plan, notes, created_by);
-
-  return createdSession;
-}
-
-async function serviceGetAllSessions({ day,  search }) {
+async function serviceGetAllSessions({ day, search }, tenant_id, branch_id) {
 
   const range = day ? dateRange.getDateRange(day) : null;
-  
+
   // here is the problem for all session it will include only normal sessions below
-  const base = await sessionModel.getAllNormalSessions({  
-        from: range ? range.from : null,
-        to: range ? range.to : null,
-        search: search,
-    });
+  const base = await sessionModel.getAllNormalSessions({
+    from: range ? range.from : null,
+    to: range ? range.to : null,
+    search: search,
+  }, tenant_id, branch_id);
   if (base.length === 0) return []
   //   const sessionIds = base.map(s => s.session_id);
 
@@ -129,14 +118,14 @@ async function serviceGetAllSessions({ day,  search }) {
   return base
 }
 
-async function serviceGetNormalSession(session_id) {
+async function serviceGetNormalSession(session_id, tenant_id, branch_id) {
 
-  const base = await sessionModel.getNormalSession(session_id);
+  const base = await sessionModel.getNormalSession(session_id, tenant_id, branch_id);
   if (!base) throw appError("SESSION_NOT_FOUND", "session not found", 404);
 
 
 
-  const worksRows = await sessionModel.getWorksForNormalSession(session_id);
+  const worksRows = await sessionModel.getWorksForNormalSession(session_id, tenant_id, branch_id);
   const worksSummary = buildWorksSummary(worksRows);
 
 
@@ -186,14 +175,14 @@ async function serviceGetNormalSession(session_id) {
 
   };
 }
-async function serviceGetSession(session_id) {
+async function serviceGetSession(session_id, tenant_id, branch_id) {
 
-  const session = await sessionModel.getSession(session_id);
+  const session = await sessionModel.getSession(session_id, tenant_id, branch_id);
   if (!session) throw appError('FETCH_SESSION_FAILED', 'Session not found', 404);
   return session;
 }
 
-async function serviceEditNormalSession(session_id, fields, userId) {
+async function serviceEditNormalSession(session_id, fields, userId, tenant_id, branch_id) {
   const client = await pool.connect();
 
   const { notes, next_plan, works, total_paid } = fields;
@@ -202,7 +191,7 @@ async function serviceEditNormalSession(session_id, fields, userId) {
     await client.query("BEGIN");
 
     // 1) base session
-    const base = await sessionModel.getNormalSession(session_id, client);
+    const base = await sessionModel.getNormalSession(session_id, tenant_id, branch_id, client);
     if (!base) throw appError("SESSION_NOT_FOUND", "session not found", 404);
 
     // Keep current paid if user didn't send total_paid
@@ -218,7 +207,7 @@ async function serviceEditNormalSession(session_id, fields, userId) {
       }
 
       // delete old normal works
-      await sessionModel.deleteSessionWorksBySiD(session_id, client);
+      await sessionModel.deleteSessionWorksBySiD(session_id, tenant_id, branch_id, client);
 
       // recalc from scratch
       normalMinTotal = 0;
@@ -227,7 +216,7 @@ async function serviceEditNormalSession(session_id, fields, userId) {
       for (const w of works) {
         const { work_id, quantity, tooth_number } = w;
 
-        const catalog = await workCatalogModel.getWorkById(work_id, client);
+        const catalog = await workCatalogModel.getWorkById(work_id, tenant_id, branch_id, client);
         if (!catalog) throw appError("WORK_NOT_FOUND", "Work not found", 404);
 
         const minUnit = Number(catalog.min_price) || 0;
@@ -250,7 +239,7 @@ async function serviceEditNormalSession(session_id, fields, userId) {
             totalPrice: rowTotal,
             treatmentPlanId: null, // ✅ normal only
           },
-          client
+          tenant_id, branch_id, client
         );
 
         normalMinTotal += rowMin;
@@ -258,7 +247,7 @@ async function serviceEditNormalSession(session_id, fields, userId) {
       }
     }
 
-     let sessionsAfterRecalc = null;
+    let sessionsAfterRecalc = null;
     // 3) decide paid
     let finalPaid = currentPaid;
     if (total_paid !== undefined && total_paid !== null && total_paid !== "") {
@@ -284,23 +273,23 @@ async function serviceEditNormalSession(session_id, fields, userId) {
     // if (!updatedTotals) throw appError("SESSION_UPDATE_FAILED", "session Update failed", 500);
 
     // ✅ update amount in session_payments (via model)
-      const updatedPayment = await sessionPaymentModel.upsertSessionPaymentBySessionId({
-        sessionId: session_id,
-        amount: finalPaid,
-        createdBy: userId,
+    const updatedPayment = await sessionPaymentModel.upsertSessionPaymentBySessionId({
+      sessionId: session_id,
+      amount: finalPaid,
+      createdBy: userId,
 
-      },client
-      );
-      if (!updatedPayment) {
-        throw appError("PAYMENT_UPDATE_FAILED", "session payment not found for this session", 404);
-      }
+    }, tenant_id, branch_id, client
+    );
+    if (!updatedPayment) {
+      throw appError("PAYMENT_UPDATE_FAILED", "session payment not found for this session", 404);
+    }
 
-      // ✅ recalc -> updates sessions.total_paid and sessions.is_paid correctly
-      sessionsAfterRecalc = await sessionPaymentModel.recalcSessionTotals(session_id, client);
-      if (!sessionsAfterRecalc) {
-        throw appError("SESSION_RECALC_FAILED", "failed to recalc session totals", 500);
-      }
-    
+    // ✅ recalc -> updates sessions.total_paid and sessions.is_paid correctly
+    sessionsAfterRecalc = await sessionPaymentModel.recalcSessionTotals(session_id, tenant_id, branch_id, client);
+    if (!sessionsAfterRecalc) {
+      throw appError("SESSION_RECALC_FAILED", "failed to recalc session totals", 500);
+    }
+
 
     // 4) update session totals (min_total/total) + keep paid from recalc if it happened
     const paidToSave =
@@ -319,7 +308,7 @@ async function serviceEditNormalSession(session_id, fields, userId) {
         is_paid: isPaidToSave,
         sessionId: session_id,
       },
-      client
+      tenant_id, branch_id, client
     );
     if (!updatedTotals) throw appError("SESSION_UPDATE_FAILED", "session Update failed", 500);
 
@@ -327,14 +316,14 @@ async function serviceEditNormalSession(session_id, fields, userId) {
     // (use your existing model method, or add one simple update query in model)
     if (notes !== undefined || next_plan !== undefined) {
       const notess = { notes, next_plan }
-      const updatedPlan = await sessionModel.updateSessionNotesFields(session_id, notess, client);
+      const updatedPlan = await sessionModel.updateSessionNotesFields(session_id, notess, tenant_id, branch_id, client);
       if (!updatedPlan) throw appError("SESSION_UPDATE_FAILED", "session Update failed", 500);
     }
 
     await client.query("COMMIT");
 
     // return fresh details (optional)
-    const after = await sessionModel.getNormalSession(session_id, client);
+    const after = await sessionModel.getNormalSession(session_id, tenant_id, branch_id, client);
     return after;
   } catch (err) {
     await client.query("ROLLBACK");
@@ -345,23 +334,23 @@ async function serviceEditNormalSession(session_id, fields, userId) {
 }
 
 
-async function serviceDeleteSession(sessionID) {
+async function serviceDeleteSession(sessionID, tenant_id, branch_id) {
 
-  const deletedsession = await sessionModel.deleteSession(sessionID);
+  const deletedsession = await sessionModel.deleteSession(sessionID, tenant_id, branch_id);
   if (!deletedsession) throw appError('DELETE_SESSION_FAILED', 'session failed to delete', 500);
 
   return deletedsession;
 }
 
-async function serviceGetAllUnPaidSessions() {
+async function serviceGetAllUnPaidSessions(tenant_id, branch_id) {
   // STEP 1: base unpaid sessions
-  const baseSessions = await sessionModel.getAllUnPaidSessions();
+  const baseSessions = await sessionModel.getAllUnPaidSessions(tenant_id, branch_id);
   if (baseSessions.length === 0) return [];
 
   const sessionIds = baseSessions.map(s => s.session_id);
 
   // STEP 2: works
-  const worksRows = await sessionModel.getWorksForSessions(sessionIds);
+  const worksRows = await sessionModel.getWorksForSessions(sessionIds, tenant_id, branch_id);
 
   const worksBySession = {};
   for (const row of worksRows) {
@@ -395,7 +384,7 @@ async function serviceGetAllUnPaidSessions() {
   }
 
   // STEP 3: 🔥 FETCH TREATMENT PLANS (THIS WAS MISSING)
-  const planRows = await sessionModel.getTreatmentPlansForSessions(sessionIds);
+  const planRows = await sessionModel.getTreatmentPlansForSessions(sessionIds, tenant_id, branch_id);
 
   const plansBySession = {};
   for (const row of planRows) {
@@ -463,7 +452,7 @@ async function serviceGetAllUnPaidSessions() {
 
 
 // SERVICE: Pay session
-async function servicePaySession({ sessionId, normalAmount, planPayments, note, userId }) {
+async function servicePaySession({ sessionId, normalAmount, planPayments, note, userId }, tenant_id, branch_id) {
   const client = await pool.connect();
 
 
@@ -471,7 +460,7 @@ async function servicePaySession({ sessionId, normalAmount, planPayments, note, 
     await client.query("BEGIN");
 
     // ✅ lock session row (prevents double-pay race)
-    const session = await sessionModel.getSessionWithAppointmentForUpdate(sessionId, client);
+    const session = await sessionModel.getSessionWithAppointmentForUpdate(sessionId, tenant_id, branch_id, client);
     if (!session) throw appError("SESSION_NOT_FOUND", "Session not found", 404);
 
     if (session.appointment_status !== "completed") {
@@ -491,7 +480,7 @@ async function servicePaySession({ sessionId, normalAmount, planPayments, note, 
 
     // what is actually due
     const sessionDue = total > totalPaid;
-    const planDue = await sessionModel.hasPlanDue(sessionId, client);
+    const planDue = await sessionModel.hasPlanDue(sessionId, tenant_id, branch_id, client);
 
     // ❗ RULE: allow empty ONLY if nothing is due
     if (!payNormal && !payPlans) {
@@ -533,10 +522,10 @@ async function servicePaySession({ sessionId, normalAmount, planPayments, note, 
           note,
           createdBy: userId,
         },
-        client
+        tenant_id, branch_id, client
       );
 
-      await sessionPaymentModel.recalcSessionTotals(sessionId, client);
+      await sessionPaymentModel.recalcSessionTotals(sessionId, tenant_id, branch_id, client);
     }
 
     // -------------------------
@@ -545,7 +534,7 @@ async function servicePaySession({ sessionId, normalAmount, planPayments, note, 
     let updatedPlans = [];
 
     if (payPlans) {
-      const plansInSession = await sessionModel.getTreatmentPlansForSession(sessionId, client);
+      const plansInSession = await sessionModel.getTreatmentPlansForSession(sessionId, tenant_id, branch_id, client);
       const allowedPlanIds = new Set(plansInSession.map((tp) => Number(tp.id)));
 
       for (const detail of planPayments) {
@@ -569,7 +558,7 @@ async function servicePaySession({ sessionId, normalAmount, planPayments, note, 
         }
 
         // ✅ lock plan row (prevents race overpay on same plan)
-        const plan = await treatmentPlanModel.getTreatmentPlanByIdForUpdate(plan_id, client);
+        const plan = await treatmentPlanModel.getTreatmentPlanByIdForUpdate(plan_id, tenant_id, branch_id, client);
         if (!plan) {
           throw appError("PLAN_NOT_FOUND", `Treatment plan ID ${plan_id} not found`, 404);
         }
@@ -599,7 +588,7 @@ async function servicePaySession({ sessionId, normalAmount, planPayments, note, 
 
         // RULE: min installment from work_catalog (unchanged)
         const code = String(plan.type || "").toUpperCase(); // ORTHO/IMPLANT/RCT
-        const catalog = await workCatalogModel.getWorkByType(code, client);
+        const catalog = await workCatalogModel.getWorkByType(code, tenant_id, branch_id, client);
         if (!catalog) {
           throw appError(
             "WORK_CATALOG_NOT_FOUND",
@@ -624,16 +613,16 @@ async function servicePaySession({ sessionId, normalAmount, planPayments, note, 
             note,
             createdBy: userId,
           },
-          client
+          tenant_id, branch_id, client
         );
 
-        const updatedPlan = await treatmentPlanPaymentModel.recalcTreatmentPlanTotals(plan_id, client);
+        const updatedPlan = await treatmentPlanPaymentModel.recalcTreatmentPlanTotals(plan_id, tenant_id, branch_id, client);
         updatedPlans.push(updatedPlan);
       }
     }
 
     // refresh session after recalcs
-    const sessionAfter = await sessionModel.getSessionPaymentContext(sessionId, client);
+    const sessionAfter = await sessionModel.getSessionPaymentContext(sessionId, tenant_id, branch_id, client);
 
     await client.query("COMMIT");
 
@@ -670,6 +659,6 @@ async function servicePaySession({ sessionId, normalAmount, planPayments, note, 
 
 
 export default {
-  serviceCreateSession, serviceGetAllSessions, serviceGetNormalSession, serviceGetSession, serviceEditNormalSession, serviceDeleteSession, serviceGetAllUnPaidSessions,
+  serviceGetAllSessions, serviceGetNormalSession, serviceGetSession, serviceEditNormalSession, serviceDeleteSession, serviceGetAllUnPaidSessions,
   servicePaySession
 }

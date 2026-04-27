@@ -1,7 +1,7 @@
 import pool from '../db_connection.js'
 
 
-async function getPaymentsHistory() {
+async function getPaymentsHistory(tenant_id, branch_id) {
 
   const query = `
     SELECT 
@@ -18,20 +18,22 @@ async function getPaymentsHistory() {
         pr.full_name  AS doctor_name,
         pr2.full_name AS processed_by
         FROM session_payments sp
-        JOIN sessions s ON s.id=sp.session_id
-        JOIN appointments a ON a.id=s.appointment_id
-        JOIN patients p ON p.id=a.patient_id
-        JOIN doctors d ON d.id=a.doctor_id
-        JOIN profiles pr ON pr.user_id=d.id
-        JOIN profiles pr2 ON pr2.user_id = sp.created_by
+        JOIN sessions s ON s.id=sp.session_id AND s.tenant_id = sp.tenant_id AND s.branch_id = sp.branch_id
+        JOIN appointments a ON a.id=s.appointment_id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
+        JOIN patients p ON p.id=a.patient_id AND p.tenant_id = a.tenant_id 
+        JOIN doctors d ON d.id=a.doctor_id AND d.tenant_id = a.tenant_id AND d.branch_id = a.branch_id
+        JOIN profiles pr ON pr.user_id=d.id 
+        JOIN profiles pr2 ON pr2.user_id = sp.created_by 
+        WHERE sp.tenant_id = $1
+        AND sp.branch_id = $2
         ORDER BY sp.created_at DESC
     `;
-  const { rows } = await pool.query(query);
+  const { rows } = await pool.query(query, [tenant_id, branch_id]);
   return rows;
 }
 
 
-async function getSessionDetails(session_id) {
+async function getSessionDetails(session_id, tenant_id, branch_id) {
   const query = `
     SELECT 
       s.id AS session_id,
@@ -58,15 +60,17 @@ async function getSessionDetails(session_id) {
       pr.full_name AS doctor_name,
       pr2.full_name AS processed_by
     FROM sessions s
-    JOIN appointments a ON a.id = s.appointment_id
-    LEFT JOIN session_payments sp ON sp.session_id = s.id
-    JOIN patients p     ON p.id = a.patient_id
-    JOIN doctors d      ON d.id = a.doctor_id
-    JOIN profiles pr    ON pr.user_id = d.id
-    JOIN profiles pr2   ON pr2.user_id = s.created_by
+    JOIN appointments a ON a.id = s.appointment_id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
+    LEFT JOIN session_payments sp ON sp.session_id = s.id AND sp.tenant_id = s.tenant_id AND sp.branch_id = s.branch_id
+    JOIN patients p     ON p.id = a.patient_id AND p.tenant_id = a.tenant_id 
+    JOIN doctors d      ON d.id = a.doctor_id AND d.tenant_id = a.tenant_id AND d.branch_id = a.branch_id
+    JOIN profiles pr    ON pr.user_id = d.id 
+    JOIN profiles pr2   ON pr2.user_id = s.created_by 
     WHERE s.id = $1
+    AND s.tenant_id = $2
+    AND s.branch_id = $3
   `;
-  const value = [session_id];
+  const value = [session_id, tenant_id, branch_id];
   const { rows } = await pool.query(query, value);
   return rows[0] || null;
 }

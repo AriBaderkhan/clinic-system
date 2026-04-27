@@ -10,16 +10,16 @@ import treatmentPlanModel from '../models/treatmentPlanModel.js';
 import pool from '../db_connection.js';
 
 
-async function serviceCreateAppointment(appointmentData) {
+async function serviceCreateAppointment(appointmentData, tenant_id, branch_id) {
     const { patient_id, doctor_id, scheduled_start, created_by, appointment_type } = appointmentData;
 
-    const patient = await patientModel.getPatient(patient_id);
+    const patient = await patientModel.getPatient(patient_id, tenant_id, branch_id);
     if (!patient) throw appError('PATIENT_NOT_FOUND', 'Patient not found', 404);
 
-    const doctor = await doctorModel.getDoctorById(doctor_id);
+    const doctor = await doctorModel.getDoctorById(doctor_id, tenant_id, branch_id);
     if (!doctor) throw appError('DOCTOR_NOT_FOUND', 'Doctor not found', 404);
 
-    const slotTaken = await appointmentModel.isDoctorSlotTakenExact(doctor_id, scheduled_start);
+    const slotTaken = await appointmentModel.isDoctorSlotTakenExact(doctor_id, scheduled_start, tenant_id, branch_id);
     if (slotTaken) {
         throw appError(
             'APPOINTMENT_OVERLAP',
@@ -31,7 +31,9 @@ async function serviceCreateAppointment(appointmentData) {
     // if (appointment_type === 'normal') {
     //     const doctorIsFree = await appointmentModel.isDoctorAvailableInOneHourWindow(
     //         doctor_id,
-    //         scheduled_start
+    //         scheduled_start,
+    //         tenant_id,
+    //         branch_id
     //     );
     //     if (!doctorIsFree) {
     //         throw appError(
@@ -42,31 +44,31 @@ async function serviceCreateAppointment(appointmentData) {
     //     }
     // }
 
-    const appointment = await appointmentModel.createAppointment(patient_id, doctor_id, scheduled_start, created_by, appointment_type);
+    const appointment = await appointmentModel.createAppointment(patient_id, doctor_id, scheduled_start, created_by, appointment_type, tenant_id, branch_id);
     if (!appointment) throw appError('APPOINTMENT_CREATE_FAILED', 'Appointment create failed', 500);
     return appointment;
 }
 
-async function serviceGetAllAppointments() {
+async function serviceGetAllAppointments(tenant_id, branch_id) {
 
-    const appointments = await appointmentModel.getAllAppointments();
+    const appointments = await appointmentModel.getAllAppointments(tenant_id, branch_id);
     if (appointments.length === 0) throw appError('NO_APPOINTMENTS_FOUND', 'No appointments found', 404);
     return appointments;
 }
 
-async function serviceGetAppointment(appointmentId) {
+async function serviceGetAppointment(appointmentId, tenant_id, branch_id) {
 
-    const appointment = await appointmentModel.getAppointment(appointmentId);
+    const appointment = await appointmentModel.getAppointment(appointmentId, tenant_id, branch_id);
     if (!appointment) throw appError('APPOINTMENT_NOT_FOUND', 'Appointment not found', 404);
     return appointment;
 }
 
-async function serviceUpdateAppointment(appointmentDataForUpdate) {
-    const { appointmentId, patient_id,doctor_id, scheduled_start, updatedBy } =
+async function serviceUpdateAppointment(appointmentDataForUpdate, tenant_id, branch_id) {
+    const { appointmentId, patient_id, doctor_id, scheduled_start, updatedBy } =
         appointmentDataForUpdate;
 
     // 1) Load current appointment
-    const appt = await appointmentModel.getAppointment(appointmentId);
+    const appt = await appointmentModel.getAppointment(appointmentId, tenant_id, branch_id);
     if (!appt) {
         throw appError('APPOINTMENT_NOT_FOUND', 'Appointment not found', 404);
     }
@@ -97,7 +99,7 @@ async function serviceUpdateAppointment(appointmentDataForUpdate) {
 
     // 5) If doctor_id is changing, make sure doctor exists
     if (doctor_id) {
-        const doctor = await doctorModel.getDoctorById(doctor_id);
+        const doctor = await doctorModel.getDoctorById(doctor_id, tenant_id, branch_id);
         if (!doctor) {
             throw appError('DOCTOR_NOT_FOUND', 'Doctor not found', 404);
         }
@@ -107,7 +109,9 @@ async function serviceUpdateAppointment(appointmentDataForUpdate) {
     const slotTaken = await appointmentModel.isDoctorSlotTakenExactForUpdate(
         newDoctorId,
         newScheduledStart,
-        appointmentId
+        appointmentId,
+        tenant_id,
+        branch_id
     );
     if (slotTaken) {
         throw appError(
@@ -122,7 +126,9 @@ async function serviceUpdateAppointment(appointmentDataForUpdate) {
     //     const doctorIsFree = await appointmentModel.isDoctorAvailableInOneHourWindowForUpdate(
     //         newDoctorId,
     //         newScheduledStart,
-    //         appointmentId
+    //         appointmentId,
+    //         tenant_id,
+    //         branch_id
     //     );
     //     if (!doctorIsFree) {
     //         throw appError(
@@ -134,7 +140,7 @@ async function serviceUpdateAppointment(appointmentDataForUpdate) {
     // }
 
     // 8) Perform the update
-    const updated = await appointmentModel.updateAppointment(appointmentId, fields, updatedBy);
+    const updated = await appointmentModel.updateAppointment(appointmentId, fields, updatedBy, tenant_id, branch_id);
     if (!updated) {
         throw appError(
             'APPOINTMENT_UPDATE_FAILED',
@@ -146,9 +152,9 @@ async function serviceUpdateAppointment(appointmentDataForUpdate) {
     return updated;
 }
 
-async function serviceDeleteAppointment(appointmentId) {
+async function serviceDeleteAppointment(appointmentId, tenant_id, branch_id) {
 
-    const deletedappointment = await appointmentModel.deleteAppointment(appointmentId)
+    const deletedappointment = await appointmentModel.deleteAppointment(appointmentId, tenant_id, branch_id)
     if (!deletedappointment) throw appError('APPOINTMENT_NOT_FOUND', 'Appointment not found', 404);
 
     return deletedappointment;
@@ -156,28 +162,28 @@ async function serviceDeleteAppointment(appointmentId) {
 // END OF CRUD
 
 // STATUS CHANGING
-async function serviceSetCheckIn(appointmentId, userId) {
-    const appt = await appointmentModel.getAppointment(appointmentId);
+async function serviceSetCheckIn(appointmentId, userId, tenant_id, branch_id) {
+    const appt = await appointmentModel.getAppointment(appointmentId, tenant_id, branch_id);
 
     if (!appt) throw appError('APPOINTMENT_NOT_FOUND', 'Appointment not found', 404);
 
 
     if (appt.status !== 'scheduled') throw appError('INVALID_APPOINTMENT_STATUS', 'Only scheduled appointments can be checked in', 400);
 
-    const updatedAppointmentStatus = await appointmentModel.setAppointmentCheckIn(appointmentId, userId);
+    const updatedAppointmentStatus = await appointmentModel.setAppointmentCheckIn(appointmentId, userId, tenant_id, branch_id);
     if (!updatedAppointmentStatus) throw appError('APPOINTMENT_CHECKIN_FAILED', 'Check-in failed', 500);
     return updatedAppointmentStatus;
 }
 
-async function serviceSetStart(appointmentId, userId) {
-    const appt = await appointmentModel.getAppointment(appointmentId);
+async function serviceSetStart(appointmentId, userId, tenant_id, branch_id) {
+    const appt = await appointmentModel.getAppointment(appointmentId, tenant_id, branch_id);
 
     if (!appt) throw appError('APPOINTMENT_NOT_FOUND', 'Appointment not found', 404);
 
 
     if (appt.status !== 'checked_in') throw appError('INVALID_APPOINTMENT_STATUS', 'Only checked_in appointments can be started', 400);
 
-    const updatedAppointment = await appointmentModel.setAppointmentStart(appointmentId, userId);
+    const updatedAppointment = await appointmentModel.setAppointmentStart(appointmentId, userId, tenant_id, branch_id);
     if (!updatedAppointment) throw appError('APPOINTMENT_START_FAILED', 'Appointment start failed', 500);
     return updatedAppointment;
 }
@@ -186,18 +192,18 @@ async function serviceSetStart(appointmentId, userId) {
 // Its job is to:
 // Close an in-progress appointment, 
 // create a session, register all works, manage treatment plans, calculate totals,
-async function serviceSetComplete({ appointmentId, doctorId, next_plan, notes, works, agreementTotals, planCompletion }) {
+async function serviceSetComplete({ appointmentId, doctorId, next_plan, notes, works, agreementTotals, planCompletion }, tenant_id, branch_id) {
     const client = await pool.connect();
 
     try {
         await client.query("BEGIN");
 
-        const appt = await appointmentModel.getAppointment(appointmentId, client);
+        const appt = await appointmentModel.getAppointment(appointmentId, client, tenant_id, branch_id);
         if (!appt) throw appError('APPOINTMENT_NOT_FOUND', 'Appointment not found', 404);
         if (appt.status !== 'in_progress') throw appError('INVALID_APPOINTMENT_STATUS', 'Only in_progress appointments can be completed', 400);
         // if (appt.doctor_id !== doctorId) throw appError('FORBIDDEN', 'You are not allowed to complete this appointment');  // important 
 
-        const createdSession = await sessionModel.createSession(appointmentId, next_plan, notes, doctorId, client);
+        const createdSession = await sessionModel.createSession(appointmentId, next_plan, notes, doctorId, client, tenant_id, branch_id);
         if (!createdSession) throw appError('SESSION_CREATE_FAILED', 'session create failed', 500);
         const sessionId = createdSession.id;
 
@@ -216,7 +222,7 @@ async function serviceSetComplete({ appointmentId, doctorId, next_plan, notes, w
 
             const { work_id, quantity, tooth_number } = w;
 
-            const catalog = await workCatalogModel.getWorkById(work_id, client); // from work_catalog
+            const catalog = await workCatalogModel.getWorkById(work_id, client, tenant_id, branch_id); // from work_catalog
             if (!catalog) throw appError('WORK_NOT_FOUND', 'Work not found', 404);
 
 
@@ -231,9 +237,11 @@ async function serviceSetComplete({ appointmentId, doctorId, next_plan, notes, w
                 let plan = await treatmentPlanModel.getActivePlan(
                     appt.patient_id,
                     code,
-                    client
+                    client,
+                    tenant_id,
+                    branch_id
                 );
-           
+
 
                 // first time ever
                 if (!plan) {
@@ -252,19 +260,21 @@ async function serviceSetComplete({ appointmentId, doctorId, next_plan, notes, w
                         patientId: appt.patient_id,
                         type: code,
                         agreedTotal: agreedTotal,
-                        createdBy: doctorId
-                    }, client
+                        createdBy: doctorId,
+                    }, client,
+                        tenant_id,
+                        branch_id
                     );
                 }
                 rawTreatmentPlanId = plan.id;
                 if (rawTreatmentPlanId && planCompletion?.[code] === true) {
-                    await treatmentPlanModel.markCompleted(rawTreatmentPlanId, client);
+                    await treatmentPlanModel.markCompleted(rawTreatmentPlanId, client, tenant_id, branch_id);
                 }
 
             }
 
             const minUnit = catalog.min_price;
-            const unit = minUnit ; // for now
+            const unit = minUnit; // for now
 
             const rowMin = minUnit * quantity;
             const rowTotal = unit * quantity;
@@ -279,7 +289,7 @@ async function serviceSetComplete({ appointmentId, doctorId, next_plan, notes, w
                 totalMinPrice: rowMin,
                 totalPrice: rowTotal,
                 treatmentPlanId: rawTreatmentPlanId
-            }, client
+            }, client, tenant_id, branch_id
             );
 
             const isPlanWork = rawTreatmentPlanId !== null;
@@ -297,11 +307,11 @@ async function serviceSetComplete({ appointmentId, doctorId, next_plan, notes, w
         const total = normalGrandTotal;
         const total_paid = 0;
         const is_paid = (normalGrandTotal <= 0);
-        const updatedSessionWork = await sessionModel.updateSessionTotal({ min_total, total, total_paid, is_paid, sessionId }, client)
+        const updatedSessionWork = await sessionModel.updateSessionTotal({ min_total, total, total_paid, is_paid, sessionId }, client, tenant_id, branch_id)
         if (!updatedSessionWork) throw appError('SESSION_UPDATE_FAILED', 'session Update failed', 500);
 
 
-        const updatedAppointment = await appointmentModel.setAppointmentComplete(appointmentId, doctorId, client);
+        const updatedAppointment = await appointmentModel.setAppointmentComplete(appointmentId, doctorId, client, tenant_id, branch_id);
         if (!updatedAppointment) throw appError('APPOINTMENT_COMPLETE_FAILED', 'Appointment complete failed', 500);
 
         await client.query("COMMIT");
@@ -327,28 +337,28 @@ async function serviceSetComplete({ appointmentId, doctorId, next_plan, notes, w
     }
 }
 
-async function serviceSetCancel(appointmentId, userId, cancel_reason) {
-    const appt = await appointmentModel.getAppointment(appointmentId);
+async function serviceSetCancel(appointmentId, userId, cancel_reason, tenant_id, branch_id) {
+    const appt = await appointmentModel.getAppointment(appointmentId, tenant_id, branch_id);
 
     if (!appt) throw appError('APPOINTMENT_NOT_FOUND', 'Appointment not found', 404);
 
 
     if (!['scheduled', 'checked_in', 'in_progress'].includes(appt.status)) throw appError('INVALID_APPOINTMENT_STATUS', 'Only scheduled or checked_in appointments can be cancelled', 400);
 
-    const updatedAppointment = await appointmentModel.setAppointmentCancel(appointmentId, userId, cancel_reason);
+    const updatedAppointment = await appointmentModel.setAppointmentCancel(appointmentId, userId, cancel_reason, tenant_id, branch_id);
     if (!updatedAppointment) throw appError('APPOINTMENT_CANCEL_FAILED', 'Appointment cancel failed', 500);
     return updatedAppointment;
 }
 
-async function serviceSetNoShow(appointmentId, userId, cancel_reason) {
-    const appt = await appointmentModel.getAppointment(appointmentId);
+async function serviceSetNoShow(appointmentId, userId, cancel_reason, tenant_id, branch_id) {
+    const appt = await appointmentModel.getAppointment(appointmentId, tenant_id, branch_id);
 
     if (!appt) throw appError('APPOINTMENT_NOT_FOUND', 'Appointment not found', 404);
 
 
     if (!['scheduled'].includes(appt.status)) throw appError('INVALID_APPOINTMENT_STATUS', 'Only scheduled appointments can be marked as no_show', 400);
 
-    const updatedAppointment = await appointmentModel.setAppointmentNoShow(appointmentId, userId, cancel_reason);
+    const updatedAppointment = await appointmentModel.setAppointmentNoShow(appointmentId, userId, cancel_reason, tenant_id, branch_id);
     if (!updatedAppointment) throw appError('APPOINTMENT_NO_SHOW_FAILED', 'Appointment no show failed', 500);
     return updatedAppointment;
 }
@@ -356,7 +366,7 @@ async function serviceSetNoShow(appointmentId, userId, cancel_reason) {
 
 
 // for filtters and searches by type and p.name, p.phone and d.name
-async function serviceListAppointmentsWithFilters({ day, type, search }) {
+async function serviceListAppointmentsWithFilters({ day, type, search }, tenant_id, branch_id) {
 
     const range = day ? dateRange.getDateRange(day) : null;
 
@@ -365,13 +375,13 @@ async function serviceListAppointmentsWithFilters({ day, type, search }) {
         to: range ? range.to : null,
         type: type,
         search: search,
-    });
+    }, tenant_id, branch_id);
 
     return appointments;
 }
 
 // FOR DASHBOARD
-async function serviceActiveTodayAppt() {
+async function serviceActiveTodayAppt(tenant_id, branch_id) {
 
     const todayAppt = dateRange.getDateRange('today');
 
@@ -380,14 +390,14 @@ async function serviceActiveTodayAppt() {
     const appointments = await appointmentModel.activeTodayAppt({
         from: todayAppt ? todayAppt.from : null,
         to: todayAppt ? todayAppt.to : null,
-    });
+    }, tenant_id, branch_id);
 
     return appointments;
 }
 
-async function serviceGetSessionByApptId(appointmentId) {
+async function serviceGetSessionByApptId(appointmentId, tenant_id, branch_id) {
 
-    const sessionForAppt = await appointmentModel.getSessionByApptId(appointmentId);
+    const sessionForAppt = await appointmentModel.getSessionByApptId(appointmentId, tenant_id, branch_id);
     if (!sessionForAppt) throw appError('SESSION_FOR_APPOINTMENT_NOT_FOUND', 'Session for appointment not found', 404);
     return sessionForAppt;
 }

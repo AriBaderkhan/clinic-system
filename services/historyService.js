@@ -4,11 +4,11 @@ import appError from '../utils/appError.js';
 
 
 
-async function serviceGetPaymentsHistory(){
-    const allPayments = await historyModel.getPaymentsHistory();
-    if(allPayments.length == 0) return [];
+async function serviceGetPaymentsHistory(tenant_id, branch_id) {
+  const allPayments = await historyModel.getPaymentsHistory(tenant_id, branch_id);
+  if (allPayments.length == 0) return [];
 
-    return allPayments;
+  return allPayments;
 }
 
 
@@ -49,24 +49,24 @@ function buildWorksSummary(worksRows) {
     items_count: worksRows.length,                 // raw rows count
     works: Object.values(groups),                  // array of grouped items
   };
-  
+
 }
 
-async function serviceGetSessionDetails(session_id) {
+async function serviceGetSessionDetails(session_id, tenant_id, branch_id) {
   // 1) base session + patient + doctor + appointment
-  const base = await historyModel.getSessionDetails(session_id);
+  const base = await historyModel.getSessionDetails(session_id, tenant_id, branch_id);
   if (!base) {
-    throw appError("SESSION_NOT_FOUND", "session not found",404);
+    throw appError("SESSION_NOT_FOUND", "session not found", 404);
   }
 
   // 2) works for this session (note the ARRAY argument)
-  const worksRows = await sessionModel.getWorksForSessions([session_id]);
+  const worksRows = await sessionModel.getWorksForSessions([session_id], tenant_id, branch_id);
   const worksSummary = buildWorksSummary(worksRows);
 
   // 3) (optional now) payments for this session – you can add later
   let payments = [];
   if (historyModel.getSessionPayments) {
-    payments = await historyModel.getSessionPayments(session_id);
+    payments = await historyModel.getSessionPayments(session_id, tenant_id, branch_id);
   }
 
   // 4) final clean object for frontend
@@ -120,4 +120,4 @@ async function serviceGetSessionDetails(session_id) {
 
 
 
-export default { serviceGetPaymentsHistory,serviceGetSessionDetails }
+export default { serviceGetPaymentsHistory, serviceGetSessionDetails }

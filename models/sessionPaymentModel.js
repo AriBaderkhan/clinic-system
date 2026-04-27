@@ -1,24 +1,26 @@
 
 import pool from '../db_connection.js';
 
-async function createSessionPayment({ sessionId, amount, note, createdBy }, client = pool) {
+async function createSessionPayment({ sessionId, amount, note, createdBy }, tenant_id, branch_id, client = pool) {
   const query = `
-    INSERT INTO session_payments (session_id, amount, note, created_by)
-    VALUES ($1, $2, $3, $4)
+    INSERT INTO session_payments (session_id, amount, note, created_by,tenant_id,branch_id)
+    VALUES ($1, $2, $3, $4,$5,$6)
     RETURNING *
   `;
-  const values = [sessionId, amount, note, createdBy];
+  const values = [sessionId, amount, note, createdBy, tenant_id, branch_id];
   const { rows } = await client.query(query, values);
   return rows[0];
 }
 
-async function recalcSessionTotals(sessionId, client = pool) {
+async function recalcSessionTotals(sessionId, tenant_id, branch_id, client = pool) {
   const sumQuery = `
     SELECT COALESCE(SUM(amount), 0)::bigint AS total_paid
     FROM session_payments
     WHERE session_id = $1
+    AND tenant_id = $2
+    AND branch_id = $3
   `;
-  const { rows: sumRows } = await client.query(sumQuery, [sessionId]);
+  const { rows: sumRows } = await client.query(sumQuery, [sessionId, tenant_id, branch_id]);
   const totalPaid = Number(sumRows[0]?.total_paid || 0);
 
   const updateQuery = `
@@ -28,17 +30,19 @@ async function recalcSessionTotals(sessionId, client = pool) {
       is_paid = ($2::bigint > 0),
       updated_at = NOW()
     WHERE id = $1
+    AND tenant_id = $3
+    AND branch_id = $4
     RETURNING *;
   `;
 
-  const { rows } = await client.query(updateQuery, [sessionId, totalPaid]);
+  const { rows } = await client.query(updateQuery, [sessionId, totalPaid, tenant_id, branch_id]);
   return rows[0] || null;
 }
 
 
 async function upsertSessionPaymentBySessionId(
   { sessionId, amount, note = null, createdBy = null },
-  client = pool
+  tenant_id, branch_id, client = pool
 ) {
   // 1️⃣ Try to UPDATE first
   const updateQuery = `
@@ -48,6 +52,8 @@ async function upsertSessionPaymentBySessionId(
       note = COALESCE($2, note),
       created_by = COALESCE($3, created_by)
     WHERE session_id = $4
+    AND tenant_id = $5
+    AND branch_id = $6
     RETURNING *
   `;
   const updateResult = await client.query(updateQuery, [
@@ -55,6 +61,8 @@ async function upsertSessionPaymentBySessionId(
     note,
     createdBy,
     sessionId,
+    tenant_id,
+    branch_id
   ]);
 
   // If UPDATE found a row → done
@@ -64,8 +72,8 @@ async function upsertSessionPaymentBySessionId(
 
   // 2️⃣ If no row exists → INSERT
   const insertQuery = `
-    INSERT INTO session_payments (session_id, amount, note, created_by)
-    VALUES ($1, $2, $3, $4)
+    INSERT INTO session_payments (session_id, amount, note, created_by,tenant_id,branch_id)
+    VALUES ($1, $2, $3, $4,$5,$6)
     RETURNING *
   `;
   const insertResult = await client.query(insertQuery, [
@@ -73,10 +81,13 @@ async function upsertSessionPaymentBySessionId(
     amount,
     note,
     createdBy,
+    tenant_id,
+    branch_id
   ]);
 
   return insertResult.rows[0];
 }
+
 
 
 

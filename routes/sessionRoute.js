@@ -4,26 +4,27 @@ const router = express.Router();
 
 
 import authMiddleware from '../middlewares/authMiddleware.js';
-import roleCheck from '../middlewares/roleMiddleware.js';
+import permissionMiddleware from '../middlewares/permissionMiddleware.js';
 import validateIdParam from '../validates/idValidate.js';
 import sessionValidate from '../validates/sessionValidate.js';
 import sessionController from '../controllers/sessionController.js';
-
+import branchAssigmentMiddleware from '../middlewares/branchAssigmentMiddleware.js';
 
 router.use(authMiddleware);
-router.post('/appointment/:appointmentId', roleCheck('doctor'), sessionValidate.validateCreateSession, sessionController.controllerCreateSession); 
+router.use(branchAssigmentMiddleware);
+
 // /api/sessions/
-router.get('/', roleCheck('doctor','reception','assistant'), sessionValidate.validateListASessionFilters, sessionController.controllerGetAllSessions);
-router.get('/:sessionId/normal', roleCheck('doctor','reception','assistant'),validateIdParam('sessionId'), sessionController.controllerGetNormalSession);
-router.put('/:sessionId/normal', roleCheck('doctor','reception','assistant'),validateIdParam('sessionId'),sessionValidate.validateEditSession, sessionController.controllerEditNormalSession);
+router.get('/', permissionMiddleware('view_session'), sessionValidate.validateListASessionFilters, sessionController.controllerGetAllSessions);
+router.get('/:sessionId/normal', permissionMiddleware('view_session'), validateIdParam('sessionId'), sessionController.controllerGetNormalSession);
+router.put('/:sessionId/normal', permissionMiddleware('edit_session'), validateIdParam('sessionId'), sessionValidate.validateEditSession, sessionController.controllerEditNormalSession);
 
-router.get('/unpaid', roleCheck('reception'), sessionController.controllerGetAllUnPaidSessions); 
+router.get('/unpaid', permissionMiddleware('view_session'), sessionController.controllerGetAllUnPaidSessions);
 
-router.get('/:sessionId', roleCheck('doctor','reception','super_doctor'),validateIdParam('sessionId'), sessionController.controllerGetSession); 
+router.get('/:sessionId', permissionMiddleware('view_session'), validateIdParam('sessionId'), sessionController.controllerGetSession);
 // router.put('/:sessionId', roleCheck('doctor','reception','assistant'),validateIdParam('sessionId'), sessionValidate.validateUpdateSession,sessionController.controllerUpdateSession); 
-router.delete('/:sessionId', roleCheck('doctor','reception'),validateIdParam('sessionId'), sessionController.controllerDeleteSession); 
+// router.delete('/:sessionId', permissionMiddleware('delete_session'), validateIdParam('sessionId'), sessionController.controllerDeleteSession);
 
-router.post('/:sessionId/pay',roleCheck('reception'),validateIdParam('sessionId'),sessionController.controllerPaySession);
+router.post('/:sessionId/pay', permissionMiddleware('collect_payment'), validateIdParam('sessionId'), sessionController.controllerPaySession);
 
 
 export default router;

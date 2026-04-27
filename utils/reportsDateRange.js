@@ -23,39 +23,42 @@ function formatDate(date) {
         timeZone: 'UTC',
     });
 }
-export default async function monthlyReporteDateRange(month) {
+export default async function resolveReportDateRange({ month, from, to }) {
+    // 1. Custom Range Handling
+    if (from && to) {
+        const fromDate = new Date(from);
+        const toDate = new Date(to);
 
-    const input = new Date(`${month}T00:00:00Z`);
-    const inputMonth = new Date(Date.UTC(input.getUTCFullYear(), input.getUTCMonth(), 1));
-
-    const now = new Date();
-    const currentMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-
-    if (inputMonth.getTime() < currentMonth.getTime()) {
-        const from = inputMonth;
-        const to = addMonths(inputMonth, 1);
-
-        const displayEnd = new Date(to);
-        displayEnd.setUTCDate(displayEnd.getUTCDate() - 1);
-
+        // Logic: "to" date usually implies "until end of that day".
+        // DB queries use "< to". So if user says "Feb 5", we want "< Feb 6".
+        const queryTo = new Date(toDate);
+        queryTo.setUTCDate(queryTo.getUTCDate() + 1);
         return {
-            from,
-            to,
-            label: formatMonthLabel(from),
-            rangeText: `${formatDate(from)} → ${formatDate(displayEnd)}`
+            from: fromDate,
+            to: queryTo,
+            label: `Custom: ${formatDate(fromDate)} - ${formatDate(toDate)}`,
+            rangeText: `${formatDate(fromDate)} → ${formatDate(toDate)}`
         };
     }
+    // 2. Existing Month Handling (Fall back to this if no from/to)
+    if (month) {
+        const input = new Date(`${month}T00:00:00Z`);
+        const inputMonth = new Date(Date.UTC(input.getUTCFullYear(), input.getUTCMonth(), 1));
 
-    if (inputMonth.getTime() === currentMonth.getTime()) {
-        const from = inputMonth;
-        const to = now;
+        const now = new Date();
+        const currentMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+        if (inputMonth > currentMonth) throw new Error("Future month not allowed");
+        const nextMonth = addMonths(inputMonth, 1);
+
+        // If current month, cap 'to' at 'now'
+        const effectiveTo = (inputMonth.getTime() === currentMonth.getTime()) ? now : nextMonth;
 
         return {
-            from,
-            to,
-            label: formatMonthLabel(from),
-            rangeText: `${formatDate(from)} → ${formatDate(now)}`
+            from: inputMonth,
+            to: effectiveTo,
+            label: formatMonthLabel(inputMonth),
+            rangeText: `${formatDate(inputMonth)} → ${formatDate(effectiveTo)}`
         };
     }
-    throw new Error("Future month is not allowed");
+    throw new Error("Invalid Date Selection");
 }

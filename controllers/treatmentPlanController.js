@@ -8,14 +8,15 @@ const controllerGetActivePlan = asyncWrap(async (req, res) => {
     if (!patientId || !type) {
         return res.status(400).json({ message: 'patientId and type are required' });
     }
-    const plan = await treatmentPlanService.serviceGetActivePlan(patientId, type);
+    const plan = await treatmentPlanService.serviceGetActivePlan(patientId, type, req.user.tenant_id, req.user.branch_id);
     return res.json({ data: plan });
 })
 
 const controllerGetSessionsForTp = asyncWrap(async (req, res) => {
     const tpId = Number(req.params.treatmentPlanId)
+    const { tenant_id, branch_id } = req.user;
 
-    const result = await treatmentPlanService.serviceGetSessionsForTp(tpId);
+    const result = await treatmentPlanService.serviceGetSessionsForTp(tpId, tenant_id, branch_id);
 
     return res.status(200).json({
         message: `All sessions for Treatment Plan with id ${tpId} is here\n`,
@@ -33,11 +34,12 @@ const controllerGetAllTreatmentPlansForSection = asyncWrap(async (req, res) => {
         return undefined; // or throw error if you want strict
     };
 
+    const { tenant_id, branch_id } = req.user;
     const result = await treatmentPlanService.serviceGetAllTreatmentPlansForSection({
         isPaid: parseBool(isPaid),
         isCompleted: parseBool(isCompleted),
         search: q,
-    });
+    }, tenant_id, branch_id);
 
     return res.status(200).json({
         message: "Treatment Plans retrieved successfully",
@@ -46,10 +48,11 @@ const controllerGetAllTreatmentPlansForSection = asyncWrap(async (req, res) => {
 })
 
 const controllerEditTp = asyncWrap(async (req, res) => {
-    const {type , agreed_total, is_completed} = req.body;
+    const { type, agreed_total, is_completed } = req.body;
     const tpId = Number(req.params.treatmentPlanId)
+    const { tenant_id, branch_id } = req.user;
 
-    const result = await treatmentPlanService.serviceEditTp(type, agreed_total,is_completed, tpId);
+    const result = await treatmentPlanService.serviceEditTp(type, agreed_total, is_completed, tpId, tenant_id, branch_id);
 
     return res.status(200).json({
         message: `Edited the Treatment Plan with id ${tpId} successfully`,
@@ -60,28 +63,33 @@ const controllerEditTp = asyncWrap(async (req, res) => {
 
 const controllereDeleteTp = asyncWrap(async (req, res) => {
     const tpId = Number(req.params.treatmentPlanId)
+    const { tenant_id, branch_id } = req.user;
 
-    const result = await treatmentPlanService.serviceDeleteTp(tpId)
+    const result = await treatmentPlanService.serviceDeleteTp(tpId, tenant_id, branch_id)
     return res.status(204).send()
 })
 
 const controllerUpdatePaidForTpSession = asyncWrap(async (req, res) => {
-  const tpId = Number(req.params.treatmentPlanId);
-  const sessionId = Number(req.params.sessionId);
-  const { amount } = req.body;
+    const tpId = Number(req.params.treatmentPlanId);
+    const sessionId = Number(req.params.sessionId);
+    const { amount } = req.body;
 
-  const result = await treatmentPlanService.serviceUpdatePaidForTpSession(
-    tpId,
-    sessionId,
-    amount
-  );
+    const { tenant_id, branch_id } = req.user;
+    const result = await treatmentPlanService.serviceUpdatePaidForTpSession(
+        tpId,
+        sessionId,
+        amount,
+        tenant_id,
+        branch_id
+    );
 
-  return res.status(200).json({
-    message: "Paid amount updated",
-    data: result,
-  });
+    return res.status(200).json({
+        message: "Paid amount updated",
+        data: result,
+    });
 });
 
-export default { controllerGetActivePlan, controllerGetSessionsForTp, controllerGetAllTreatmentPlansForSection,
-    controllerEditTp,  controllereDeleteTp, controllerUpdatePaidForTpSession
- }
+export default {
+    controllerGetActivePlan, controllerGetSessionsForTp, controllerGetAllTreatmentPlansForSection,
+    controllerEditTp, controllereDeleteTp, controllerUpdatePaidForTpSession
+}

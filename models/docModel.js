@@ -1,41 +1,42 @@
 import pool from '../db_connection.js';
 
-async function addDoc(doc_id, room) {
-  const query = `INSERT INTO doctors (id,room) VALUES ($1,$2) RETURNING *`;
-  const values = [doc_id, room];
+async function addDoc(doc_id, room, tenant_id, branch_id) {
+  const query = `INSERT INTO doctors (id,room,tenant_id,branch_id) VALUES ($1,$2,$3,$4) RETURNING *`;
+  const values = [doc_id, room, tenant_id, branch_id];
   const { rows } = await pool.query(query, values)
   return rows[0] || null;
 
 }
 
-async function getDoctorById(doctor_id) {
-  const query = `Select id FROM doctors WHERE id=$1`;
-  const value = [doctor_id];
+async function getDoctorById(doctor_id, tenant_id, branch_id) {
+  const query = `Select id FROM doctors WHERE id=$1 AND tenant_id=$2 AND branch_id=$3`;
+  const value = [doctor_id, tenant_id, branch_id];
   const { rows } = await pool.query(query, value)
   return rows[0] || null;
 }
 
-async function getAllDocs() {
+async function getAllDocs(tenant_id, branch_id) {
   const query = `SELECT d.id,d.room, p.full_name
        FROM doctors d 
        JOIN profiles p ON d.id = p.user_id 
+       WHERE d.tenant_id = $1 AND d.branch_id = $2
        ORDER BY p.full_name ASC;
     `;
-  const { rows } = await pool.query(query);
+  const { rows } = await pool.query(query, [tenant_id, branch_id]);
   return rows;
 }
 
-async function getDoc(doc_id) {
+async function getDoc(doc_id, tenant_id, branch_id) {
   const query = `SELECT *
        FROM doctors 
-       where id = $1;
+       where id = $1 AND tenant_id = $2 AND branch_id = $3;
     `;
-  const value = [doc_id]
+  const value = [doc_id, tenant_id, branch_id]
   const { rows } = await pool.query(query, value);
   return rows[0] || null;
 }
 
-async function activeTodayAppt({ from, to, doc_id }) {
+async function activeTodayAppt({ from, to, doc_id, tenant_id, branch_id }) {
   const query = `
     SELECT 
       a.id,
@@ -48,13 +49,15 @@ async function activeTodayAppt({ from, to, doc_id }) {
       p.phone AS patient_phone,
       pr.full_name AS doctor_name
     FROM appointments a
-    JOIN patients p ON p.id = a.patient_id
-    JOIN doctors   d  ON a.doctor_id = d.id
+    JOIN patients p ON p.id = a.patient_id AND a.tenant_id = p.tenant_id
+    JOIN doctors   d  ON a.doctor_id = d.id AND a.tenant_id = d.tenant_id AND a.branch_id = d.branch_id
     JOIN profiles  pr ON d.id = pr.user_id
     WHERE a.scheduled_start >= $1
       AND a.scheduled_start <  $2
       AND a.status IN ('scheduled','checked_in','in_progress')
       AND a.doctor_id=$3
+      AND a.tenant_id = $4
+      AND a.branch_id = $5
      ORDER BY
     CASE a.status
       WHEN 'in_progress' THEN 1
@@ -64,12 +67,12 @@ async function activeTodayAppt({ from, to, doc_id }) {
     END,
     a.scheduled_start DESC
   `;
-  const values = [from, to, doc_id]
+  const values = [from, to, doc_id, tenant_id, branch_id]
   const { rows } = await pool.query(query, values);
   return rows;
 }
 
-async function findApptsPerDoctorWithFilters({ from, to, type, search, doc_id }) {
+async function findApptsPerDoctorWithFilters({ from, to, type, search, doc_id }, tenant_id, branch_id) {
   const baseQuery = `
     SELECT 
       a.id,
@@ -81,13 +84,15 @@ async function findApptsPerDoctorWithFilters({ from, to, type, search, doc_id })
       a.doctor_id,
       a.appointment_type
     FROM appointments a
-    JOIN patients  p  ON a.patient_id = p.id
-    JOIN doctors   d  ON a.doctor_id = d.id
-    JOIN profiles  pr ON a.doctor_id = pr.user_id`;
+    JOIN patients  p  ON a.patient_id = p.id AND a.tenant_id = p.tenant_id
+    JOIN doctors   d  ON a.doctor_id = d.id AND a.tenant_id = d.tenant_id AND a.branch_id = d.branch_id
+    JOIN profiles  pr ON a.doctor_id = pr.user_id
+    WHERE a.tenant_id = $1 AND a.branch_id = $2
+    `;
 
   const where = [];
-  const values = [];
-  let idx = 1;
+  const values = [tenant_id, branch_id];
+  let idx = 3;
 
   if (doc_id) {
     where.push(`a.doctor_id = $${idx}`);
@@ -121,7 +126,7 @@ async function findApptsPerDoctorWithFilters({ from, to, type, search, doc_id })
 
   let query = baseQuery;
   if (where.length > 0) {
-    query += ` WHERE ` + where.join(" AND ");
+    query += ` AND ` + where.join(" AND ");
   }
 
   query += `
@@ -142,13 +147,15 @@ async function findApptsPerDoctorWithFilters({ from, to, type, search, doc_id })
   return rows;
 }
 
-async function getSessionByApptIdPerDoc(appointmentId, doc_id) {
+async function getSessionByApptIdPerDoc(appointmentId, doc_id, tenant_id, branch_id) {
   const query = ` SELECT s.id AS session_id, s.appointment_id, a.doctor_id 
   FROM sessions s
-  JOIN appointments a ON a.id = s.appointment_id
-  WHERE appointment_id = $1
-  AND a.doctor_id= $2; `;
-  const values = [appointmentId, doc_id];
+  JOIN appointments a ON a.id = s.appointment_id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
+  WHERE s.appointment_id = $1
+  AND a.doctor_id= $2
+  AND s.tenant_id = $3
+  AND s.branch_id = $4; `;
+  const values = [appointmentId, doc_id, tenant_id, branch_id];
   const { rows } = await pool.query(query, values);
   return rows[0] || null;
 }
