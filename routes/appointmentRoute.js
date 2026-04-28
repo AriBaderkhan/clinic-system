@@ -17,7 +17,7 @@ router.get("/", permissionMiddleware('view_appointment'), appointmentValidate.va
 router.get("/active/today", permissionMiddleware('view_appointment'), appointmentController.controllerActiveTodayAppt);
 router.get('/:appointmentId', permissionMiddleware('view_appointment'), validateIdParam('appointmentId'), appointmentController.controllerGetAppointment);
 router.put('/:appointmentId', permissionMiddleware('update_appointment'), validateIdParam('appointmentId'), appointmentValidate.validateUpdateAppointment, appointmentController.controllerUpdateAppointment);
-// router.delete('/:appointmentId', permissionMiddleware('reception'), validateIdParam('appointmentId'), appointmentController.controllerDeleteAppointment);
+router.delete('/:appointmentId', permissionMiddleware('delete_appointment'), validateIdParam('appointmentId'), appointmentController.controllerDeleteAppointment);
 
 // status actions
 router.patch('/:appointmentId/checked-in', permissionMiddleware('update_appointment_status'), validateIdParam('appointmentId'), appointmentController.controllerSetCheckedIn);

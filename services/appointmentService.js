@@ -198,12 +198,12 @@ async function serviceSetComplete({ appointmentId, doctorId, next_plan, notes, w
     try {
         await client.query("BEGIN");
 
-        const appt = await appointmentModel.getAppointment(appointmentId, client, tenant_id, branch_id);
+        const appt = await appointmentModel.getAppointment(appointmentId, tenant_id, branch_id, client);
         if (!appt) throw appError('APPOINTMENT_NOT_FOUND', 'Appointment not found', 404);
         if (appt.status !== 'in_progress') throw appError('INVALID_APPOINTMENT_STATUS', 'Only in_progress appointments can be completed', 400);
         // if (appt.doctor_id !== doctorId) throw appError('FORBIDDEN', 'You are not allowed to complete this appointment');  // important 
 
-        const createdSession = await sessionModel.createSession(appointmentId, next_plan, notes, doctorId, client, tenant_id, branch_id);
+        const createdSession = await sessionModel.createSession(appointmentId, next_plan, notes, doctorId, tenant_id, branch_id, client);
         if (!createdSession) throw appError('SESSION_CREATE_FAILED', 'session create failed', 500);
         const sessionId = createdSession.id;
 
@@ -222,7 +222,7 @@ async function serviceSetComplete({ appointmentId, doctorId, next_plan, notes, w
 
             const { work_id, quantity, tooth_number } = w;
 
-            const catalog = await workCatalogModel.getWorkById(work_id, client, tenant_id, branch_id); // from work_catalog
+            const catalog = await workCatalogModel.getWorkById(work_id, tenant_id, branch_id, client); // from work_catalog
             if (!catalog) throw appError('WORK_NOT_FOUND', 'Work not found', 404);
 
 
@@ -237,9 +237,9 @@ async function serviceSetComplete({ appointmentId, doctorId, next_plan, notes, w
                 let plan = await treatmentPlanModel.getActivePlan(
                     appt.patient_id,
                     code,
-                    client,
                     tenant_id,
-                    branch_id
+                    branch_id,
+                    client
                 );
 
 
@@ -261,14 +261,15 @@ async function serviceSetComplete({ appointmentId, doctorId, next_plan, notes, w
                         type: code,
                         agreedTotal: agreedTotal,
                         createdBy: doctorId,
-                    }, client,
+                    },
                         tenant_id,
-                        branch_id
+                        branch_id,
+                        client
                     );
                 }
                 rawTreatmentPlanId = plan.id;
                 if (rawTreatmentPlanId && planCompletion?.[code] === true) {
-                    await treatmentPlanModel.markCompleted(rawTreatmentPlanId, client, tenant_id, branch_id);
+                    await treatmentPlanModel.markCompleted(rawTreatmentPlanId, tenant_id, branch_id, client);
                 }
 
             }
@@ -289,7 +290,7 @@ async function serviceSetComplete({ appointmentId, doctorId, next_plan, notes, w
                 totalMinPrice: rowMin,
                 totalPrice: rowTotal,
                 treatmentPlanId: rawTreatmentPlanId
-            }, client, tenant_id, branch_id
+            }, tenant_id, branch_id, client
             );
 
             const isPlanWork = rawTreatmentPlanId !== null;
@@ -307,11 +308,11 @@ async function serviceSetComplete({ appointmentId, doctorId, next_plan, notes, w
         const total = normalGrandTotal;
         const total_paid = 0;
         const is_paid = (normalGrandTotal <= 0);
-        const updatedSessionWork = await sessionModel.updateSessionTotal({ min_total, total, total_paid, is_paid, sessionId }, client, tenant_id, branch_id)
+        const updatedSessionWork = await sessionModel.updateSessionTotal({ min_total, total, total_paid, is_paid, sessionId }, tenant_id, branch_id, client)
         if (!updatedSessionWork) throw appError('SESSION_UPDATE_FAILED', 'session Update failed', 500);
 
 
-        const updatedAppointment = await appointmentModel.setAppointmentComplete(appointmentId, doctorId, client, tenant_id, branch_id);
+        const updatedAppointment = await appointmentModel.setAppointmentComplete(appointmentId, doctorId, tenant_id, branch_id, client);
         if (!updatedAppointment) throw appError('APPOINTMENT_COMPLETE_FAILED', 'Appointment complete failed', 500);
 
         await client.query("COMMIT");

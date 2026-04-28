@@ -20,7 +20,7 @@ router.get('/', permissionMiddleware('view_patient'), patientController.controll
 router.get('/search', permissionMiddleware('view_patient'), patientController.controllerSearchPatients);
 router.get('/:patientId', permissionMiddleware('view_patient'), validateIdParam('patientId'), patientController.controllerGetPatient);
 router.put('/:patientId', permissionMiddleware('update_patient'), validateIdParam('patientId'), patientValidate.validateUpdatePatient, patientController.controllerUpdatePatient);
-// router.delete('/:patientId', permissionMiddleware('manage_patients'), validateIdParam('patientId'), patientController.controllerDeletePatient);
+router.delete('/:patientId', permissionMiddleware('delete_patient'), validateIdParam('patientId'), patientController.controllerDeletePatient);
 
 
 router.get('/:patientId/appointments', permissionMiddleware('view_appointment'), validateIdParam('patientId'), patientController.controllerGetAllApptsPatient);
