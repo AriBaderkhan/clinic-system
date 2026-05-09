@@ -22,7 +22,7 @@ router.get('/unpaid', permissionMiddleware('view_session'), sessionController.co
 
 router.get('/:sessionId', permissionMiddleware('view_session'), validateIdParam('sessionId'), sessionController.controllerGetSession);
 // router.put('/:sessionId', roleCheck('doctor','reception','assistant'),validateIdParam('sessionId'), sessionValidate.validateUpdateSession,sessionController.controllerUpdateSession); 
-// router.delete('/:sessionId', permissionMiddleware('delete_session'), validateIdParam('sessionId'), sessionController.controllerDeleteSession);
+router.delete('/:sessionId', permissionMiddleware('delete_session'), validateIdParam('sessionId'), sessionController.controllerDeleteSession);
 
 router.post('/:sessionId/pay', permissionMiddleware('collect_payment'), validateIdParam('sessionId'), sessionController.controllerPaySession);
 
