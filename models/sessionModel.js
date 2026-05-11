@@ -270,24 +270,18 @@ async function getAllUnPaidSessions(tenant_id, branch_id) {
             AND sw.branch_id = s.branch_id
             AND sw.treatment_plan_id IS NOT NULL
 
-            -- plan overall still has remaining (optional but ok)
-            AND tp.agreed_total > COALESCE((
-              SELECT SUM(tpp2.amount)
-              FROM treatment_payments tpp2
-              WHERE tpp2.treatment_plan_id = tp.id
-                AND tpp2.tenant_id = s.tenant_id
-                AND tpp2.branch_id = s.branch_id
-            ), 0)
+            -- plan overall still has remaining
+            AND tp.agreed_total > COALESCE(tp.total_paid, 0)
 
-            -- but THIS session hasn't paid at least 50,000 for THIS plan
-            AND COALESCE((
-              SELECT SUM(tpp.amount)
+            -- but THIS session has no payment for THIS plan
+            AND NOT EXISTS (
+              SELECT 1
               FROM treatment_payments tpp
               WHERE tpp.session_id = s.id
                 AND tpp.treatment_plan_id = tp.id
                 AND tpp.tenant_id = s.tenant_id
                 AND tpp.branch_id = s.branch_id
-            ), 0) = 0
+            )
         )
       )
     ORDER BY a.started_at DESC
