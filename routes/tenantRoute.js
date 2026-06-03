@@ -35,6 +35,13 @@ router.post(
     tenantController.createBranch
 );
 
+router.post(
+    '/switch-branch/:branchId', 
+    permissionMiddleware('manage_branches'),
+    validateIdParam('branchId'),
+    tenantController.switchBranch
+)
+
 router.put(
     '/branches/:id',
     permissionMiddleware('manage_branches'),

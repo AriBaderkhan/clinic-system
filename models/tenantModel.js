@@ -154,4 +154,14 @@ async function deleteBranchSettings(branchId, tenantId) {
     const result = await pool.query(query, values);
     return result.rows[0];
 }
-export default { findTenantById, getTenantDetails, updateTenant, getAllBranches, createBranch, createBranchSettings, deleteBranch, deleteBranchSettings, updateBranch }
+
+async function branchBelongsToTenant(branchId, tenantId) {
+
+    const query = `
+    SELECT EXISTS( SELECT 1 FROM branches WHERE id = $1 AND tenant_id = $2)`
+
+    const values = [branchId, tenantId];
+    const result = await pool.query(query, values);
+    return result.rows[0].exists;
+}
+export default { findTenantById, getTenantDetails, updateTenant, getAllBranches, createBranch, createBranchSettings, deleteBranch, deleteBranchSettings, updateBranch, branchBelongsToTenant }

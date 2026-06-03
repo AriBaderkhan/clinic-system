@@ -1,6 +1,7 @@
 import tenantModel from '../models/tenantModel.js';
 import pool from '../db_connection.js';
-// import branchModel from '../models/branchModel.js';
+import branchModel from '../models/branchModel.js';
+import appError from '../utils/appError.js';
 
 async function getTenantDetails(tenantId) {
     // Pass undefined as first arg to use the default 'pool' defined in the model
@@ -56,11 +57,32 @@ async function deleteBranch(branchId, tenantId) {
     const branchSettings = await tenantModel.deleteBranchSettings(branchId, tenantId);
     return branch;
 }
+
+
+
+async function switchBranch(tenant_id, branchId) {
+
+    const branch = await branchModel.findBranchById(branchId);
+    if (!branch) throw appError('BRANCH_NOT_FOUND', 'Branch not found', 404);
+    if (branch.status !== 'active') throw appError('BRANCH_NOT_ACTIVE', 'Branch is not active', 403);
+
+    const isTrue = await tenantModel.branchBelongsToTenant(branchId, tenant_id);
+    if (!isTrue) {
+        throw appError('BRANCH_NOT_FOUND', 'Branch not found in tenant', 404);
+}
+
+return branch;
+
+}
+
+
+
 export default {
     getTenantDetails,
     updateTenant,
     getAllBranches,
     createBranch,
     updateBranch,
-    deleteBranch
+    deleteBranch,
+    switchBranch
 }
