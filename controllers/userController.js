@@ -41,7 +41,14 @@ const getRoles = asyncWrap(async (req, res) => {
     const result = await userService.getRoles();
     res.status(200).json({ message: 'Roles fetched successfully', data: result })
 })
-export default { createUser, getAllUsers, getUserById, updateUser, getRoles, assigendToTheBranch }
+const deactivateUser = asyncWrap(async (req, res) => {
+    const tenant_id = req.user.tenant_id;
+    const user_id = req.params.userId;
+    await userService.updateUser(user_id, tenant_id, { is_active: false });
+    res.status(200).json({ message: 'User deactivated successfully' });
+})
+
+export default { createUser, getAllUsers, getUserById, updateUser, getRoles, assigendToTheBranch, deactivateUser }
 
 
 

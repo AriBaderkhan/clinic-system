@@ -17,9 +17,10 @@ async function getDoctorById(doctor_id, tenant_id, branch_id) {
 
 async function getAllDocs(tenant_id, branch_id) {
   const query = `SELECT d.id,d.room, p.full_name
-       FROM doctors d 
-       JOIN profiles p ON d.id = p.user_id 
-       WHERE d.tenant_id = $1 AND d.branch_id = $2
+       FROM doctors d
+       JOIN profiles p ON d.id = p.user_id
+       JOIN users u ON d.id = u.id
+       WHERE d.tenant_id = $1 AND d.branch_id = $2 AND u.is_active = true
        ORDER BY p.full_name ASC;
     `;
   const { rows } = await pool.query(query, [tenant_id, branch_id]);

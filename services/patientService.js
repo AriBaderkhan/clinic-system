@@ -39,11 +39,16 @@ async function serviceUpdatePatient(patientDataUpdate, tenant_id, branch_id) {
 }
 
 async function serviceDeletePatient(patientId, tenant_id, branch_id) {
-
-    const result = await patientModel.deletePatient(patientId, tenant_id, branch_id)
-
-    if (!result) throw appError('DELETE_FAILED', 'Delete operation failed', 500);
-    return result;
+    try {
+        const result = await patientModel.deletePatient(patientId, tenant_id, branch_id);
+        if (!result) throw appError('PATIENT_NOT_FOUND', 'Patient not found', 404);
+        return result;
+    } catch (err) {
+        if (err.code === '23503') {
+            throw appError('PATIENT_HAS_RECORDS', 'Cannot delete this patient. They have existing appointments, sessions, or treatment plans.', 409);
+        }
+        throw err;
+    }
 }
 // END OF CRUD
 

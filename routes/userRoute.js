@@ -17,6 +17,7 @@ router.get('/', userController.getAllUsers);
 router.get('/roles', userController.getRoles);
 
 router.put('/:userId', idValidate('userId'), userController.updateUser);
+router.delete('/:userId', idValidate('userId'), userController.deactivateUser);
 router.get('/:userId', idValidate('userId'), userController.getUserById);
 
 router.post('/:userId/assign', idValidate('userId'), userController.assigendToTheBranch)
