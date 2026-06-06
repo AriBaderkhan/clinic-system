@@ -18,7 +18,7 @@ async function createUser(userData, tenant_id) {
 
     const isDoc = await userModel.checkRoleIfDoc(role_id);
     if (isDoc.name === 'doctor') {
-        await docModel.addDoc(user_id, room, tenant_id);
+        await docModel.addDoc(user_id, room, tenant_id, branch_id);
     }
     await profileModel.addProfile(user_id, full_name, phone, address);
     return { id: user_id, email: normalizedEmail, role_id, full_name };

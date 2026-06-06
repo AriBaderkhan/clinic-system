@@ -1,12 +1,19 @@
 import userService from '../services/userService.js'
 import asyncWrap from '../utils/asyncWrap.js'
 
-const createUser = asyncWrap(async (req, res) => {
+const createUser = async (req, res) => {
     const tenant_id = req.user.tenant_id;
 
-    const result = await userService.createUser(req.body, tenant_id);
-    res.status(201).json({ message: 'User created successfully', data: result })
-})
+    try {
+
+        const result = await userService.createUser(req.body, tenant_id);
+        
+        res.status(201).json({ message: 'User created successfully', data: result })
+    } catch (error) {
+        console.error('Error creating user:', error);
+        res.status(500).json({ message: 'An error occurred while creating the user' });
+    }
+}
 const getAllUsers = asyncWrap(async (req, res) => {
     const tenant_id = req.user.tenant_id;
     const result = await userService.getAllUsers(tenant_id);

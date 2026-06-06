@@ -39,11 +39,16 @@ async function serviceEditTp(type, agreed_total, is_completed, tpId, tenant_id, 
 }
 
 async function serviceDeleteTp(tpId, tenant_id, branch_id) {
-
-  const deletedTp = await treatmentPlanModel.deleteTp(tpId, tenant_id, branch_id);
-  if (!deletedTp) throw appError('DELETE_TP_FAILED', 'tp failed to delete', 404);
-
-  return deletedTp;
+  try {
+    const deletedTp = await treatmentPlanModel.deleteTp(tpId, tenant_id, branch_id);
+    if (!deletedTp) throw appError('DELETE_TP_FAILED', 'tp failed to delete', 404);
+    return deletedTp;
+  } catch (err) {
+    if (err.code === '23503') {
+      throw appError('TP_HAS_RECORDS', 'Cannot delete this treatment plan. It has existing sessions or payments.', 409);
+    }
+    throw err;
+  }
 }
 
 async function serviceUpdatePaidForTpSession(tpId, sessionId, amount, tenant_id, branch_id) {

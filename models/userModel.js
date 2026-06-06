@@ -41,7 +41,7 @@ async function getAllUsers(tenant_id) {
     JOIN roles r ON ubr.role_id = r.id
     JOIN profiles pr ON u.id = pr.user_id
     LEFT JOIN doctors d ON u.id = d.id
-    WHERE u.tenant_id = $1 ;`
+    WHERE u.tenant_id = $1 AND u.is_active = true ;`
 
     const { rows } = await pool.query(query, [tenant_id]);
     return rows;

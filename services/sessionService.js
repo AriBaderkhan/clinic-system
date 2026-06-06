@@ -335,11 +335,16 @@ async function serviceEditNormalSession(session_id, fields, userId, tenant_id, b
 
 
 async function serviceDeleteSession(sessionID, tenant_id, branch_id) {
-
-  const deletedsession = await sessionModel.deleteSession(sessionID, tenant_id, branch_id);
-  if (!deletedsession) throw appError('DELETE_SESSION_FAILED', 'session failed to delete', 500);
-
-  return deletedsession;
+  try {
+    const deletedsession = await sessionModel.deleteSession(sessionID, tenant_id, branch_id);
+    if (!deletedsession) throw appError('DELETE_SESSION_FAILED', 'session failed to delete', 500);
+    return deletedsession;
+  } catch (err) {
+    if (err.code === '23503') {
+      throw appError('SESSION_HAS_RECORDS', 'Cannot delete this session. It has existing payments.', 409);
+    }
+    throw err;
+  }
 }
 
 async function serviceGetAllUnPaidSessions(tenant_id, branch_id) {

@@ -10,7 +10,7 @@ const schemacreateUser = Joi.object({
     phone: Joi.string().optional(),
     address: Joi.string().optional(),
     is_active: Joi.boolean().optional().default(true),
-    room: Joi.number().positive().optional(),
+    room: Joi.number().positive().optional().default(1),
 })
 
 function createUser(req, res, next) {
