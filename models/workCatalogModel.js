@@ -4,7 +4,7 @@ async function createWork(code, name, min_price, allow_installments, min_install
   const query = `
     INSERT INTO work_catalog (code, name, min_price, allow_installments, min_installment_amount, tenant_id, branch_id, is_active) 
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-    RETURNING id,code
+    RETURNING id,code,name
   `;
   const values = [code, name, min_price, allow_installments, min_installment_amount, tenant_id, branch_id, is_active];
   const { rows } = await client.query(query, values);
@@ -13,7 +13,7 @@ async function createWork(code, name, min_price, allow_installments, min_install
     
 async function getWorks(tenant_id, branch_id, client = pool) {
   const query = `
-    SELECT id, code, name, min_price, allow_installments, min_installment_amount,is_active
+    SELECT id, code, name, min_price, allow_installments, min_installment_amount, is_active
     FROM work_catalog
     WHERE tenant_id = $1
     AND branch_id = $2
