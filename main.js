@@ -36,7 +36,6 @@ import patientRoute from './routes/patientRoute.js';
 import appointmentRoute from './routes/appointmentRoute.js';
 import sessionRoute from './routes/sessionRoute.js';
 import docRoute from './routes/docRoute.js';
-import workRoute from "./routes/workRoute.js";
 import historyRoute from "./routes/historyRoute.js";
 import treatmentPlanRoute from './routes/treatmentPlanRoute.js';
 import monthlyExpensesRoute from './routes/monthlyExpensesRoute.js';
@@ -49,6 +48,7 @@ import planRoute from './routes/planRoute.js';
 import featureRoute from './routes/featureRoute.js';
 import subscriptionRoute from './routes/subscriptionRoute.js';
 import adminPlatformRoute from './routes/adminPlatformRoute.js';
+import worksRoute from './routes/worksRoute.js';
 const PORT = process.env.PORT || 1000;
 
 
@@ -58,7 +58,6 @@ app.use('/api/patients', patientRoute);
 app.use('/api/appointments', appointmentRoute);
 app.use('/api/sessions', sessionRoute);
 app.use('/api/docs', docRoute);
-app.use("/api/work-catalog", workRoute);
 app.use("/api/history", historyRoute);
 app.use("/api/treatment-plans", treatmentPlanRoute);
 app.use("/api/monthly-expenses", monthlyExpensesRoute);
@@ -71,6 +70,7 @@ app.use('/api/plans', planRoute)
 app.use('/api/features', featureRoute)
 app.use('/api/subscriptions', subscriptionRoute)
 app.use('/api/admin-platform', adminPlatformRoute)
+app.use('/api/works', worksRoute)
 
 app.use((req, res) => {
     res.status(404).json({ message: "Route not found", code: "ROUTE_NOT_FOUND", support_code: req.requestId || 'N/A' });
