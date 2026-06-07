@@ -164,4 +164,18 @@ async function branchBelongsToTenant(branchId, tenantId) {
     const result = await pool.query(query, values);
     return result.rows[0].exists;
 }
-export default { findTenantById, getTenantDetails, updateTenant, getAllBranches, createBranch, createBranchSettings, deleteBranch, deleteBranchSettings, updateBranch, branchBelongsToTenant }
+
+async function getDashboardStats(tenant_id) {
+  const query = `
+    SELECT
+      (SELECT COUNT(*) FROM branches      WHERE tenant_id = $1 AND status = 'active')   AS active_branches,
+      (SELECT COUNT(*) FROM users         WHERE tenant_id = $1 AND is_active = true)     AS total_users
+  `;
+  const { rows } = await pool.query(query, [tenant_id]);
+  return rows[0];
+}
+
+export default { 
+    findTenantById, getTenantDetails, updateTenant, getAllBranches, 
+    createBranch, createBranchSettings, deleteBranch, deleteBranchSettings, 
+    updateBranch, branchBelongsToTenant,  getDashboardStats}

@@ -75,7 +75,10 @@ return branch;
 
 }
 
-
+async function getDashboardStats(tenant_id) {
+    const stats = await tenantModel.getDashboardStats(tenant_id);
+    return stats;
+}
 
 export default {
     getTenantDetails,
@@ -84,5 +87,6 @@ export default {
     createBranch,
     updateBranch,
     deleteBranch,
-    switchBranch
+    switchBranch,
+    getDashboardStats
 }

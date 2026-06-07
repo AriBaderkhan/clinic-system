@@ -10,6 +10,13 @@ import planMiddleware from '../middlewares/planMiddleware.js';
 
 router.use(authMiddleware)
 
+
+router.get(
+    '/dashboard',
+    permissionMiddleware('manage_tenant_settings'),
+    tenantController.getDashboardStats
+);
+
 router.get(
     '/',
     permissionMiddleware('manage_tenant_settings'),

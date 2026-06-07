@@ -58,6 +58,12 @@ const switchBranch = asyncWrap(async (req,res) => {
         
     res.status(200).json({ message: 'Switched Branch', token, data: branch });
 })
+
+const getDashboardStats = asyncWrap(async (req, res) => {
+    const { tenant_id } = req.user;
+    const stats = await tenantService.getDashboardStats(tenant_id);
+    res.status(200).json({ data: stats });
+});
 export default {
     getTenantDetails,
     updateTenant,
@@ -65,5 +71,6 @@ export default {
     createBranch,
     updateBranch,
     deleteBranch,
-    switchBranch
+    switchBranch,
+    getDashboardStats
 }
