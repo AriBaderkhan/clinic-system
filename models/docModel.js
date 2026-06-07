@@ -37,7 +37,7 @@ async function getDoc(doc_id, tenant_id, branch_id) {
   return rows[0] || null;
 }
 
-async function activeTodayAppt({ from, to, doc_id, tenant_id, branch_id }) {
+async function activeTodayAppt({ from, to, doc_id}, tenant_id, branch_id ) {
   const query = `
     SELECT 
       a.id,
