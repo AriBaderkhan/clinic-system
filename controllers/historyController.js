@@ -1,19 +1,18 @@
 import historyService from '../services/historyService.js';
 import asyncWrap from '../utils/asyncWrap.js';
 
-
-const controllerPaymentsHistory = asyncWrap(async (req, res) => {
+const getPayments = asyncWrap(async (req, res) => {
     const { tenant_id, branch_id } = req.user;
-    const result = await historyService.serviceGetPaymentsHistory(tenant_id, branch_id);
-    res.status(200).json({ message: 'Payment History', data: result })
+    const result = await historyService.getPayments(tenant_id, branch_id);
+    res.status(200).json({ ok: true, data: result });
 })
 
-const controllerGetSessionDetails = asyncWrap(async (req, res) => {
+const getSessionDetails = asyncWrap(async (req, res) => {
     const session_id = Number(req.params.sessionId);
     const { tenant_id, branch_id } = req.user;
 
-    const result = await historyService.serviceGetSessionDetails(session_id, tenant_id, branch_id);
-    res.status(200).json({ message: 'Session Detail', data: result })
+    const result = await historyService.getSessionDetails(session_id, tenant_id, branch_id);
+    res.status(200).json({ ok: true, data: result });
 })
 
-export default { controllerPaymentsHistory, controllerGetSessionDetails }
+export default { getPayments, getSessionDetails }

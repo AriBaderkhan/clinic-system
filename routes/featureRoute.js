@@ -8,14 +8,11 @@ import featureController from '../controllers/featureController.js';
 
 router.use(authMiddleware);
 
-// Features
-router.post('/', featureValidate.createFeature, featureController.createFeature);
-router.get('/', featureController.getFeatures);
+router.post('/', featureValidate.create, featureController.create);
+router.get('/', featureController.getAll);
 
-// Plan Assignments
-// Url: /api/features/plan/:planId
-router.post('/plan/:planId', idValidate('planId'), featureValidate.assignFeature, featureController.assignFeature);
+router.post('/plan/:planId', idValidate('planId'), featureValidate.assign, featureController.assign);
 router.get('/plan/:planId', idValidate('planId'), featureController.getPlanFeatures);
-router.delete('/plan/:planId/feature/:featureId', idValidate('planId'), idValidate('featureId'), featureController.removeFeature);
+router.delete('/plan/:planId/feature/:featureId', idValidate('planId'), idValidate('featureId'), featureController.remove);
 
 export default router;

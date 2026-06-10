@@ -1,25 +1,24 @@
 import planModel from '../models/planModel.js';
 import appError from '../utils/appError.js';
 
-
-async function createPlan(body) {
+async function create(body) {
     const plan = await planModel.createPlan(body);
     if (!plan) throw appError('PLAN_NOT_CREATED', 'Plan not created', 404);
     return plan;
 }
 
-async function getPlans() {
+async function getAll() {
     const plans = await planModel.getPlans();
     return plans;
 }
 
-async function getPlanById(id) {
+async function getById(id) {
     const plan = await planModel.getPlanById(id);
     if (!plan) throw appError('PLAN_NOT_FOUND', 'Plan not found', 404);
     return plan;
 }
 
-async function updatePlan(id, body) {
+async function update(id, body) {
     const plan = await planModel.getPlanById(id);
     if (!plan) throw new appError('PLAN_NOT_FOUND', 'Plan not found', 404);
 
@@ -28,7 +27,7 @@ async function updatePlan(id, body) {
     return updatedPlan;
 }
 
-async function deletePlan(id) {
+async function _delete(id) {
     const plan = await planModel.getPlanById(id);
     if (!plan) throw new appError('PLAN_NOT_FOUND', 'Plan not found', 404);
 
@@ -37,4 +36,4 @@ async function deletePlan(id) {
     return deletedPlan;
 }
 
-export default { createPlan, getPlans, getPlanById, updatePlan, deletePlan };
+export default { create, getAll, getById, update, delete: _delete };

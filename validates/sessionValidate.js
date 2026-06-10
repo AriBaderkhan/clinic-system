@@ -1,30 +1,5 @@
 import Joi from 'joi';
 
-const schemaSessionAdd = Joi.object({
-    case_id: Joi.number().required(),
-    complaint: Joi.string().optional(),
-    diagnosis: Joi.string().optional(),
-    next_plan: Joi.string().optional(),
-    notes: Joi.string().optional(),
-});
-
-function validateCreateSession(req, res, next) {
-    const { error } = schemaSessionAdd.validate(req.body);
-    if (error) return res.status(400).send(error.details[0].message)
-    next();
-}
-
-const schemaSessionUpdate = schemaSessionAdd
-    .fork(['complaint', 'diagnosis', 'next_plan', 'notes'], (field) => field.optional())
-    .fork(['case_id'], (field) => field.forbidden())
-    .min(1);
-
-function validateUpdateSession(req, res, next) {
-    const { error } = schemaSessionUpdate.validate(req.body);
-    if (error) return res.status(400).send(error.details[0].message)
-    next();
-}
-
 
 const schemaEditSession = Joi.object({
     next_plan: Joi.string().min(3).max(300).allow('', null).optional(), // optional
@@ -42,7 +17,7 @@ const schemaEditSession = Joi.object({
     total_paid: Joi.number().positive().optional()
 });
 
-function validateEditSession(req, res, next) {
+function edit(req, res, next) {
     const { error } = schemaEditSession.validate(req.body);
     if (error) return res.status(400).json({ message: error.details[0].message })
     next();
@@ -56,10 +31,10 @@ const listSessionsFiltersSchema = Joi.object({
     limit: Joi.number().integer().min(1).max(100).optional(),
 }).unknown(false)
 
-function validateListASessionFilters(req, res, next) {
+function filters(req, res, next) {
     const { error } = listSessionsFiltersSchema.validate(req.query);
     if (error) return res.status(400).json({ message: error.details[0].message })
     next();
 }
 
-export default { validateCreateSession, validateUpdateSession, validateEditSession,validateListASessionFilters}
+export default { edit, filters }

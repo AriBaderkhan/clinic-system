@@ -7,7 +7,7 @@ const editTpSchema = Joi.object({
 
 }).min(1);
 
-function validateEditTp(req, res, next) {
+function update(req, res, next) {
     const { error } = editTpSchema.validate(req.body, {
         abortEarly: true,
         convert: true,        // allow "200000" -> 200000
@@ -17,4 +17,4 @@ function validateEditTp(req, res, next) {
     next();
 }
 
-export default { validateEditTp }
+export default { update }

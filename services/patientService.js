@@ -1,7 +1,7 @@
 import patientModel from '../models/patientModel.js';
 import appError from '../utils/appError.js';
 
-async function serviceCreatePatient(patientData, tenant_id, branch_id) {
+async function create(patientData, tenant_id, branch_id) {
 
     const { name, phone, age, gender, address, created_by } = patientData;
     const patient = await patientModel.createPatient(name, phone, age, gender, address, created_by, tenant_id, branch_id);
@@ -10,12 +10,12 @@ async function serviceCreatePatient(patientData, tenant_id, branch_id) {
     return patient;
 }
 
-async function serviceGetAllPatients({ q, page, limit }, tenant_id, branch_id) {
+async function getAll({ q, page, limit }, tenant_id, branch_id) {
     const result = await patientModel.getAllPatients({ q, page, limit }, tenant_id, branch_id);
     return result;
 }
 
-async function serviceGetPatient(patientId, tenant_id, branch_id) {
+async function getById(patientId, tenant_id, branch_id) {
 
     const patient = await patientModel.getPatient(patientId, tenant_id, branch_id);
 
@@ -23,7 +23,7 @@ async function serviceGetPatient(patientId, tenant_id, branch_id) {
     return patient;
 }
 
-async function serviceUpdatePatient(patientDataUpdate, tenant_id, branch_id) {
+async function update(patientDataUpdate, tenant_id, branch_id) {
     const { patientId, fields, updatedBy } = patientDataUpdate;
 
     const thePatient = await patientModel.getPatient(patientId, tenant_id, branch_id)
@@ -36,7 +36,7 @@ async function serviceUpdatePatient(patientDataUpdate, tenant_id, branch_id) {
     return resultUpdate;
 }
 
-async function serviceDeletePatient(patientId, tenant_id, branch_id) {
+async function _delete(patientId, tenant_id, branch_id) {
     try {
         const result = await patientModel.deletePatient(patientId, tenant_id, branch_id);
         if (!result) throw appError('PATIENT_NOT_FOUND', 'Patient not found', 404);
@@ -51,33 +51,33 @@ async function serviceDeletePatient(patientId, tenant_id, branch_id) {
 // END OF CRUD
 
 // for search available patient in creating appointment
-async function searchPatientsService(q, tenant_id, branch_id) {
+async function search(q, tenant_id, branch_id) {
     return await patientModel.searchPatientsModel(q, tenant_id, branch_id);
 }
 
 
-async function serviceGetAllApptsPatient(patientId, tenant_id, branch_id) {
+async function getAppointments(patientId, tenant_id, branch_id) {
 
     const apptsPatient = await patientModel.getAllApptsPatient(patientId, tenant_id, branch_id);
 
     return apptsPatient;
 }
 
-async function serviceGetAllSessionsPatient(patientId, tenant_id, branch_id) {
+async function getSessions(patientId, tenant_id, branch_id) {
 
     const sessionsPatient = await patientModel.getAllSessionsPatient(patientId, tenant_id, branch_id);
 
     return sessionsPatient;
 }
 
-async function serviceGetAllPaymentsPatient(patientId, tenant_id, branch_id) {
+async function getPayments(patientId, tenant_id, branch_id) {
 
     const paymentssPatient = await patientModel.getAllPaymentsPatient(patientId, tenant_id, branch_id);
 
     return paymentssPatient;
 }
 
-async function serviceGetAllTreatmentPlansPatient(patientId, tenant_id, branch_id) {
+async function getTreatmentPlans(patientId, tenant_id, branch_id) {
 
     const TreatmentPlansPatient = await patientModel.getAllTreatmentPlansPatient(patientId, tenant_id, branch_id);
 
@@ -86,14 +86,6 @@ async function serviceGetAllTreatmentPlansPatient(patientId, tenant_id, branch_i
 
 
 export default {
-    serviceCreatePatient,
-    serviceGetAllPatients,
-    serviceGetPatient,
-    serviceUpdatePatient,
-    serviceDeletePatient,
-    searchPatientsService,
-    serviceGetAllApptsPatient,
-    serviceGetAllSessionsPatient,
-    serviceGetAllPaymentsPatient,
-    serviceGetAllTreatmentPlansPatient
-}   
+    create, getAll, getById, update, delete: _delete, search,
+    getAppointments, getSessions, getPayments, getTreatmentPlans
+}

@@ -1,47 +1,35 @@
 import patientService from '../services/patientService.js';
 import asyncWrap from '../utils/asyncWrap.js';
 
-const controllerCreatePatient = asyncWrap(async (req, res) => {
+const create = asyncWrap(async (req, res) => {
     const { name, phone, age, gender, address } = req.body;
     const created_by = req.user.id;
     const { tenant_id, branch_id } = req.user;
 
     const patientData = { name, phone, age, gender, address, created_by }
 
-
-    const result = await patientService.serviceCreatePatient(patientData, tenant_id, branch_id);
-
-    return res.status(201).json({ message: `Patient Added succesfully`, data: result });
+    const result = await patientService.create(patientData, tenant_id, branch_id);
+    res.status(201).json({ ok: true, data: result });
 })
 
-const controllerGetAllPatients = asyncWrap(async (req, res) => {
+const getAll = asyncWrap(async (req, res) => {
     const { q, page, limit } = req.query;
     const { tenant_id, branch_id } = req.user;
     const safePage = Math.max(1, parseInt(page) || 1);
     const safeLimit = Math.min(100, parseInt(limit) || 20);
-    const { rows, total } = await patientService.serviceGetAllPatients({ q, page: safePage, limit: safeLimit }, tenant_id, branch_id);
-    return res.status(200).json({
-        message: 'All Patients are here',
-        patients: rows,
-        pagination: {
-            total,
-            page: safePage,
-            limit: safeLimit,
-            totalPages: Math.ceil(total / safeLimit) || 1,
-        }
-    });
+    const { rows, total } = await patientService.getAll({ q, page: safePage, limit: safeLimit }, tenant_id, branch_id);
+    res.status(200).json({ ok: true, data: rows, total, page: safePage, limit: safeLimit });
 })
 
-const controllerGetPatient = asyncWrap(async (req, res) => {
+const getById = asyncWrap(async (req, res) => {
     const patientId = Number(req.params.patientId)
     const { tenant_id, branch_id } = req.user;
 
-    const result = await patientService.serviceGetPatient(patientId, tenant_id, branch_id);
-    return res.status(200).json({ message: `Patient with id ${patientId} is here\n`, patient: result })
+    const result = await patientService.getById(patientId, tenant_id, branch_id);
+    res.status(200).json({ ok: true, data: result });
 })
 
-
-const controllerUpdatePatient = asyncWrap(async (req, res) => {
+const update = asyncWrap(async (req, res) => {
     const patientId = Number(req.params.patientId);
     const updatedBy = req.user.id;
     const fields = req.body;
@@ -49,73 +37,59 @@ const controllerUpdatePatient = asyncWrap(async (req, res) => {
 
     const patientDataUpdate = { patientId, updatedBy, fields }
 
-    const result = await patientService.serviceUpdatePatient(patientDataUpdate, tenant_id, branch_id);
-    return res.status(200).json({ message: `Patient with id ${patientId} updated successfully`, updatedPatient: result });
+    const result = await patientService.update(patientDataUpdate, tenant_id, branch_id);
+    res.status(200).json({ ok: true, data: result });
 })
 
-const controllerDeletePatient = asyncWrap(async (req, res) => {
+const _delete = asyncWrap(async (req, res) => {
     const patientId = Number(req.params.patientId)
     const { tenant_id, branch_id } = req.user;
 
-    const deletedPatient = await patientService.serviceDeletePatient(patientId, tenant_id, branch_id)
-    return res.status(204).send()
+    await patientService.delete(patientId, tenant_id, branch_id)
+    res.status(200).json({ ok: true });
 })
 
-// for search available patient in creating appointment
-const controllerSearchPatients = asyncWrap(async (req, res) => {
+const search = asyncWrap(async (req, res) => {
     const q = (req.query.q || "").trim();
     const { tenant_id, branch_id } = req.user;
 
-    // if (!q || q.length < 2) {
-    //     return res.json([]); // no query or too short
-    // }
-    const patients = await patientService.searchPatientsService(q, tenant_id, branch_id);
-    return res.json(patients); // simple array
+    const result = await patientService.search(q, tenant_id, branch_id);
+    res.status(200).json({ ok: true, data: result });
 })
 
-const controllerGetAllApptsPatient = asyncWrap(async (req, res) => {
+const getAppointments = asyncWrap(async (req, res) => {
     const patientId = Number(req.params.patientId)
     const { tenant_id, branch_id } = req.user;
 
-    const result = await patientService.serviceGetAllApptsPatient(patientId, tenant_id, branch_id);
-    return res.status(200).json({ message: `All Appointments for Patient with id ${patientId} is here\n`, data: result })
+    const result = await patientService.getAppointments(patientId, tenant_id, branch_id);
+    res.status(200).json({ ok: true, data: result });
 })
 
-const controllerGetAllSessionsPatient = asyncWrap(async (req, res) => {
+const getSessions = asyncWrap(async (req, res) => {
     const patientId = Number(req.params.patientId)
     const { tenant_id, branch_id } = req.user;
 
-    const result = await patientService.serviceGetAllSessionsPatient(patientId, tenant_id, branch_id);
-    return res.status(200).json({ message: `All Sessions for Patient with id ${patientId} is here\n`, data: result })
+    const result = await patientService.getSessions(patientId, tenant_id, branch_id);
+    res.status(200).json({ ok: true, data: result });
 })
 
-const controllerGetAllPaymentsPatient = asyncWrap(async (req, res) => {
+const getPayments = asyncWrap(async (req, res) => {
     const patientId = Number(req.params.patientId)
     const { tenant_id, branch_id } = req.user;
 
-    const result = await patientService.serviceGetAllPaymentsPatient(patientId, tenant_id, branch_id);
-    return res.status(200).json({ message: `All Payments for Patient with id ${patientId} is here\n`, data: result })
+    const result = await patientService.getPayments(patientId, tenant_id, branch_id);
+    res.status(200).json({ ok: true, data: result });
 })
 
-const controllerGetAllTreatmentPlansPatient = asyncWrap(async (req, res) => {
+const getTreatmentPlans = asyncWrap(async (req, res) => {
     const patientId = Number(req.params.patientId)
     const { tenant_id, branch_id } = req.user;
 
-    const result = await patientService.serviceGetAllTreatmentPlansPatient(patientId, tenant_id, branch_id);
-    return res.status(200).json({ message: `All Treatment Plans for Patient with id ${patientId} is here\n`, data: result })
+    const result = await patientService.getTreatmentPlans(patientId, tenant_id, branch_id);
+    res.status(200).json({ ok: true, data: result });
 })
-
 
 export default {
-    controllerCreatePatient,
-    controllerGetAllPatients,
-    controllerGetPatient,
-    controllerUpdatePatient,
-    controllerDeletePatient,
-    controllerSearchPatients,
-
-    controllerGetAllApptsPatient,
-    controllerGetAllSessionsPatient,
-    controllerGetAllPaymentsPatient,
-    controllerGetAllTreatmentPlansPatient
+    create, getAll, getById, update, delete: _delete,
+    search, getAppointments, getSessions, getPayments, getTreatmentPlans
 }

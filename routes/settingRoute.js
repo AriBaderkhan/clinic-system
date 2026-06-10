@@ -8,11 +8,6 @@ import branchAssigmentMiddleware from '../middlewares/branchAssigmentMiddleware.
 router.use(authMiddleware)
 router.use(branchAssigmentMiddleware)
 
-router.get('/effective',
-    settingController.getEffectiveSettings
-)
-
-
-
+router.get('/effective', settingController.getEffective)
 
 export default router;

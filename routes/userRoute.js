@@ -12,14 +12,14 @@ const router = express.Router();
 router.use(authMiddleware);
 router.use(permissionCheck('manage_users'));
 
-router.post('/', planMiddleware.checkMaxUsers, userValidate.createUser, userController.createUser);
-router.get('/', userController.getAllUsers);
+router.post('/', planMiddleware.checkMaxUsers, userValidate.create, userController.create);
+router.get('/', userController.getAll);
 router.get('/roles', userController.getRoles);
 
-router.put('/:userId', idValidate('userId'), userController.updateUser);
-router.delete('/:userId', idValidate('userId'), userController.deactivateUser);
-router.get('/:userId', idValidate('userId'), userController.getUserById);
+router.put('/:userId', idValidate('userId'), userController.update);
+router.delete('/:userId', idValidate('userId'), userController.deactivate);
+router.get('/:userId', idValidate('userId'), userController.getById);
 
-router.post('/:userId/assign', idValidate('userId'), userController.assigendToTheBranch)
+router.post('/:userId/assign', idValidate('userId'), userController.assignToBranch)
 
 export default router;

@@ -1,6 +1,6 @@
-import appError from '../utils/appError.js';
+﻿import appError from '../utils/appError.js';
 
-import appointmentModel from '../models/appoinmentModel.js';
+import appointmentModel from '../models/appointmentModel.js';
 import patientModel from '../models/patientModel.js';
 import doctorModel from '../models/docModel.js';
 import sessionModel from '../models/sessionModel.js';
@@ -10,7 +10,7 @@ import treatmentPlanModel from '../models/treatmentPlanModel.js';
 import pool from '../db_connection.js';
 
 
-async function serviceCreateAppointment(appointmentData, tenant_id, branch_id) {
+async function create(appointmentData, tenant_id, branch_id) {
     const { patient_id, doctor_id, scheduled_start, created_by, appointment_type } = appointmentData;
 
     const patient = await patientModel.getPatient(patient_id, tenant_id, branch_id);
@@ -49,21 +49,14 @@ async function serviceCreateAppointment(appointmentData, tenant_id, branch_id) {
     return appointment;
 }
 
-async function serviceGetAllAppointments(tenant_id, branch_id) {
-
-    const appointments = await appointmentModel.getAllAppointments(tenant_id, branch_id);
-    if (appointments.length === 0) throw appError('NO_APPOINTMENTS_FOUND', 'No appointments found', 404);
-    return appointments;
-}
-
-async function serviceGetAppointment(appointmentId, tenant_id, branch_id) {
+async function getById(appointmentId, tenant_id, branch_id) {
 
     const appointment = await appointmentModel.getAppointment(appointmentId, tenant_id, branch_id);
     if (!appointment) throw appError('APPOINTMENT_NOT_FOUND', 'Appointment not found', 404);
     return appointment;
 }
 
-async function serviceUpdateAppointment(appointmentDataForUpdate, tenant_id, branch_id) {
+async function update(appointmentDataForUpdate, tenant_id, branch_id) {
     const { appointmentId, patient_id, doctor_id, scheduled_start, updatedBy } =
         appointmentDataForUpdate;
 
@@ -152,7 +145,7 @@ async function serviceUpdateAppointment(appointmentDataForUpdate, tenant_id, bra
     return updated;
 }
 
-async function serviceDeleteAppointment(appointmentId, tenant_id, branch_id) {
+async function _delete(appointmentId, tenant_id, branch_id) {
 
     const deletedappointment = await appointmentModel.deleteAppointment(appointmentId, tenant_id, branch_id)
     if (!deletedappointment) throw appError('APPOINTMENT_NOT_FOUND', 'Appointment not found', 404);
@@ -162,7 +155,7 @@ async function serviceDeleteAppointment(appointmentId, tenant_id, branch_id) {
 // END OF CRUD
 
 // STATUS CHANGING
-async function serviceSetCheckIn(appointmentId, userId, tenant_id, branch_id) {
+async function checkIn(appointmentId, userId, tenant_id, branch_id) {
     const appt = await appointmentModel.getAppointment(appointmentId, tenant_id, branch_id);
 
     if (!appt) throw appError('APPOINTMENT_NOT_FOUND', 'Appointment not found', 404);
@@ -175,7 +168,7 @@ async function serviceSetCheckIn(appointmentId, userId, tenant_id, branch_id) {
     return updatedAppointmentStatus;
 }
 
-async function serviceSetStart(appointmentId, userId, tenant_id, branch_id) {
+async function start(appointmentId, userId, tenant_id, branch_id) {
     const appt = await appointmentModel.getAppointment(appointmentId, tenant_id, branch_id);
 
     if (!appt) throw appError('APPOINTMENT_NOT_FOUND', 'Appointment not found', 404);
@@ -192,7 +185,7 @@ async function serviceSetStart(appointmentId, userId, tenant_id, branch_id) {
 // Its job is to:
 // Close an in-progress appointment, 
 // create a session, register all works, manage treatment plans, calculate totals,
-async function serviceSetComplete({ appointmentId, doctorId, next_plan, notes, works, agreementTotals, planCompletion }, tenant_id, branch_id) {
+async function complete({ appointmentId, doctorId, next_plan, notes, works, agreementTotals, planCompletion }, tenant_id, branch_id) {
     const client = await pool.connect();
 
     try {
@@ -231,7 +224,7 @@ async function serviceSetComplete({ appointmentId, doctorId, next_plan, notes, w
 
 
             // if works include the treatment plans
-            // 🔹 ORTHO / IMPLANT / RCT
+            // ðŸ”¹ ORTHO / IMPLANT / RCT
             let rawTreatmentPlanId = null;
             if (['ortho', 'implant', 'rct', 're_rct'].includes(code)) {
                 let plan = await treatmentPlanModel.getActivePlan(
@@ -245,7 +238,7 @@ async function serviceSetComplete({ appointmentId, doctorId, next_plan, notes, w
 
                 // first time ever
                 if (!plan) {
-                    const agreedTotal = Number(agreementTotals?.[code]); // ✅ pick only this type
+                    const agreedTotal = Number(agreementTotals?.[code]); // âœ… pick only this type
 
                     if (!agreedTotal || agreedTotal <= 0) {
                         throw appError('AGREEMENT_TOTAL_REQUIRED', `${code} agreement total required`, 400);
@@ -338,7 +331,7 @@ async function serviceSetComplete({ appointmentId, doctorId, next_plan, notes, w
     }
 }
 
-async function serviceSetCancel(appointmentId, userId, cancel_reason, tenant_id, branch_id) {
+async function cancel(appointmentId, userId, cancel_reason, tenant_id, branch_id) {
     const appt = await appointmentModel.getAppointment(appointmentId, tenant_id, branch_id);
 
     if (!appt) throw appError('APPOINTMENT_NOT_FOUND', 'Appointment not found', 404);
@@ -351,7 +344,7 @@ async function serviceSetCancel(appointmentId, userId, cancel_reason, tenant_id,
     return updatedAppointment;
 }
 
-async function serviceSetNoShow(appointmentId, userId, cancel_reason, tenant_id, branch_id) {
+async function noShow(appointmentId, userId, cancel_reason, tenant_id, branch_id) {
     const appt = await appointmentModel.getAppointment(appointmentId, tenant_id, branch_id);
 
     if (!appt) throw appError('APPOINTMENT_NOT_FOUND', 'Appointment not found', 404);
@@ -367,7 +360,7 @@ async function serviceSetNoShow(appointmentId, userId, cancel_reason, tenant_id,
 
 
 // for filtters and searches by type and p.name, p.phone and d.name
-async function serviceListAppointmentsWithFilters({ day, type, search, page, limit }, tenant_id, branch_id) {
+async function getAll({ day, type, search, page, limit }, tenant_id, branch_id) {
 
     const range = day ? dateRange.getDateRange(day) : null;
 
@@ -384,7 +377,7 @@ async function serviceListAppointmentsWithFilters({ day, type, search, page, lim
 }
 
 // FOR DASHBOARD
-async function serviceActiveTodayAppt(tenant_id, branch_id) {
+async function getActiveToday(tenant_id, branch_id) {
 
     const todayAppt = dateRange.getDateRange('today');
 
@@ -398,14 +391,14 @@ async function serviceActiveTodayAppt(tenant_id, branch_id) {
     return appointments;
 }
 
-async function serviceGetSessionByApptId(appointmentId, tenant_id, branch_id) {
+async function getSession(appointmentId, tenant_id, branch_id) {
 
     const sessionForAppt = await appointmentModel.getSessionByApptId(appointmentId, tenant_id, branch_id);
     if (!sessionForAppt) throw appError('SESSION_FOR_APPOINTMENT_NOT_FOUND', 'Session for appointment not found', 404);
     return sessionForAppt;
 }
 export default {
-    serviceCreateAppointment, serviceGetAllAppointments, serviceGetAppointment, serviceDeleteAppointment, serviceUpdateAppointment,
-    serviceSetCheckIn, serviceSetStart, serviceSetComplete, serviceSetCancel, serviceSetNoShow, serviceListAppointmentsWithFilters,
-    serviceActiveTodayAppt, serviceGetSessionByApptId
+    create, getById, delete: _delete, update,
+    checkIn, start, complete, cancel, noShow, getAll,
+    getActiveToday, getSession
 }

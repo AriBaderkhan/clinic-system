@@ -7,11 +7,11 @@ const schemaLogin = Joi.object({
     branch_id: Joi.number().optional()
 })
 
-function validateLogin(req, res, next) {
+function login(req, res, next) {
     const { error } = schemaLogin.validate(req.body);
     if (error) return res.status(400).send(error.details[0].message)
     next();
 }
 
 
-export default { validateLogin }
+export default { login }

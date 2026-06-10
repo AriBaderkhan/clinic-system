@@ -2,16 +2,14 @@ import authService from '../services/authService.js';
 import jwt from 'jsonwebtoken';
 import asyncWrap from '../utils/asyncWrap.js';
 
-
-const controllerLogin = asyncWrap(async (req, res) => {
-
-    const result = await authService.serviceLogin(req.body);
+const login = asyncWrap(async (req, res) => {
+    const result = await authService.login(req.body);
 
     if (result.requiresBranchSelection) {
         return res.status(200).json({
-            message: 'Select a branch',
+            ok: true,
             requiresBranchSelection: true,
-            branches: result.branches
+            data: result.branches
         });
     }
 
@@ -26,7 +24,7 @@ const controllerLogin = asyncWrap(async (req, res) => {
     };
     const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN })
     res.status(200).json({
-        message: 'Logged in Successfully',
+        ok: true,
         token,
         user: {
             id: user.id,
@@ -36,15 +34,14 @@ const controllerLogin = asyncWrap(async (req, res) => {
             name: user.name,
             permissions: user.permissions
         }
-    })
+    });
 })
 
-
-const controllerSwitchBranch = asyncWrap(async (req, res) => {
+const switchBranch = asyncWrap(async (req, res) => {
     const { branch_id } = req.body;
     const { id, tenant_id } = req.user;
 
-    const user = await authService.serviceSwitchBranch(id, tenant_id, branch_id);
+    const user = await authService.switchBranch(id, tenant_id, branch_id);
     const payload = {
         id: user.id,
         tenant_id: user.tenant_id,
@@ -53,10 +50,10 @@ const controllerSwitchBranch = asyncWrap(async (req, res) => {
         name: user.name,
         permissions: user.permissions
     };
-    const token1 = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN })
+    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN })
     res.status(200).json({
-        message: 'Switched Successfully ',
-        token1,
+        ok: true,
+        token,
         user: {
             id: user.id,
             tenant_id: user.tenant_id,
@@ -65,6 +62,7 @@ const controllerSwitchBranch = asyncWrap(async (req, res) => {
             name: user.name,
             permissions: user.permissions
         }
-    })
+    });
 })
-export default { controllerLogin, controllerSwitchBranch }
+
+export default { login, switchBranch }

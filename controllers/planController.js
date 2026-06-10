@@ -1,30 +1,29 @@
 import planService from '../services/planService.js';
 import asyncWrap from '../utils/asyncWrap.js';
 
-
-const createPlan = asyncWrap(async (req, res) => {
-    const plan = await planService.createPlan(req.body);
-    res.status(201).json({ message: 'Plan created successfully', data: plan });
+const create = asyncWrap(async (req, res) => {
+    const result = await planService.create(req.body);
+    res.status(201).json({ ok: true, data: result });
 })
 
-const getPlans = asyncWrap(async (req, res) => {
-    const plans = await planService.getPlans();
-    res.status(200).json({ data: plans });
+const getAll = asyncWrap(async (req, res) => {
+    const result = await planService.getAll();
+    res.status(200).json({ ok: true, data: result });
 })
 
-const getPlanById = asyncWrap(async (req, res) => {
-    const plan = await planService.getPlanById(Number(req.params.planId));
-    res.status(200).json({ data: plan });
+const getById = asyncWrap(async (req, res) => {
+    const result = await planService.getById(Number(req.params.planId));
+    res.status(200).json({ ok: true, data: result });
 })
 
-const updatePlan = asyncWrap(async (req, res) => {
-    const plan = await planService.updatePlan(Number(req.params.planId), req.body);
-    res.status(200).json({ message: 'Plan updated successfully', data: plan });
+const update = asyncWrap(async (req, res) => {
+    const result = await planService.update(Number(req.params.planId), req.body);
+    res.status(200).json({ ok: true, data: result });
 })
 
-const deletePlan = asyncWrap(async (req, res) => {
-    const plan = await planService.deletePlan(Number(req.params.planId));
-    res.status(200).json({ message: 'Plan deleted successfully', data: plan });
+const _delete = asyncWrap(async (req, res) => {
+    await planService.delete(Number(req.params.planId));
+    res.status(200).json({ ok: true });
 })
 
-export default { createPlan, getPlans, getPlanById, updatePlan, deletePlan };
+export default { create, getAll, getById, update, delete: _delete };

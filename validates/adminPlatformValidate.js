@@ -17,7 +17,7 @@ const registerTenantSchema = Joi.object({
     address: Joi.string().optional()
 });
 
-const registerTenant = asyncWrap(async (req, res, next) => {
+const register = asyncWrap(async (req, res, next) => {
     const { error } = registerTenantSchema.validate(req.body);
     if (error) {
         throw appError('VALIDATION_ERROR', error.details[0].message, 400);
@@ -25,6 +25,4 @@ const registerTenant = asyncWrap(async (req, res, next) => {
     next();
 });
 
-export default {
-    registerTenant
-};
+export default { register };

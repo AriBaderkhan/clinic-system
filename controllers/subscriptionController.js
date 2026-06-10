@@ -1,32 +1,28 @@
 import subscriptionService from "../services/subscriptionService.js";
 import asyncWrap from '../utils/asyncWrap.js';
 
-const createSubscription = asyncWrap(async (req, res) => {
+const create = asyncWrap(async (req, res) => {
     const tenantId = Number(req.params.tenantId);
     const { planId } = req.body;
-    const subscription = await subscriptionService.createSubscription(tenantId, planId);
-    res.status(201).json(subscription);
+    const result = await subscriptionService.create(tenantId, planId);
+    res.status(201).json({ ok: true, data: result });
 })
 
-const getAllSubscriptions = asyncWrap(async (req, res) => {
-    const subscription = await subscriptionService.getAllSubscriptions();
-    res.status(200).json(subscription);
+const getAll = asyncWrap(async (req, res) => {
+    const result = await subscriptionService.getAll();
+    res.status(200).json({ ok: true, data: result });
 })
 
-const getSubscription = asyncWrap(async (req, res) => {
-    const subscription = await subscriptionService.getSubscription(Number(req.params.subscriptionId));
-    res.status(200).json(subscription);
+const getById = asyncWrap(async (req, res) => {
+    const result = await subscriptionService.getById(Number(req.params.subscriptionId));
+    res.status(200).json({ ok: true, data: result });
 })
 
-const updateSubscription = asyncWrap(async (req, res) => {
+const update = asyncWrap(async (req, res) => {
     const tenantId = Number(req.params.tenantId);
     const subscriptionId = Number(req.params.subscriptionId);
-    const subscription = await subscriptionService.updateSubscription(subscriptionId, tenantId, req.body);
-    res.status(200).json(subscription);
+    const result = await subscriptionService.update(subscriptionId, tenantId, req.body);
+    res.status(200).json({ ok: true, data: result });
 })
-export default {
-    createSubscription,
-    getAllSubscriptions,
-    getSubscription,
-    updateSubscription
-}
+
+export default { create, getAll, getById, update }

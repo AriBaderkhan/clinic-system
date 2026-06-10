@@ -1,29 +1,26 @@
 import branchService from "../services/branchService.js";
 import asyncWrap from "../utils/asyncWrap.js";
 
-const getBranchDetails = asyncWrap(async (req, res) => {
+const getById = asyncWrap(async (req, res) => {
     const targetBranchId = req.params.branchId;
     const { tenant_id, branch_id, role } = req.user;
 
     if ((role !== 'tenant_manager' && role !== 'branch_manager') && targetBranchId !== Number(branch_id)) {
-        return res.status(403).json({ message: 'Forbidden' });
+        return res.status(403).json({ ok: false, error: 'FORBIDDEN', message: 'Forbidden' });
     }
-    const branch = await branchService.getBranchDetails(targetBranchId, tenant_id);
-    res.status(200).json({ message: 'Branch Details', data: branch });
+    const result = await branchService.getById(targetBranchId, tenant_id);
+    res.status(200).json({ ok: true, data: result });
 });
 
-const updateBranch = asyncWrap(async (req, res) => {
+const update = asyncWrap(async (req, res) => {
     const targetBranchId = req.params.branchId;
     const { tenant_id, branch_id, role } = req.user;
 
     if ((role !== 'tenant_manager' && role !== 'branch_manager') && targetBranchId !== Number(branch_id)) {
-        return res.status(403).json({ message: 'Forbidden' });
+        return res.status(403).json({ ok: false, error: 'FORBIDDEN', message: 'Forbidden' });
     }
-    const branch = await branchService.updateBranch(req.body, targetBranchId, tenant_id);
-    res.status(200).json({ message: 'Branch Updated', data: branch });
+    const result = await branchService.update(req.body, targetBranchId, tenant_id);
+    res.status(200).json({ ok: true, data: result });
 });
 
-export default {
-    getBranchDetails,
-    updateBranch
-}
+export default { getById, update }

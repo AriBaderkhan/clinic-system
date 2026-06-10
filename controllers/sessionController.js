@@ -1,88 +1,64 @@
 import sessionService from '../services/sessionService.js';
 import asyncWrap from '../utils/asyncWrap.js';
 
-
-const controllerGetAllSessions = asyncWrap(async (req, res) => {
+const getAll = asyncWrap(async (req, res) => {
     const { day, q, page, limit } = req.query;
     const { tenant_id, branch_id } = req.user;
     const safePage = Math.max(1, parseInt(page) || 1);
     const safeLimit = Math.min(100, parseInt(limit) || 20);
-    const { rows, total } = await sessionService.serviceGetAllSessions({
+    const { rows, total } = await sessionService.getAll({
         day, search: q, page: safePage, limit: safeLimit,
     }, tenant_id, branch_id);
-    return res.status(200).json({
-        message: 'All Sessions are here',
-        sessions: rows,
-        pagination: {
-            total,
-            page: safePage,
-            limit: safeLimit,
-            totalPages: Math.ceil(total / safeLimit) || 1,
-        }
-    });
+    res.status(200).json({ ok: true, data: rows, total, page: safePage, limit: safeLimit });
 })
 
-const controllerGetNormalSession = asyncWrap(async (req, res) => {
+const getNormal = asyncWrap(async (req, res) => {
     const session_id = Number(req.params.sessionId);
     const { tenant_id, branch_id } = req.user;
 
-    const result = await sessionService.serviceGetNormalSession(session_id, tenant_id, branch_id);
-    res.status(200).json({ message: 'Session Detail', data: result })
-})
-const controllerGetSession = asyncWrap(async (req, res) => {
-    const session_id = Number(req.params.sessionId);
-    const { tenant_id, branch_id } = req.user;
-
-    const result = await sessionService.serviceGetSession(session_id, tenant_id, branch_id);
-    return res.status(200).json({ message: `Session with id ${session_id} is here`, session: result });
+    const result = await sessionService.getNormal(session_id, tenant_id, branch_id);
+    res.status(200).json({ ok: true, data: result });
 })
 
-const controllerEditNormalSession = asyncWrap(async (req, res) => {
+const editNormal = asyncWrap(async (req, res) => {
     const session_id = Number(req.params.sessionId);
     const fields = req.body;
     const userId = req.user.id;
     const { tenant_id, branch_id } = req.user;
 
-    const result = await sessionService.serviceEditNormalSession(session_id, fields, userId, tenant_id, branch_id);
-    return res.status(200).json({ message: `Session with id ${session_id} updated successfully`, data: result });
+    const result = await sessionService.editNormal(session_id, fields, userId, tenant_id, branch_id);
+    res.status(200).json({ ok: true, data: result });
 })
 
-const controllerDeleteSession = asyncWrap(async (req, res) => {
+const _delete = asyncWrap(async (req, res) => {
     const sessionID = Number(req.params.sessionId);
     const { tenant_id, branch_id } = req.user;
 
-    const result = await sessionService.serviceDeleteSession(sessionID, tenant_id, branch_id)
-    return res.status(204).json({ message: `Session with id ${sessionID} deleted successfully`, data: result });
+    await sessionService.delete(sessionID, tenant_id, branch_id)
+    res.status(200).json({ ok: true });
 })
 
-
-const controllerGetAllUnPaidSessions = asyncWrap(async (req, res) => {
+const getUnpaid = asyncWrap(async (req, res) => {
     const { tenant_id, branch_id } = req.user;
     const { limit, q } = req.query;
     const safeLimit = limit ? Math.min(100, parseInt(limit) || 20) : undefined;
-    const { sessions, total } = await sessionService.serviceGetAllUnPaidSessions(tenant_id, branch_id, { limit: safeLimit, q });
-    return res.status(200).json({ message: 'All Sessions are here', data: sessions, total });
+    const { sessions, total } = await sessionService.getUnpaid(tenant_id, branch_id, { limit: safeLimit, q });
+    res.status(200).json({ ok: true, data: sessions, total });
 })
 
-
-const controllerPaySession = asyncWrap(async (req, res) => {
+const pay = asyncWrap(async (req, res) => {
     const sessionId = Number(req.params.sessionId);
     const { normalAmount, planPayments, note } = req.body;
     const userId = req.user?.user_id;
     const { tenant_id, branch_id } = req.user;
 
-    const data = await sessionService.servicePaySession({
-        sessionId,
-        normalAmount,
-        planPayments,
-        note,
-        userId,
+    const result = await sessionService.pay({
+        sessionId, normalAmount, planPayments, note, userId,
     }, tenant_id, branch_id);
 
-    return res.status(200).json({ message: "Payment saved", data: data });
+    res.status(200).json({ ok: true, data: result });
 })
 
 export default {
-    controllerGetAllSessions, controllerGetNormalSession, controllerGetSession, controllerEditNormalSession,
-    controllerDeleteSession, controllerGetAllUnPaidSessions, controllerPaySession
+    getAll, getNormal, editNormal, delete: _delete, getUnpaid, pay
 }

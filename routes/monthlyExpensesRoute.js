@@ -12,15 +12,12 @@ router.use(authMiddleware);
 router.use(branchAssigmentMiddleware);
 router.use(permissionMiddleware('manage_expenses'))
 
-router.post('/', monthlyExpensesValidate.createExpenses, monthlyExpensesController.controllerCreateMonthlyExpneses)
-router.get('/', monthlyExpensesController.controllerGetAllMonthlyExpneses)
-router.get('/:expensesId', validateIdParam('expensesId'), monthlyExpensesController.controllerGetMonthlyExpneses)
-router.put('/:expensesId', validateIdParam('expensesId'), monthlyExpensesValidate.updateExpenses, monthlyExpensesController.controllerUpdateMonthlyExpneses)
-router.delete('/:expensesId', validateIdParam('expensesId'), monthlyExpensesController.controllerDeleteMonthlyExpneses)
-
+router.post('/', monthlyExpensesValidate.create, monthlyExpensesController.create)
+router.get('/', monthlyExpensesController.getAll)
 router.get('/available_months', monthlyExpensesController.getAvailableMonths)
-
 router.get('/available_types', monthlyExpensesController.getAvailableTypes)
-
+router.get('/:expensesId', validateIdParam('expensesId'), monthlyExpensesController.getById)
+router.put('/:expensesId', validateIdParam('expensesId'), monthlyExpensesValidate.update, monthlyExpensesController.update)
+router.delete('/:expensesId', validateIdParam('expensesId'), monthlyExpensesController.delete)
 
 export default router

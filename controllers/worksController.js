@@ -1,41 +1,37 @@
 import asyncWrap from "../utils/asyncWrap.js";
 import worksService from "../services/worksService.js";
 
-const createWork = asyncWrap(async (req, res) => {
-    const { tenant_id,branch_id } = req.user;
-    const work = await worksService.createWork(req.body, tenant_id, branch_id);
-    res.status(201).json(work);
-})
-
-
-const getWorks = asyncWrap(async (req, res) => {
+const create = asyncWrap(async (req, res) => {
     const { tenant_id, branch_id } = req.user;
-    const works = await worksService.getWorks(tenant_id, branch_id);
-    res.status(200).json({data: works});
+    const result = await worksService.create(req.body, tenant_id, branch_id);
+    res.status(201).json({ ok: true, data: result });
 })
 
-const getWorkById = asyncWrap(async (req, res) => {
+const getAll = asyncWrap(async (req, res) => {
     const { tenant_id, branch_id } = req.user;
-    const { workId } = req.params;
-    const work = await worksService.getWorkById(workId, tenant_id, branch_id);
-    res.status(200).json(work);
+    const result = await worksService.getAll(tenant_id, branch_id);
+    res.status(200).json({ ok: true, data: result });
 })
 
-const updateWork = asyncWrap(async (req, res) => {
+const getById = asyncWrap(async (req, res) => {
     const { tenant_id, branch_id } = req.user;
     const { workId } = req.params;
-    const work = await worksService.updateWork(workId, req.body, tenant_id, branch_id);
-    res.status(200).json(work);
+    const result = await worksService.getById(workId, tenant_id, branch_id);
+    res.status(200).json({ ok: true, data: result });
 })
 
-
-const deleteWork = asyncWrap(async (req, res) => {
+const update = asyncWrap(async (req, res) => {
     const { tenant_id, branch_id } = req.user;
     const { workId } = req.params;
-    const work = await worksService.deleteWork(workId, tenant_id, branch_id);
-    res.status(200).json(work);
+    const result = await worksService.update(workId, req.body, tenant_id, branch_id);
+    res.status(200).json({ ok: true, data: result });
 })
 
+const _delete = asyncWrap(async (req, res) => {
+    const { tenant_id, branch_id } = req.user;
+    const { workId } = req.params;
+    await worksService.delete(workId, tenant_id, branch_id);
+    res.status(200).json({ ok: true });
+})
 
-
-export default { createWork, getWorks, getWorkById,updateWork, deleteWork }
+export default { create, getAll, getById, update, delete: _delete }

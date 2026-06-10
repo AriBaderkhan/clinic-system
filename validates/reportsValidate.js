@@ -6,7 +6,7 @@ const reportMonthQuerySchema = Joi.object({
     to: Joi.date().iso().min(Joi.ref('from')),
 }).or('month', 'from');
 
-function validateReportMonthly(req, res, next) {
+function monthly(req, res, next) {
     const { error } = reportMonthQuerySchema.validate(req.query, {
         abortEarly: true,
         stripUnknown: true,
@@ -23,4 +23,4 @@ function validateReportMonthly(req, res, next) {
     next();
 }
 
-export default { validateReportMonthly }
+export default { monthly }

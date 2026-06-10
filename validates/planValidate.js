@@ -7,7 +7,7 @@ const planCreateSchema = Joi.object({
     price: Joi.number().required(),
 });
 
-function planCreate(req, res, next) {
+function create(req, res, next) {
     const { errors } = planCreateSchema.validate(req.body)
     if (errors) return res.status(400).json({ errors: errors.details })
     next()
@@ -15,10 +15,10 @@ function planCreate(req, res, next) {
 
 const planUpdateSchema = planCreateSchema.fork(['name', 'max_branches', 'max_users', 'price'], (field) => field.optional());
 
-function planUpdate(req, res, next) {
+function update(req, res, next) {
     const { errors } = planUpdateSchema.validate(req.body)
     if (errors) return res.status(400).json({ errors: errors.details })
     next()
 }
 
-export default { planCreate, planUpdate };
+export default { create, update };

@@ -5,7 +5,7 @@ import profileModel from '../models/profileModel.js';
 import docModel from '../models/docModel.js';
 
 
-async function createUser(userData, tenant_id) {
+async function create(userData, tenant_id) {
 
     const { branch_id, full_name, email, password, role_id, phone, address, room, is_active } = userData;
     const hashedPassword = await bcrypt.hash(String(password || ''), 10);
@@ -24,18 +24,18 @@ async function createUser(userData, tenant_id) {
     return { id: user_id, email: normalizedEmail, role_id, full_name };
 }
 
-async function getAllUsers(tenant_id) {
+async function getAll(tenant_id) {
     const users = await userModel.getAllUsers(tenant_id);
     return users;
 }
 
-async function getUserById(user_id, tenant_id) {
+async function getById(user_id, tenant_id) {
     const user = await userModel.getUserById(user_id, tenant_id);
     return user;
 }
 
 
-async function updateUser(user_id, tenant_id, userData) {
+async function update(user_id, tenant_id, userData) {
     if (userData.password) {
         const hashedPassword = await bcrypt.hash(String(userData.password || ''), 10);
         userData.password = hashedPassword;
@@ -45,7 +45,7 @@ async function updateUser(user_id, tenant_id, userData) {
 }
 
 
-async function assigendToTheBranch(user_id, tenant_id, userData) {
+async function assignToBranch(user_id, tenant_id, userData) {
     const { branch_id, role_id } = userData
     const result = await userModel.assigendToTheBranch(user_id, tenant_id, branch_id, role_id);
     return result;
@@ -56,4 +56,4 @@ async function getRoles() {
     const roles = await userModel.getRoles();
     return roles;
 }
-export default { createUser, getAllUsers, getUserById, updateUser, getRoles, assigendToTheBranch }
+export default { create, getAll, getById, update, getRoles, assignToBranch }

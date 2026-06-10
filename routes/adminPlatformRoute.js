@@ -6,11 +6,7 @@ import permissionMiddleware from '../middlewares/permissionMiddleware.js';
 import adminPlatformController from '../controllers/adminPlatformController.js';
 import adminPlatformValidate from '../validates/adminPlatformValidate.js';
 
-// Public - Register New Tenant
-router.post('/register', adminPlatformValidate.registerTenant, adminPlatformController.registerTenant);
-
-// Protected - Super Admin Dashboard
-// Assuming 'manage_system' is the permission for Platform Admin
-router.get('/tenants', authMiddleware, permissionMiddleware('manage_system'), adminPlatformController.getAllTenants);
+router.post('/register', adminPlatformValidate.register, adminPlatformController.register);
+router.get('/tenants', authMiddleware, permissionMiddleware('manage_system'), adminPlatformController.getAll);
 
 export default router;

@@ -1,7 +1,6 @@
 import express from 'express';
 const router = express.Router();
 
-
 import authMiddleware from '../middlewares/authMiddleware.js';
 import permissionMiddleware from '../middlewares/permissionMiddleware.js';
 import patientValidate from '../validates/patientValidate.js';
@@ -12,21 +11,16 @@ import branchAssigmentMiddleware from '../middlewares/branchAssigmentMiddleware.
 router.use(authMiddleware);
 router.use(branchAssigmentMiddleware);
 
+router.post('/', permissionMiddleware('create_patient'), patientValidate.create, patientController.create);
+router.get('/', permissionMiddleware('view_patient'), patientController.getAll);
+router.get('/search', permissionMiddleware('view_patient'), patientController.search);
+router.get('/:patientId', permissionMiddleware('view_patient'), validateIdParam('patientId'), patientController.getById);
+router.put('/:patientId', permissionMiddleware('update_patient'), validateIdParam('patientId'), patientValidate.update, patientController.update);
+router.delete('/:patientId', permissionMiddleware('delete_patient'), validateIdParam('patientId'), patientController.delete);
 
-router.post('/', permissionMiddleware('create_patient'), patientValidate.validateCreatePatient, patientController.controllerCreatePatient);
-router.get('/', permissionMiddleware('view_patient'), patientController.controllerGetAllPatients);
-
-// for search available patient in creating appointment
-router.get('/search', permissionMiddleware('view_patient'), patientController.controllerSearchPatients);
-router.get('/:patientId', permissionMiddleware('view_patient'), validateIdParam('patientId'), patientController.controllerGetPatient);
-router.put('/:patientId', permissionMiddleware('update_patient'), validateIdParam('patientId'), patientValidate.validateUpdatePatient, patientController.controllerUpdatePatient);
-router.delete('/:patientId', permissionMiddleware('delete_patient'), validateIdParam('patientId'), patientController.controllerDeletePatient);
-
-
-router.get('/:patientId/appointments', permissionMiddleware('view_appointment'), validateIdParam('patientId'), patientController.controllerGetAllApptsPatient);
-router.get('/:patientId/sessions', permissionMiddleware('view_session'), validateIdParam('patientId'), patientController.controllerGetAllSessionsPatient);
-router.get('/:patientId/payments', permissionMiddleware('view_payment'), validateIdParam('patientId'), patientController.controllerGetAllPaymentsPatient);
-router.get('/:patientId/treatment-plans', permissionMiddleware('manage_tp'), validateIdParam('patientId'), patientController.controllerGetAllTreatmentPlansPatient);
-
+router.get('/:patientId/appointments', permissionMiddleware('view_appointment'), validateIdParam('patientId'), patientController.getAppointments);
+router.get('/:patientId/sessions', permissionMiddleware('view_session'), validateIdParam('patientId'), patientController.getSessions);
+router.get('/:patientId/payments', permissionMiddleware('view_payment'), validateIdParam('patientId'), patientController.getPayments);
+router.get('/:patientId/treatment-plans', permissionMiddleware('manage_tp'), validateIdParam('patientId'), patientController.getTreatmentPlans);
 
 export default router;

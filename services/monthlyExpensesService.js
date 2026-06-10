@@ -2,7 +2,7 @@ import monthlyExpensesModel from '../models/monthlyExpensesModel.js'
 import appError from '../utils/appError.js';
 
 
-async function serviceCreateMonthlyExpneses(monthlyExpensesDetail, tenant_id, branch_id) {
+async function create(monthlyExpensesDetail, tenant_id, branch_id) {
 
     const monthlyExpenses = await monthlyExpensesModel.createMonthlyExpneses(monthlyExpensesDetail, tenant_id, branch_id);
 
@@ -10,14 +10,14 @@ async function serviceCreateMonthlyExpneses(monthlyExpensesDetail, tenant_id, br
     return monthlyExpenses;
 }
 
-async function serviceGetAllMonthlyExpneses(tenant_id, branch_id, type, month) {
+async function getAll(tenant_id, branch_id, type, month) {
     const expenses = await monthlyExpensesModel.getAllMonthlyExpneses(tenant_id, branch_id, type, month);
 
     if (!expenses || expenses.length === 0) return [];
     return expenses;
 }
 
-async function serviceGetMonthlyExpneses(expensesId, tenant_id, branch_id) {
+async function getById(expensesId, tenant_id, branch_id) {
 
     const expenses = await monthlyExpensesModel.getMonthlyExpneses(expensesId, tenant_id, branch_id);
 
@@ -25,7 +25,7 @@ async function serviceGetMonthlyExpneses(expensesId, tenant_id, branch_id) {
     return expenses;
 }
 
-async function serviceUpdateMonthlyExpneses(monthlyExpensesDataUpdate, tenant_id, branch_id) {
+async function update(monthlyExpensesDataUpdate, tenant_id, branch_id) {
     const { expensesId, fields, updated_by } = monthlyExpensesDataUpdate;
 
     const expenses = await monthlyExpensesModel.getMonthlyExpneses(expensesId, tenant_id, branch_id);
@@ -39,7 +39,7 @@ async function serviceUpdateMonthlyExpneses(monthlyExpensesDataUpdate, tenant_id
 }
 
 
-async function serviceDeleteMonthlyExpneses(expensesId, tenant_id, branch_id) {
+async function _delete(expensesId, tenant_id, branch_id) {
 
     const expenses = await monthlyExpensesModel.getMonthlyExpneses(expensesId, tenant_id, branch_id);
     if (!expenses) throw appError('MONTHLY_EXPESES_NOT_FOUND', 'Monthly expenses not found', 404);
@@ -61,6 +61,5 @@ async function getAvailableTypes(tenant_id, branch_id) {
 }
 
 export default {
-    serviceCreateMonthlyExpneses, serviceGetAllMonthlyExpneses, serviceGetMonthlyExpneses,
-    serviceUpdateMonthlyExpneses, serviceDeleteMonthlyExpneses, getAvailableMonths, getAvailableTypes
+    create, getAll, getById, update, delete: _delete, getAvailableMonths, getAvailableTypes
 }

@@ -15,7 +15,7 @@ const schemaPatientAdd = Joi.object({
     address: Joi.string().trim().optional()
 })
 
-function validateCreatePatient(req, res, next) {
+function create(req, res, next) {
     const { error, value } = schemaPatientAdd.validate(req.body, {
         abortEarly: false,
         stripUnknown: true
@@ -27,7 +27,7 @@ function validateCreatePatient(req, res, next) {
 
 const schemaPatientUpdate = schemaPatientAdd.fork(['name', 'phone', 'age', 'gender', 'address'], (field) => field.optional());
 
-function validateUpdatePatient(req, res, next) {
+function update(req, res, next) {
     const { error, value } = schemaPatientUpdate.validate(req.body, {
         abortEarly: false,
         stripUnknown: true
@@ -38,4 +38,4 @@ function validateUpdatePatient(req, res, next) {
     next();
 }
 
-export default  { validateCreatePatient, validateUpdatePatient }
+export default { create, update }

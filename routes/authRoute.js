@@ -5,8 +5,7 @@ import authController from '../controllers/authController.js';
 import authValidate from '../validates/authValidate.js';
 import authMiddleware from '../middlewares/authMiddleware.js';
 
-router.post('/login', authValidate.validateLogin, authController.controllerLogin)
-router.post('/switch-branch', authMiddleware, authController.controllerSwitchBranch)
-
+router.post('/login', authValidate.login, authController.login)
+router.post('/switch-branch', authMiddleware, authController.switchBranch)
 
 export default router;

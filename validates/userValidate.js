@@ -13,10 +13,10 @@ const schemacreateUser = Joi.object({
     room: Joi.number().positive().optional().default(1),
 })
 
-function createUser(req, res, next) {
+function create(req, res, next) {
     const { error } = schemacreateUser.validate(req.body);
     if (error) return res.status(400).send(error.details[0].message)
     next();
 }
 
-export default { createUser }
+export default { create }

@@ -10,13 +10,9 @@ import branchAssigmentMiddleware from '../middlewares/branchAssigmentMiddleware.
 router.use(authMiddleware);
 router.use(branchAssigmentMiddleware);
 
-router.get('/', permissionMiddleware('view_doctor'), docController.controllerGetAllDocs)
-router.get("/appointments/per-doctor", permissionMiddleware('view_appointment'), docController.controllerListApptsPerDoctor);
-
-
-router.get("/active/appointments/today", permissionMiddleware('view_appointment'), docController.controllerActiveTodayAppt);
-
-router.get('/:appointmentId/session', permissionMiddleware('view_session'), validateIdParam('appointmentId'), docController.controllerGetSessionByApptIdPerDoc);
-
+router.get('/', permissionMiddleware('view_doctor'), docController.getAll)
+router.get("/appointments/per-doctor", permissionMiddleware('view_appointment'), docController.getAppointments);
+router.get("/active/appointments/today", permissionMiddleware('view_appointment'), docController.getActiveToday);
+router.get('/:appointmentId/session', permissionMiddleware('view_session'), validateIdParam('appointmentId'), docController.getSession);
 
 export default router;

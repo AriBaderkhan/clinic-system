@@ -3,18 +3,18 @@ import pool from '../db_connection.js';
 import branchModel from '../models/branchModel.js';
 import appError from '../utils/appError.js';
 
-async function getTenantDetails(tenantId) {
+async function getDetails(tenantId) {
     // Pass undefined as first arg to use the default 'pool' defined in the model
     const tenant = await tenantModel.getTenantDetails(undefined, tenantId);
     return tenant;
 }
 
-async function updateTenant(fields, tenantId) {
+async function update(fields, tenantId) {
     const tenant = await tenantModel.updateTenant(fields, tenantId);
     return tenant;
 }
 
-async function getAllBranches(tenantId) {
+async function getBranches(tenantId) {
     const branches = await tenantModel.getAllBranches(tenantId);
     return branches;
 }
@@ -75,18 +75,18 @@ return branch;
 
 }
 
-async function getDashboardStats(tenant_id) {
+async function getDashboard(tenant_id) {
     const stats = await tenantModel.getDashboardStats(tenant_id);
     return stats;
 }
 
 export default {
-    getTenantDetails,
-    updateTenant,
-    getAllBranches,
+    getDetails,
+    update,
+    getBranches,
     createBranch,
     updateBranch,
     deleteBranch,
     switchBranch,
-    getDashboardStats
+    getDashboard
 }

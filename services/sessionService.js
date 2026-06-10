@@ -1,9 +1,9 @@
-import appError from '../utils/appError.js';
+﻿import appError from '../utils/appError.js';
 
 import pool from '../db_connection.js';
 import sessionModel from '../models/sessionModel.js';
 import sessionPaymentModel from '../models/sessionPaymentModel.js';
-import appoinmentModel from '../models/appoinmentModel.js';
+import appointmentModel from '../models/appointmentModel.js';
 import treatmentPlanModel from '../models/treatmentPlanModel.js';
 import workCatalogModel from '../models/workCatalogModel.js';
 import treatmentPlanPaymentModel from '../models/treatmentPlanPaymentModel.js';
@@ -48,7 +48,7 @@ function buildWorksSummary(worksRows) {
 
 }
 
-async function serviceGetAllSessions({ day, search, page, limit }, tenant_id, branch_id) {
+async function getAll({ day, search, page, limit }, tenant_id, branch_id) {
   const range = day ? dateRange.getDateRange(day) : null;
   const result = await sessionModel.getAllNormalSessions({
     from: range ? range.from : null,
@@ -60,7 +60,7 @@ async function serviceGetAllSessions({ day, search, page, limit }, tenant_id, br
   return result;
 }
 
-async function serviceGetNormalSession(session_id, tenant_id, branch_id) {
+async function getNormal(session_id, tenant_id, branch_id) {
 
   const base = await sessionModel.getNormalSession(session_id, tenant_id, branch_id);
   if (!base) throw appError("SESSION_NOT_FOUND", "session not found", 404);
@@ -117,14 +117,8 @@ async function serviceGetNormalSession(session_id, tenant_id, branch_id) {
 
   };
 }
-async function serviceGetSession(session_id, tenant_id, branch_id) {
 
-  const session = await sessionModel.getSession(session_id, tenant_id, branch_id);
-  if (!session) throw appError('FETCH_SESSION_FAILED', 'Session not found', 404);
-  return session;
-}
-
-async function serviceEditNormalSession(session_id, fields, userId, tenant_id, branch_id) {
+async function editNormal(session_id, fields, userId, tenant_id, branch_id) {
   const client = await pool.connect();
 
   const { notes, next_plan, works, total_paid } = fields;
@@ -179,7 +173,7 @@ async function serviceEditNormalSession(session_id, fields, userId, tenant_id, b
             unitPrice: unit,
             totalMinPrice: rowMin,
             totalPrice: rowTotal,
-            treatmentPlanId: null, // ✅ normal only
+            treatmentPlanId: null, // âœ… normal only
           },
           tenant_id, branch_id, client
         );
@@ -214,7 +208,7 @@ async function serviceEditNormalSession(session_id, fields, userId, tenant_id, b
     // );
     // if (!updatedTotals) throw appError("SESSION_UPDATE_FAILED", "session Update failed", 500);
 
-    // ✅ update amount in session_payments (via model)
+    // âœ… update amount in session_payments (via model)
     const updatedPayment = await sessionPaymentModel.upsertSessionPaymentBySessionId({
       sessionId: session_id,
       amount: finalPaid,
@@ -226,7 +220,7 @@ async function serviceEditNormalSession(session_id, fields, userId, tenant_id, b
       throw appError("PAYMENT_UPDATE_FAILED", "session payment not found for this session", 404);
     }
 
-    // ✅ recalc -> updates sessions.total_paid and sessions.is_paid correctly
+    // âœ… recalc -> updates sessions.total_paid and sessions.is_paid correctly
     sessionsAfterRecalc = await sessionPaymentModel.recalcSessionTotals(session_id, tenant_id, branch_id, client);
     if (!sessionsAfterRecalc) {
       throw appError("SESSION_RECALC_FAILED", "failed to recalc session totals", 500);
@@ -276,7 +270,7 @@ async function serviceEditNormalSession(session_id, fields, userId, tenant_id, b
 }
 
 
-async function serviceDeleteSession(sessionID, tenant_id, branch_id) {
+async function _delete(sessionID, tenant_id, branch_id) {
   try {
     const deletedsession = await sessionModel.deleteSession(sessionID, tenant_id, branch_id);
     if (!deletedsession) throw appError('DELETE_SESSION_FAILED', 'session failed to delete', 500);
@@ -289,7 +283,7 @@ async function serviceDeleteSession(sessionID, tenant_id, branch_id) {
   }
 }
 
-async function serviceGetAllUnPaidSessions(tenant_id, branch_id, { limit, q } = {}) {
+async function getUnpaid(tenant_id, branch_id, { limit, q } = {}) {
   // STEP 1: base unpaid sessions
   const { rows: baseSessions, total } = await sessionModel.getAllUnPaidSessions(tenant_id, branch_id, { limit, q });
   if (baseSessions.length === 0) return { sessions: [], total };
@@ -330,7 +324,7 @@ async function serviceGetAllUnPaidSessions(tenant_id, branch_id, { limit, q } = 
     delete worksBySession[sid]._groups;
   }
 
-  // STEP 3: 🔥 FETCH TREATMENT PLANS (THIS WAS MISSING)
+  // STEP 3: ðŸ”¥ FETCH TREATMENT PLANS (THIS WAS MISSING)
   const planRows = await sessionModel.getTreatmentPlansForSessions(sessionIds, tenant_id, branch_id);
 
   const plansBySession = {};
@@ -391,7 +385,7 @@ async function serviceGetAllUnPaidSessions(tenant_id, branch_id, { limit, q } = 
 
       works_summary: ws,
 
-      // ✅ THIS UNBLOCKS YOUR FRONTEND
+      // âœ… THIS UNBLOCKS YOUR FRONTEND
       treatment_plans: plansBySession[s.session_id] || [],
     };
   });
@@ -400,14 +394,14 @@ async function serviceGetAllUnPaidSessions(tenant_id, branch_id, { limit, q } = 
 
 
 // SERVICE: Pay session
-async function servicePaySession({ sessionId, normalAmount, planPayments, note, userId }, tenant_id, branch_id) {
+async function pay({ sessionId, normalAmount, planPayments, note, userId }, tenant_id, branch_id) {
   const client = await pool.connect();
 
 
   try {
     await client.query("BEGIN");
 
-    // ✅ lock session row (prevents double-pay race)
+    // âœ… lock session row (prevents double-pay race)
     const session = await sessionModel.getSessionWithAppointmentForUpdate(sessionId, tenant_id, branch_id, client);
     if (!session) throw appError("SESSION_NOT_FOUND", "Session not found", 404);
 
@@ -430,7 +424,7 @@ async function servicePaySession({ sessionId, normalAmount, planPayments, note, 
     const sessionDue = total > totalPaid;
     const planDue = await sessionModel.hasPlanDue(sessionId, tenant_id, branch_id, client);
 
-    // ❗ RULE: allow empty ONLY if nothing is due
+    // â— RULE: allow empty ONLY if nothing is due
     if (!payNormal && !payPlans) {
       if (sessionDue || planDue) {
         throw appError(
@@ -440,7 +434,7 @@ async function servicePaySession({ sessionId, normalAmount, planPayments, note, 
         );
       }
 
-      // ✅ nothing due → valid request → just exit
+      // âœ… nothing due â†’ valid request â†’ just exit
       return { ok: true, message: "Nothing due for this session" };
     }
 
@@ -505,7 +499,7 @@ async function servicePaySession({ sessionId, normalAmount, planPayments, note, 
           throw appError("INVALID_PLAN_AMOUNT", `Invalid amount for treatment plan ID ${plan_id}`, 400);
         }
 
-        // ✅ lock plan row (prevents race overpay on same plan)
+        // âœ… lock plan row (prevents race overpay on same plan)
         const plan = await treatmentPlanModel.getTreatmentPlanByIdForUpdate(plan_id, tenant_id, branch_id, client);
         if (!plan) {
           throw appError("PLAN_NOT_FOUND", `Treatment plan ID ${plan_id} not found`, 404);
@@ -607,6 +601,5 @@ async function servicePaySession({ sessionId, normalAmount, planPayments, note, 
 
 
 export default {
-  serviceGetAllSessions, serviceGetNormalSession, serviceGetSession, serviceEditNormalSession, serviceDeleteSession, serviceGetAllUnPaidSessions,
-  servicePaySession
+  getAll, getNormal, editNormal, delete: _delete, getUnpaid, pay
 }

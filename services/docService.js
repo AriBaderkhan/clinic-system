@@ -2,14 +2,14 @@ import docModel from '../models/docModel.js';
 import dateRange from '../utils/dateRange.js';
 import appError from '../utils/appError.js';
 
-async function serviceGetAllDocs(tenant_id, branch_id) {
+async function getAll(tenant_id, branch_id) {
     const docs = await docModel.getAllDocs(tenant_id, branch_id);
 
     if (!docs || docs.length === 0) throw appError('FETCH_DOCS_FAILIED', 'No doctors found', 404);
     return docs;
 }
 
-async function serviceActiveTodayAppt(doc_id, tenant_id, branch_id) {
+async function getActiveToday(doc_id, tenant_id, branch_id) {
 
     const todayAppt = dateRange.getDateRange('today');
 
@@ -27,7 +27,7 @@ async function serviceActiveTodayAppt(doc_id, tenant_id, branch_id) {
 const VALID_DAY_FILTERS = ['today', 'yesterday', 'last_week', 'last_month'];
 const VALID_TYPE_FILTERS = ['normal', 'urgent', 'walk_in'];
 
-async function serviceListApptsPerDoctor(rawFilters = {}, tenant_id, branch_id) {
+async function getAppointments(rawFilters = {}, tenant_id, branch_id) {
     const { day, type, search, doc_id } = rawFilters;
 
     // 1) Normalize / validate day filter
@@ -57,11 +57,11 @@ async function serviceListApptsPerDoctor(rawFilters = {}, tenant_id, branch_id) 
     return appointments;
 }
 
-async function serviceGetSessionByApptIdPerDoc(appointmentId, doc_id, tenant_id, branch_id) {
+async function getSession(appointmentId, doc_id, tenant_id, branch_id) {
 
     const sessionForAppt = await docModel.getSessionByApptIdPerDoc(appointmentId, doc_id, tenant_id, branch_id);
     if (!sessionForAppt) throw appError('SESSION_FOR_APPOINTMENT_NOT_FOUND', 'Session for appointment not found', 404);
     return sessionForAppt;
 }
 
-export default { serviceGetAllDocs, serviceActiveTodayAppt, serviceListApptsPerDoctor, serviceGetSessionByApptIdPerDoc }   
+export default { getAll, getActiveToday, getAppointments, getSession }

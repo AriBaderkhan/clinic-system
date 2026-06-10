@@ -1,30 +1,26 @@
 import treatmentPlanService from '../services/treatmentPlanService.js';
 import asyncWrap from '../utils/asyncWrap.js';
 
-const controllerGetActivePlan = asyncWrap(async (req, res) => {
+const getActive = asyncWrap(async (req, res) => {
     const patientId = Number(req.query.patientId);
     const type = req.query.type;
 
     if (!patientId || !type) {
-        return res.status(400).json({ message: 'patientId and type are required' });
+        return res.status(400).json({ ok: false, error: 'VALIDATION_ERROR', message: 'patientId and type are required' });
     }
-    const plan = await treatmentPlanService.serviceGetActivePlan(patientId, type, req.user.tenant_id, req.user.branch_id);
-    return res.json({ data: plan });
+    const result = await treatmentPlanService.getActive(patientId, type, req.user.tenant_id, req.user.branch_id);
+    res.status(200).json({ ok: true, data: result });
 })
 
-const controllerGetSessionsForTp = asyncWrap(async (req, res) => {
+const getSessions = asyncWrap(async (req, res) => {
     const tpId = Number(req.params.treatmentPlanId)
     const { tenant_id, branch_id } = req.user;
 
-    const result = await treatmentPlanService.serviceGetSessionsForTp(tpId, tenant_id, branch_id);
-
-    return res.status(200).json({
-        message: `All sessions for Treatment Plan with id ${tpId} is here\n`,
-        data: result
-    })
+    const result = await treatmentPlanService.getSessions(tpId, tenant_id, branch_id);
+    res.status(200).json({ ok: true, data: result });
 })
 
-const controllerGetAllTreatmentPlansForSection = asyncWrap(async (req, res) => {
+const getAll = asyncWrap(async (req, res) => {
     const { isPaid, isCompleted, q, page, limit } = req.query;
 
     const parseBool = (v) => {
@@ -37,7 +33,7 @@ const controllerGetAllTreatmentPlansForSection = asyncWrap(async (req, res) => {
     const { tenant_id, branch_id } = req.user;
     const safePage = Math.max(1, parseInt(page) || 1);
     const safeLimit = Math.min(100, parseInt(limit) || 20);
-    const { rows, total } = await treatmentPlanService.serviceGetAllTreatmentPlansForSection({
+    const { rows, total } = await treatmentPlanService.getAll({
         isPaid: parseBool(isPaid),
         isCompleted: parseBool(isCompleted),
         search: q,
@@ -45,61 +41,37 @@ const controllerGetAllTreatmentPlansForSection = asyncWrap(async (req, res) => {
         limit: safeLimit,
     }, tenant_id, branch_id);
 
-    return res.status(200).json({
-        message: "Treatment Plans retrieved successfully",
-        data: rows,
-        pagination: {
-            total,
-            page: safePage,
-            limit: safeLimit,
-            totalPages: Math.ceil(total / safeLimit) || 1,
-        }
-    });
+    res.status(200).json({ ok: true, data: rows, total, page: safePage, limit: safeLimit });
 })
 
-const controllerEditTp = asyncWrap(async (req, res) => {
+const update = asyncWrap(async (req, res) => {
     const { type, agreed_total, is_completed } = req.body;
     const tpId = Number(req.params.treatmentPlanId)
     const { tenant_id, branch_id } = req.user;
 
-    const result = await treatmentPlanService.serviceEditTp(type, agreed_total, is_completed, tpId, tenant_id, branch_id);
-
-    return res.status(200).json({
-        message: `Edited the Treatment Plan with id ${tpId} successfully`,
-        data: result
-    })
+    const result = await treatmentPlanService.update(type, agreed_total, is_completed, tpId, tenant_id, branch_id);
+    res.status(200).json({ ok: true, data: result });
 })
 
-
-const controllereDeleteTp = asyncWrap(async (req, res) => {
+const _delete = asyncWrap(async (req, res) => {
     const tpId = Number(req.params.treatmentPlanId)
     const { tenant_id, branch_id } = req.user;
 
-    const result = await treatmentPlanService.serviceDeleteTp(tpId, tenant_id, branch_id)
-    return res.status(204).send()
+    await treatmentPlanService.delete(tpId, tenant_id, branch_id)
+    res.status(200).json({ ok: true });
 })
 
-const controllerUpdatePaidForTpSession = asyncWrap(async (req, res) => {
+const updatePaidSession = asyncWrap(async (req, res) => {
     const tpId = Number(req.params.treatmentPlanId);
     const sessionId = Number(req.params.sessionId);
     const { amount } = req.body;
-
     const { tenant_id, branch_id } = req.user;
-    const result = await treatmentPlanService.serviceUpdatePaidForTpSession(
-        tpId,
-        sessionId,
-        amount,
-        tenant_id,
-        branch_id
-    );
 
-    return res.status(200).json({
-        message: "Paid amount updated",
-        data: result,
-    });
+    const result = await treatmentPlanService.updatePaidSession(tpId, sessionId, amount, tenant_id, branch_id);
+    res.status(200).json({ ok: true, data: result });
 });
 
 export default {
-    controllerGetActivePlan, controllerGetSessionsForTp, controllerGetAllTreatmentPlansForSection,
-    controllerEditTp, controllereDeleteTp, controllerUpdatePaidForTpSession
+    getActive, getSessions, getAll,
+    update, delete: _delete, updatePaidSession
 }

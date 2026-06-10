@@ -13,7 +13,7 @@ const schemaAppointmentAdd = Joi.object({
     }),
 })
 
-function validateCreateAppointment(req, res, next) {
+function create(req, res, next) {
     const { error } = schemaAppointmentAdd.validate(req.body);
     if (error) return res.status(400).json({ message: error.details[0].message })
     next();
@@ -28,7 +28,7 @@ const schemaAppointmentUpdate = schemaAppointmentAdd
     .min(1)
 
 
-function validateUpdateAppointment(req, res, next) {
+function update(req, res, next) {
     const { error } = schemaAppointmentUpdate.validate(req.body);
     if (error) return res.status(400).json({ message: error.details[0].message })
     next();
@@ -43,7 +43,7 @@ const schemaCancelReason = Joi.object({
         'string.max': 'Cancel reason cannot be longer than 300 characters'
     })
 })
-function validateCancelReason(req, res, next) {
+function cancel(req, res, next) {
     const { error } = schemaCancelReason.validate(req.body);
     if (error) return res.status(400).json({ message: error.details[0].message })
     next();
@@ -78,7 +78,7 @@ const schemaCompleteFillWork = Joi.object({
     }).optional().unknown(false)
 });
 
-function validateCompleteFillWork(req, res, next) {
+function complete(req, res, next) {
     const { error } = schemaCompleteFillWork.validate(req.body);
     if (error) return res.status(400).json({ message: error.details[0].message })
     next();
@@ -101,13 +101,12 @@ const listApptsFiltersSchema = Joi.object({
 
 }).unknown(false)
 
-function validateListApptsFilters(req, res, next) {
+function filters(req, res, next) {
     const { error } = listApptsFiltersSchema.validate(req.query);
     if (error) return res.status(400).json({ message: error.details[0].message })
     next();
 }
 
 export default {
-    validateCreateAppointment, validateUpdateAppointment,
-    validateCancelReason, validateCompleteFillWork, validateListApptsFilters
+    create, update, cancel, complete, filters
 }

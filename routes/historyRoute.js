@@ -10,7 +10,7 @@ import branchAssigmentMiddleware from '../middlewares/branchAssigmentMiddleware.
 router.use(authMiddleware)
 router.use(branchAssigmentMiddleware)
 
-router.get('/payments', permissionMiddleware('view_payment'), historyController.controllerPaymentsHistory)
-router.get('/session/:sessionId/details', permissionMiddleware('view_session'), validateIdParam('sessionId'), historyController.controllerGetSessionDetails)
-// add doc and super
+router.get('/payments', permissionMiddleware('view_payment'), historyController.getPayments)
+router.get('/session/:sessionId/details', permissionMiddleware('view_session'), validateIdParam('sessionId'), historyController.getSessionDetails)
+
 export default router;

@@ -7,7 +7,7 @@ const createExpensesSchema = Joi.object({
   note: Joi.string().allow('').optional()
 })
 
-function createExpenses(req, res, next) {
+function create(req, res, next) {
   const { error } = createExpensesSchema.validate(req.body);
   if (error) return res.status(400).json({ message: error.details[0].message })
   next();
@@ -17,13 +17,13 @@ const updateExpensesSchema = createExpensesSchema.fork([
   'type', 'amount', 'expense_date', 'note'
 ], (schema) => schema.optional())
 
-function updateExpenses(req, res, next) {
+function update(req, res, next) {
   const { error } = updateExpensesSchema.validate(req.body);
   if (error) return res.json(400).json({ message: error.details[0].message })
   next();
 }
 
 export default {
-  createExpenses,
-  updateExpenses
+  create,
+  update
 }

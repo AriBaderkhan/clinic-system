@@ -1,23 +1,23 @@
 import treatmentPlanModel from '../models/treatmentPlanModel.js';
-async function serviceGetActivePlan(patientId, type, tenant_id, branch_id) {
+async function getActive(patientId, type, tenant_id, branch_id) {
   const plan = await treatmentPlanModel.getActivePlan(patientId, type, tenant_id, branch_id);
   return plan;
 }
 
 
-async function serviceGetSessionsForTp(tpId, tenant_id, branch_id) {
+async function getSessions(tpId, tenant_id, branch_id) {
 
   const sessionsForTp = await treatmentPlanModel.getSessionsForTp(tpId, tenant_id, branch_id);
 
   return sessionsForTp;
 }
 
-async function serviceGetAllTreatmentPlansForSection({ isPaid, isCompleted, search, page, limit }, tenant_id, branch_id) {
+async function getAll({ isPaid, isCompleted, search, page, limit }, tenant_id, branch_id) {
   const result = await treatmentPlanModel.getAllTreatmentPlansForSection({ isPaid, isCompleted, search, page, limit }, tenant_id, branch_id);
   return result;
 }
 
-async function serviceEditTp(type, agreed_total, is_completed, tpId, tenant_id, branch_id) {
+async function update(type, agreed_total, is_completed, tpId, tenant_id, branch_id) {
   if (type === undefined && agreed_total === undefined && is_completed === undefined) {
     throw appError('NOTHING_TO_UPDATE', "Nothing to update", 400);
   }
@@ -38,7 +38,7 @@ async function serviceEditTp(type, agreed_total, is_completed, tpId, tenant_id, 
   return result;
 }
 
-async function serviceDeleteTp(tpId, tenant_id, branch_id) {
+async function _delete(tpId, tenant_id, branch_id) {
   try {
     const deletedTp = await treatmentPlanModel.deleteTp(tpId, tenant_id, branch_id);
     if (!deletedTp) throw appError('DELETE_TP_FAILED', 'tp failed to delete', 404);
@@ -51,7 +51,7 @@ async function serviceDeleteTp(tpId, tenant_id, branch_id) {
   }
 }
 
-async function serviceUpdatePaidForTpSession(tpId, sessionId, amount, tenant_id, branch_id) {
+async function updatePaidSession(tpId, sessionId, amount, tenant_id, branch_id) {
   const result = await treatmentPlanModel.updatePaidForTpSession(
     tpId,
     sessionId,
@@ -69,6 +69,5 @@ async function serviceUpdatePaidForTpSession(tpId, sessionId, amount, tenant_id,
 
 
 export default {
-  serviceGetActivePlan, serviceGetSessionsForTp, serviceGetAllTreatmentPlansForSection,
-  serviceEditTp, serviceDeleteTp, serviceUpdatePaidForTpSession
+  getActive, getSessions, getAll, update, delete: _delete, updatePaidSession
 }

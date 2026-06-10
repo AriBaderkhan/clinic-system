@@ -1,17 +1,14 @@
 import adminPlatformService from "../services/adminPlatformService.js";
 import asyncWrap from '../utils/asyncWrap.js';
 
-const registerTenant = asyncWrap(async (req, res) => {
-    const result = await adminPlatformService.registerTenant(req.body);
-    res.status(201).json(result);
+const register = asyncWrap(async (req, res) => {
+    const result = await adminPlatformService.register(req.body);
+    res.status(201).json({ ok: true, data: result });
 });
 
-const getAllTenants = asyncWrap(async (req, res) => {
-    const tenants = await adminPlatformService.getAllTenants();
-    res.status(200).json(tenants);
+const getAll = asyncWrap(async (req, res) => {
+    const result = await adminPlatformService.getAll();
+    res.status(200).json({ ok: true, data: result });
 });
 
-export default {
-    registerTenant,
-    getAllTenants
-};
+export default { register, getAll };

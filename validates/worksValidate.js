@@ -1,7 +1,7 @@
 import Joi from "joi";
 
 
- const workValidateSchema = Joi.object({
+const workValidateSchema = Joi.object({
     code: Joi.string().required(),
     name: Joi.string().required(),
     min_price: Joi.number().required(),
@@ -10,7 +10,7 @@ import Joi from "joi";
     is_active: Joi.boolean().default(true)
 });
 
-function createWork(req, res, next) {
+function create(req, res, next) {
     const { error, value } = workValidateSchema.validate(req.body);
     if (error) return res.status(400).json({ message: error.details[0].message });
     req.body = value;
@@ -26,7 +26,7 @@ const workUpdateSchema = Joi.object({
     is_active: Joi.boolean().optional()
 });
 
-function updateWork(req, res, next) {
+function update(req, res, next) {
     const { error, value } = workUpdateSchema.validate(req.body);
     if (error) return res.status(400).json({ message: error.details[0].message });
     req.body = value;
@@ -34,6 +34,6 @@ function updateWork(req, res, next) {
 }
 
 export default {
-    createWork,
-    updateWork
+    create,
+    update
 }

@@ -1,12 +1,10 @@
 import settingService from "../services/settingService.js"
 import asyncWrap from '../utils/asyncWrap.js'
 
-const getEffectiveSettings = asyncWrap(async (req, res) => {
+const getEffective = asyncWrap(async (req, res) => {
     const { tenant_id, branch_id } = req.user;
-    const result = await settingService.getEffectiveSettings(tenant_id, branch_id);
-    return res.status(200).json({ success: true, data: result });
+    const result = await settingService.getEffective(tenant_id, branch_id);
+    res.status(200).json({ ok: true, data: result });
 })
 
-export default {
-    getEffectiveSettings
-}
+export default { getEffective }

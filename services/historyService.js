@@ -4,7 +4,7 @@ import appError from '../utils/appError.js';
 
 
 
-async function serviceGetPaymentsHistory(tenant_id, branch_id) {
+async function getPayments(tenant_id, branch_id) {
   const allPayments = await historyModel.getPaymentsHistory(tenant_id, branch_id);
   if (allPayments.length == 0) return [];
 
@@ -52,7 +52,7 @@ function buildWorksSummary(worksRows) {
 
 }
 
-async function serviceGetSessionDetails(session_id, tenant_id, branch_id) {
+async function getSessionDetails(session_id, tenant_id, branch_id) {
   // 1) base session + patient + doctor + appointment
   const base = await historyModel.getSessionDetails(session_id, tenant_id, branch_id);
   if (!base) {
@@ -120,4 +120,4 @@ async function serviceGetSessionDetails(session_id, tenant_id, branch_id) {
 
 
 
-export default { serviceGetPaymentsHistory, serviceGetSessionDetails }
+export default { getPayments, getSessionDetails }
