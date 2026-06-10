@@ -12,9 +12,9 @@ async function serviceGetSessionsForTp(tpId, tenant_id, branch_id) {
   return sessionsForTp;
 }
 
-async function serviceGetAllTreatmentPlansForSection({ isPaid, isCompleted, search }, tenant_id, branch_id) {
-  const tps = await treatmentPlanModel.getAllTreatmentPlansForSection({ isPaid, isCompleted, search, }, tenant_id, branch_id);
-  return tps;
+async function serviceGetAllTreatmentPlansForSection({ isPaid, isCompleted, search, page, limit }, tenant_id, branch_id) {
+  const result = await treatmentPlanModel.getAllTreatmentPlansForSection({ isPaid, isCompleted, search, page, limit }, tenant_id, branch_id);
+  return result;
 }
 
 async function serviceEditTp(type, agreed_total, is_completed, tpId, tenant_id, branch_id) {

@@ -50,20 +50,14 @@ function validateEditSession(req, res, next) {
 
 
 const listSessionsFiltersSchema = Joi.object({
-    day: Joi.string()
-        .valid("today", "yesterday", "last_week", "last_month")
-        .optional(),
-
-    search: Joi.string()
-        .trim()
-        .min(1)
-        .max(100)
-        .optional(),
-
-}).unknown(false).optional()
+    day: Joi.string().valid("today", "yesterday", "last_week", "last_month").optional(),
+    q: Joi.string().trim().min(1).max(100).optional(),
+    page: Joi.number().integer().min(1).optional(),
+    limit: Joi.number().integer().min(1).max(100).optional(),
+}).unknown(false)
 
 function validateListASessionFilters(req, res, next) {
-    const { error } = listSessionsFiltersSchema.validate(req.body);
+    const { error } = listSessionsFiltersSchema.validate(req.query);
     if (error) return res.status(400).json({ message: error.details[0].message })
     next();
 }

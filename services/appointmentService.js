@@ -367,18 +367,20 @@ async function serviceSetNoShow(appointmentId, userId, cancel_reason, tenant_id,
 
 
 // for filtters and searches by type and p.name, p.phone and d.name
-async function serviceListAppointmentsWithFilters({ day, type, search }, tenant_id, branch_id) {
+async function serviceListAppointmentsWithFilters({ day, type, search, page, limit }, tenant_id, branch_id) {
 
     const range = day ? dateRange.getDateRange(day) : null;
 
-    const appointments = await appointmentModel.findAppointmentsWithFilters({
+    const result = await appointmentModel.findAppointmentsWithFilters({
         from: range ? range.from : null,
         to: range ? range.to : null,
-        type: type,
-        search: search,
+        type,
+        search,
+        page,
+        limit,
     }, tenant_id, branch_id);
 
-    return appointments;
+    return result;
 }
 
 // FOR DASHBOARD

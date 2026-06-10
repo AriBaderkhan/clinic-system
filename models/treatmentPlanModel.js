@@ -98,7 +98,7 @@ ORDER BY a.finished_at DESC NULLS LAST;`;
   return rows;
 }
 
-async function getAllTreatmentPlansForSection({ isPaid, isCompleted, search }, tenant_id, branch_id) {
+async function getAllTreatmentPlansForSection({ isPaid, isCompleted, search, page, limit }, tenant_id, branch_id) {
   const baseQuery = `
     SELECT
         tp.id,
@@ -112,7 +112,8 @@ async function getAllTreatmentPlansForSection({ isPaid, isCompleted, search }, t
         tp.status,
         tp.created_at,
 
-        p.name AS patient_name
+        p.name AS patient_name,
+        COUNT(*) OVER() AS total_count
     FROM treatment_plans tp
     JOIN patients p ON p.id = tp.patient_id  AND p.tenant_id = tp.tenant_id
     WHERE tp.tenant_id = $1
@@ -154,11 +155,17 @@ ORDER BY
     ELSE 5
   END,
   tp.created_at DESC
-    
-`;
+  `;
+
+  const safePage = Math.max(1, page || 1);
+  const safeLimit = limit || 20;
+  const offset = (safePage - 1) * safeLimit;
+  query += ` LIMIT $${idx} OFFSET $${idx + 1}`;
+  values.push(safeLimit, offset);
 
   const { rows } = await pool.query(query, values);
-  return rows;
+  const total = rows.length > 0 ? parseInt(rows[0].total_count) : 0;
+  return { rows: rows.map(({ total_count, ...rest }) => rest), total };
 }
 
 async function editTp(tpId, fields, tenant_id, branch_id) {

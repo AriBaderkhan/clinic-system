@@ -10,11 +10,9 @@ async function serviceCreatePatient(patientData, tenant_id, branch_id) {
     return patient;
 }
 
-async function serviceGetAllPatients(q, tenant_id, branch_id) {
-    const patients = await patientModel.getAllPatients(q, tenant_id, branch_id);
-
-    if (!patients || patients.length === 0) return [];
-    return patients;
+async function serviceGetAllPatients({ q, page, limit }, tenant_id, branch_id) {
+    const result = await patientModel.getAllPatients({ q, page, limit }, tenant_id, branch_id);
+    return result;
 }
 
 async function serviceGetPatient(patientId, tenant_id, branch_id) {

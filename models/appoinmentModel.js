@@ -234,19 +234,19 @@ async function setAppointmentNoShow(appointmentId, userId, cancel_reason, tenant
 
 
 // for filtters and searches by type and p.name, p.phone and d.name DYNAMIC
-async function findAppointmentsWithFilters({ from, to, type, search }, tenant_id, branch_id) {
+async function findAppointmentsWithFilters({ from, to, type, search, page, limit }, tenant_id, branch_id) {
   const baseQuery = `
-    SELECT 
+    SELECT
       a.id,
       a.doctor_id,
       a.patient_id,
-      
       p.name  AS patient_name,
       p.phone AS patient_phone,
       pr.full_name AS doctor_name,
       a.scheduled_start,
       a.status,
-      a.appointment_type
+      a.appointment_type,
+      COUNT(*) OVER() AS total_count
     FROM appointments a
     JOIN patients  p  ON a.patient_id = p.id AND a.tenant_id = p.tenant_id
     JOIN doctors   d  ON a.doctor_id = d.id AND a.tenant_id = d.tenant_id AND a.branch_id = d.branch_id
@@ -274,6 +274,7 @@ async function findAppointmentsWithFilters({ from, to, type, search }, tenant_id
     values.push(type);
     idx++;
   }
+
   if (search) {
     where.push(
       `(p.name ILIKE $${idx} OR p.phone ILIKE $${idx} OR pr.full_name ILIKE $${idx})`
@@ -284,7 +285,7 @@ async function findAppointmentsWithFilters({ from, to, type, search }, tenant_id
 
   let query = baseQuery;
   if (where.length > 0) {
-    query += ` AND  ` + where.join(" AND ");
+    query += ` AND ` + where.join(" AND ");
   }
 
   query += `
@@ -299,10 +300,17 @@ async function findAppointmentsWithFilters({ from, to, type, search }, tenant_id
       ELSE 6
     END,
     a.scheduled_start DESC
-`;
+  `;
+
+  const safePage = Math.max(1, page || 1);
+  const safeLimit = limit || 20;
+  const offset = (safePage - 1) * safeLimit;
+  query += ` LIMIT $${idx} OFFSET $${idx + 1}`;
+  values.push(safeLimit, offset);
 
   const { rows } = await pool.query(query, values);
-  return rows;
+  const total = rows.length > 0 ? parseInt(rows[0].total_count) : 0;
+  return { rows: rows.map(({ total_count, ...rest }) => rest), total };
 }
 
 // for dashboard

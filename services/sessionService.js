@@ -48,74 +48,16 @@ function buildWorksSummary(worksRows) {
 
 }
 
-async function serviceGetAllSessions({ day, search }, tenant_id, branch_id) {
-
+async function serviceGetAllSessions({ day, search, page, limit }, tenant_id, branch_id) {
   const range = day ? dateRange.getDateRange(day) : null;
-
-  // here is the problem for all session it will include only normal sessions below
-  const base = await sessionModel.getAllNormalSessions({
+  const result = await sessionModel.getAllNormalSessions({
     from: range ? range.from : null,
     to: range ? range.to : null,
-    search: search,
+    search,
+    page,
+    limit,
   }, tenant_id, branch_id);
-  if (base.length === 0) return []
-  //   const sessionIds = base.map(s => s.session_id);
-
-  // const worksRows = await sessionModel.getWorksForSessions(sessionIds);
-  // const worksBySession = {};
-  // for (const row of worksRows) {
-  //   if (!worksBySession[row.session_id]) worksBySession[row.session_id] = [];
-  //   worksBySession[row.session_id].push(row);
-  // }
-
-  //  return base.map((s) => {
-  //   const worksSummary = buildWorksSummary(worksBySession[s.session_id] || []);
-
-  //   return {
-  //     session: {
-  //       session_id: s.session_id,
-  //       appointment_id: s.appointment_id,
-
-  //       totals: {
-  //         min_total: Number(s.min_total),
-  //         total: Number(s.total),
-  //         total_paid: Number(s.total_paid || 0),
-  //         is_paid: s.is_paid,
-  //       },
-
-  //       plan: {
-  //         next_plan: s.next_plan,
-  //         notes: s.notes,
-  //       },
-
-  //       meta: {
-  //         created_at: s.created_at,
-  //       },
-
-  //       appointment: {
-  //         start_time: s.appointment_start_time,
-  //         end_time: s.appointment_end_time,
-  //         status: s.appointment_status,
-  //       },
-
-  //       patient: {
-  //         id: s.patient_id,
-  //         full_name: s.patient_name,
-  //         phone: s.patient_phone,
-  //       },
-
-  //       doctor: {
-  //         id: s.doctor_id,
-  //         full_name: s.doctor_name,
-  //       },
-
-  //       processed_by: s.processed_by || null,
-  //     },
-
-  //     works_summary: worksSummary,
-  //   };
-  // });
-  return base
+  return result;
 }
 
 async function serviceGetNormalSession(session_id, tenant_id, branch_id) {
@@ -347,10 +289,10 @@ async function serviceDeleteSession(sessionID, tenant_id, branch_id) {
   }
 }
 
-async function serviceGetAllUnPaidSessions(tenant_id, branch_id) {
+async function serviceGetAllUnPaidSessions(tenant_id, branch_id, { limit, q } = {}) {
   // STEP 1: base unpaid sessions
-  const baseSessions = await sessionModel.getAllUnPaidSessions(tenant_id, branch_id);
-  if (baseSessions.length === 0) return [];
+  const { rows: baseSessions, total } = await sessionModel.getAllUnPaidSessions(tenant_id, branch_id, { limit, q });
+  if (baseSessions.length === 0) return { sessions: [], total };
 
   const sessionIds = baseSessions.map(s => s.session_id);
 
@@ -409,7 +351,7 @@ async function serviceGetAllUnPaidSessions(tenant_id, branch_id) {
   }
 
   // STEP 4: build final response
-  return baseSessions.map(s => {
+  const sessions = baseSessions.map(s => {
     const ws = worksBySession[s.session_id] || { items_count: 0, works: [] };
 
 
@@ -453,6 +395,7 @@ async function serviceGetAllUnPaidSessions(tenant_id, branch_id) {
       treatment_plans: plansBySession[s.session_id] || [],
     };
   });
+  return { sessions, total };
 }
 
 

@@ -93,16 +93,16 @@ const listApptsFiltersSchema = Joi.object({
         .valid("normal", "urgent", "walk_in")
         .optional(),
 
-    search: Joi.string()
-        .trim()
-        .min(1)
-        .max(100)
-        .optional(),
+    q: Joi.string().trim().min(1).max(100).optional(),
+
+    page: Joi.number().integer().min(1).optional(),
+
+    limit: Joi.number().integer().min(1).max(100).optional(),
 
 }).unknown(false)
 
 function validateListApptsFilters(req, res, next) {
-    const { error } = listApptsFiltersSchema.validate(req.body);
+    const { error } = listApptsFiltersSchema.validate(req.query);
     if (error) return res.status(400).json({ message: error.details[0].message })
     next();
 }

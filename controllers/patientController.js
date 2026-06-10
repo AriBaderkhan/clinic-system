@@ -15,10 +15,21 @@ const controllerCreatePatient = asyncWrap(async (req, res) => {
 })
 
 const controllerGetAllPatients = asyncWrap(async (req, res) => {
-    const { q } = req.query;
+    const { q, page, limit } = req.query;
     const { tenant_id, branch_id } = req.user;
-    const result = await patientService.serviceGetAllPatients(q, tenant_id, branch_id);
-    return res.status(200).json({ message: 'All Patients are here\n', patients: result })
+    const safePage = Math.max(1, parseInt(page) || 1);
+    const safeLimit = Math.min(100, parseInt(limit) || 20);
+    const { rows, total } = await patientService.serviceGetAllPatients({ q, page: safePage, limit: safeLimit }, tenant_id, branch_id);
+    return res.status(200).json({
+        message: 'All Patients are here',
+        patients: rows,
+        pagination: {
+            total,
+            page: safePage,
+            limit: safeLimit,
+            totalPages: Math.ceil(total / safeLimit) || 1,
+        }
+    });
 })
 
 const controllerGetPatient = asyncWrap(async (req, res) => {

@@ -14,9 +14,10 @@ async function createPatient(name, phone, age, gender, address, created_by, tena
 //     return rows;
 // }
 
-async function getAllPatients(q, tenant_id, branch_id) {
+async function getAllPatients({ q, page, limit } = {}, tenant_id, branch_id) {
   let query = `
-    SELECT p.id, p.name, p.phone, p.age, p.gender, p.address, p.created_by, p.updated_by
+    SELECT p.id, p.name, p.phone, p.age, p.gender, p.address, p.created_by, p.updated_by,
+           COUNT(*) OVER() AS total_count
 FROM patients p
 WHERE p.tenant_id = $1
   AND (
@@ -32,16 +33,25 @@ WHERE p.tenant_id = $1
   `;
 
   const values = [tenant_id, branch_id];
+  let idx = 3;
 
   if (q) {
-    query += `
-      AND (name ILIKE $3 OR phone ILIKE $3)
-    `;
+    query += ` AND (p.name ILIKE $${idx} OR p.phone ILIKE $${idx})`;
     values.push(`%${q}%`);
+    idx++;
   }
 
+  query += ` ORDER BY p.name ASC`;
+
+  const safePage = Math.max(1, page || 1);
+  const safeLimit = limit || 20;
+  const offset = (safePage - 1) * safeLimit;
+  query += ` LIMIT $${idx} OFFSET $${idx + 1}`;
+  values.push(safeLimit, offset);
+
   const { rows } = await pool.query(query, values);
-  return rows;
+  const total = rows.length > 0 ? parseInt(rows[0].total_count) : 0;
+  return { rows: rows.map(({ total_count, ...rest }) => rest), total };
 }
 
 async function getPatient(patientId, tenant_id, branch_id) {

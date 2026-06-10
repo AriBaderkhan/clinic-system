@@ -11,9 +11,9 @@ async function createSession(appointment_id, next_plan, notes, created_by, tenan
 
 
 // add these 
-async function getAllNormalSessions({ from, to, search }, tenant_id, branch_id) {
+async function getAllNormalSessions({ from, to, search, page, limit }, tenant_id, branch_id) {
   const baseQuery = `
-  SELECT 
+  SELECT
       s.id AS session_id,
       s.appointment_id,
       s.total,
@@ -27,7 +27,9 @@ async function getAllNormalSessions({ from, to, search }, tenant_id, branch_id) 
       p.name  AS patient_name,
 
       d.id         AS doctor_id,
-      pr.full_name AS doctor_name
+      pr.full_name AS doctor_name,
+
+      COUNT(*) OVER() AS total_count
   FROM sessions s
   JOIN appointments a ON a.id = s.appointment_id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
   JOIN patients p     ON p.id = a.patient_id AND p.tenant_id = a.tenant_id 
@@ -77,12 +79,19 @@ async function getAllNormalSessions({ from, to, search }, tenant_id, branch_id) 
 
   query += `
   ORDER BY
-    CASE WHEN s.is_paid = false THEN 0 ELSE 1 END,  -- unpaid first
+    CASE WHEN s.is_paid = false THEN 0 ELSE 1 END,
     s.created_at DESC
-`;
+  `;
+
+  const safePage = Math.max(1, page || 1);
+  const safeLimit = limit || 20;
+  const offset = (safePage - 1) * safeLimit;
+  query += ` LIMIT $${idx} OFFSET $${idx + 1}`;
+  values.push(safeLimit, offset);
 
   const { rows } = await pool.query(query, values);
-  return rows;
+  const total = rows.length > 0 ? parseInt(rows[0].total_count) : 0;
+  return { rows: rows.map(({ total_count, ...rest }) => rest), total };
 }
 
 async function getNormalSession(session_id, tenant_id, branch_id, client = pool) {
@@ -221,10 +230,24 @@ async function updateSessionTotal({ min_total, total, total_paid, is_paid, sessi
   return rows[0] || null;
 }
 
-async function getAllUnPaidSessions(tenant_id, branch_id) {
+async function getAllUnPaidSessions(tenant_id, branch_id, { limit, q } = {}) {
+  const values = [tenant_id, branch_id];
+  let idx = 3;
+  let whereExtra = '';
+
+  if (q) {
+    whereExtra = ` AND p.name ILIKE $${idx}`;
+    values.push(`%${q}%`);
+    idx++;
+  }
+
+  const limitClause = limit ? ` LIMIT $${idx}` : '';
+  if (limit) values.push(limit);
+
   const query = `
     /* UNPAID_SESSIONS_V2 */
-    SELECT 
+    SELECT
+      COUNT(*) OVER() AS total_count,
       s.id AS session_id,
       s.appointment_id,
       s.min_total,
@@ -246,22 +269,19 @@ async function getAllUnPaidSessions(tenant_id, branch_id) {
       pr.full_name AS doctor_name
     FROM sessions s
     JOIN appointments a ON a.id = s.appointment_id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
-    JOIN patients p ON p.id = a.patient_id AND p.tenant_id = a.tenant_id 
+    JOIN patients p ON p.id = a.patient_id AND p.tenant_id = a.tenant_id
     JOIN doctors d ON d.id = a.doctor_id AND d.tenant_id = a.tenant_id AND d.branch_id = a.branch_id
     JOIN profiles pr ON d.id = pr.user_id
     WHERE a.status = 'completed'
       AND s.tenant_id = $1
       AND s.branch_id = $2
       AND (
-      (
-        -- (A) normal session unpaid
-        COALESCE(s.total, 0) > 0
-        AND COALESCE(s.total_paid, 0) = 0
-      )
-      OR
-
-        -- (B) plan installment for THIS session missing
-      EXISTS (
+        (
+          COALESCE(s.total, 0) > 0
+          AND COALESCE(s.total_paid, 0) = 0
+        )
+        OR
+        EXISTS (
           SELECT 1
           FROM session_works sw
           JOIN treatment_plans tp ON tp.id = sw.treatment_plan_id
@@ -269,8 +289,6 @@ async function getAllUnPaidSessions(tenant_id, branch_id) {
             AND sw.tenant_id = s.tenant_id
             AND sw.branch_id = s.branch_id
             AND sw.treatment_plan_id IS NOT NULL
-
-            -- plan overall still has remaining (optional but ok)
             AND tp.agreed_total > COALESCE((
               SELECT SUM(tpp2.amount)
               FROM treatment_payments tpp2
@@ -278,8 +296,6 @@ async function getAllUnPaidSessions(tenant_id, branch_id) {
                 AND tpp2.tenant_id = s.tenant_id
                 AND tpp2.branch_id = s.branch_id
             ), 0)
-
-            -- but THIS session hasn't paid at least 50,000 for THIS plan
             AND COALESCE((
               SELECT SUM(tpp.amount)
               FROM treatment_payments tpp
@@ -289,11 +305,13 @@ async function getAllUnPaidSessions(tenant_id, branch_id) {
                 AND tpp.branch_id = s.branch_id
             ), 0) = 0
         )
-      )
-    ORDER BY a.started_at DESC
+      )${whereExtra}
+    ORDER BY a.started_at DESC${limitClause}
   `;
-  const { rows } = await pool.query(query, [tenant_id, branch_id]);
-  return rows;
+
+  const { rows } = await pool.query(query, values);
+  const total = rows.length > 0 ? parseInt(rows[0].total_count) : 0;
+  return { rows: rows.map(({ total_count, ...rest }) => rest), total };
 }
 
 async function getWorksForSessions(session_ids, tenant_id, branch_id) {

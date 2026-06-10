@@ -3,14 +3,23 @@ import asyncWrap from '../utils/asyncWrap.js';
 
 
 const controllerGetAllSessions = asyncWrap(async (req, res) => {
-    const { day, q } = req.query;
+    const { day, q, page, limit } = req.query;
     const { tenant_id, branch_id } = req.user;
-
-    const result = await sessionService.serviceGetAllSessions({
-        day,
-        search: q,
-    }, tenant_id, branch_id)
-    return res.status(200).json({ message: 'All Sessions are here', sessions: result });
+    const safePage = Math.max(1, parseInt(page) || 1);
+    const safeLimit = Math.min(100, parseInt(limit) || 20);
+    const { rows, total } = await sessionService.serviceGetAllSessions({
+        day, search: q, page: safePage, limit: safeLimit,
+    }, tenant_id, branch_id);
+    return res.status(200).json({
+        message: 'All Sessions are here',
+        sessions: rows,
+        pagination: {
+            total,
+            page: safePage,
+            limit: safeLimit,
+            totalPages: Math.ceil(total / safeLimit) || 1,
+        }
+    });
 })
 
 const controllerGetNormalSession = asyncWrap(async (req, res) => {
@@ -49,8 +58,10 @@ const controllerDeleteSession = asyncWrap(async (req, res) => {
 
 const controllerGetAllUnPaidSessions = asyncWrap(async (req, res) => {
     const { tenant_id, branch_id } = req.user;
-    const result = await sessionService.serviceGetAllUnPaidSessions(tenant_id, branch_id)
-    return res.status(200).json({ message: 'All Sessions are here', data: result });
+    const { limit, q } = req.query;
+    const safeLimit = limit ? Math.min(100, parseInt(limit) || 20) : undefined;
+    const { sessions, total } = await sessionService.serviceGetAllUnPaidSessions(tenant_id, branch_id, { limit: safeLimit, q });
+    return res.status(200).json({ message: 'All Sessions are here', data: sessions, total });
 })
 
 

@@ -25,25 +25,35 @@ const controllerGetSessionsForTp = asyncWrap(async (req, res) => {
 })
 
 const controllerGetAllTreatmentPlansForSection = asyncWrap(async (req, res) => {
-    const { isPaid, isCompleted, q } = req.query;
+    const { isPaid, isCompleted, q, page, limit } = req.query;
 
     const parseBool = (v) => {
         if (v === undefined || v === null || v === "") return undefined;
         if (v === "true") return true;
         if (v === "false") return false;
-        return undefined; // or throw error if you want strict
+        return undefined;
     };
 
     const { tenant_id, branch_id } = req.user;
-    const result = await treatmentPlanService.serviceGetAllTreatmentPlansForSection({
+    const safePage = Math.max(1, parseInt(page) || 1);
+    const safeLimit = Math.min(100, parseInt(limit) || 20);
+    const { rows, total } = await treatmentPlanService.serviceGetAllTreatmentPlansForSection({
         isPaid: parseBool(isPaid),
         isCompleted: parseBool(isCompleted),
         search: q,
+        page: safePage,
+        limit: safeLimit,
     }, tenant_id, branch_id);
 
     return res.status(200).json({
         message: "Treatment Plans retrieved successfully",
-        data: result
+        data: rows,
+        pagination: {
+            total,
+            page: safePage,
+            limit: safeLimit,
+            totalPages: Math.ceil(total / safeLimit) || 1,
+        }
     });
 })
 

@@ -106,18 +106,29 @@ const controllerSetNoShow = asyncWrap(async (req, res) => {
 
 // for filtters and searches by type and p.name, p.phone and d.name
 const controllerListAppointments = asyncWrap(async (req, res) => {
-    const { day, type, q } = req.query;
-    const { tenant_id, branch_id } = req.user
+    const { day, type, q, page, limit } = req.query;
+    const { tenant_id, branch_id } = req.user;
 
-    const appointments = await appointmentService.serviceListAppointmentsWithFilters({
+    const safePage = Math.max(1, parseInt(page) || 1);
+    const safeLimit = Math.min(100, parseInt(limit) || 20);
+
+    const { rows, total } = await appointmentService.serviceListAppointmentsWithFilters({
         day,
         type,
         search: q,
+        page: safePage,
+        limit: safeLimit,
     }, tenant_id, branch_id);
 
     return res.status(200).json({
         message: "Appointments retrieved successfully",
-        data: appointments
+        data: rows,
+        pagination: {
+            total,
+            page: safePage,
+            limit: safeLimit,
+            totalPages: Math.ceil(total / safeLimit) || 1,
+        }
     });
 })
 
