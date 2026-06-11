@@ -223,6 +223,28 @@ async function createSessionWork({
   return rows[0] || null;
 }
 
+async function bulkCreateSessionWorks(works, tenant_id, branch_id, client = pool) {
+  const values = [];
+  const placeholders = works.map((w, i) => {
+    const b = i * 11;
+    values.push(w.sessionId, w.workId, w.quantity, w.toothNumber, w.minUnitPrice, w.unitPrice, w.totalMinPrice, w.totalPrice, w.treatmentPlanId, tenant_id, branch_id);
+    return `($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8},$${b+9},$${b+10},$${b+11})`;
+  });
+
+  const query = `
+    INSERT INTO session_works (
+      session_id, work_id, quantity, tooth_number,
+      min_unit_price, unit_price, total_min_price, total_price,
+      treatment_plan_id, tenant_id, branch_id
+    )
+    VALUES ${placeholders.join(', ')}
+    RETURNING *
+  `;
+
+  const { rows } = await client.query(query, values);
+  return rows;
+}
+
 async function updateSessionTotal({ min_total, total, total_paid, is_paid, sessionId }, tenant_id, branch_id, client = pool) {
   const query = `UPDATE sessions SET min_total=$1, total=$2, total_paid=$3, is_paid=$4 WHERE id=$5 AND tenant_id=$6 AND branch_id=$7 RETURNING *`;
   const values = [min_total, total, total_paid, is_paid, sessionId, tenant_id, branch_id];
@@ -245,7 +267,30 @@ async function getAllUnPaidSessions(tenant_id, branch_id, { limit, q } = {}) {
   if (limit) values.push(limit);
 
   const query = `
-    /* UNPAID_SESSIONS_V2 */
+    WITH plan_totals AS (
+      SELECT treatment_plan_id, SUM(amount) AS paid
+      FROM treatment_payments
+      WHERE tenant_id = $1 AND branch_id = $2
+      GROUP BY treatment_plan_id
+    ),
+    session_plan_totals AS (
+      SELECT session_id, treatment_plan_id, SUM(amount) AS paid
+      FROM treatment_payments
+      WHERE tenant_id = $1 AND branch_id = $2
+      GROUP BY session_id, treatment_plan_id
+    ),
+    sessions_with_plan_due AS (
+      SELECT DISTINCT sw.session_id
+      FROM session_works sw
+      JOIN treatment_plans tp ON tp.id = sw.treatment_plan_id AND tp.tenant_id = sw.tenant_id AND tp.branch_id = sw.branch_id
+      LEFT JOIN plan_totals pt ON pt.treatment_plan_id = tp.id
+      LEFT JOIN session_plan_totals spt ON spt.session_id = sw.session_id AND spt.treatment_plan_id = tp.id
+      WHERE sw.tenant_id = $1
+        AND sw.branch_id = $2
+        AND sw.treatment_plan_id IS NOT NULL
+        AND tp.agreed_total > COALESCE(pt.paid, 0)
+        AND COALESCE(spt.paid, 0) = 0
+    )
     SELECT
       COUNT(*) OVER() AS total_count,
       s.id AS session_id,
@@ -276,35 +321,8 @@ async function getAllUnPaidSessions(tenant_id, branch_id, { limit, q } = {}) {
       AND s.tenant_id = $1
       AND s.branch_id = $2
       AND (
-        (
-          COALESCE(s.total, 0) > 0
-          AND COALESCE(s.total_paid, 0) = 0
-        )
-        OR
-        EXISTS (
-          SELECT 1
-          FROM session_works sw
-          JOIN treatment_plans tp ON tp.id = sw.treatment_plan_id
-          WHERE sw.session_id = s.id
-            AND sw.tenant_id = s.tenant_id
-            AND sw.branch_id = s.branch_id
-            AND sw.treatment_plan_id IS NOT NULL
-            AND tp.agreed_total > COALESCE((
-              SELECT SUM(tpp2.amount)
-              FROM treatment_payments tpp2
-              WHERE tpp2.treatment_plan_id = tp.id
-                AND tpp2.tenant_id = s.tenant_id
-                AND tpp2.branch_id = s.branch_id
-            ), 0)
-            AND COALESCE((
-              SELECT SUM(tpp.amount)
-              FROM treatment_payments tpp
-              WHERE tpp.session_id = s.id
-                AND tpp.treatment_plan_id = tp.id
-                AND tpp.tenant_id = s.tenant_id
-                AND tpp.branch_id = s.branch_id
-            ), 0) = 0
-        )
+        (COALESCE(s.total, 0) > 0 AND COALESCE(s.total_paid, 0) = 0)
+        OR s.id IN (SELECT session_id FROM sessions_with_plan_due)
       )${whereExtra}
     ORDER BY a.started_at DESC${limitClause}
   `;
@@ -345,8 +363,6 @@ async function getWorksForNormalSession(session_id, tenant_id, branch_id) {
 
   const query = `
     SELECT
-      s.id AS session_id,
-
       sw.session_id,
       sw.work_id,
       sw.tooth_number,
@@ -356,12 +372,11 @@ async function getWorksForNormalSession(session_id, tenant_id, branch_id) {
       wc.name AS work_name
     FROM session_works sw
     JOIN work_catalog wc ON wc.id = sw.work_id AND wc.tenant_id = sw.tenant_id AND wc.branch_id = sw.branch_id
-    JOIN sessions s ON s.id=sw.session_id AND s.tenant_id = sw.tenant_id AND s.branch_id = sw.branch_id
     WHERE sw.session_id = $1
       AND sw.tenant_id = $2
       AND sw.branch_id = $3
       AND sw.treatment_plan_id IS NULL
-    ORDER BY sw.session_id, wc.name, sw.tooth_number
+    ORDER BY wc.name, sw.tooth_number
   `;
 
   const value = [session_id, tenant_id, branch_id];
@@ -398,7 +413,16 @@ async function getSessionWithAppointmentForUpdate(sessionId, tenant_id, branch_i
       s.total_paid,
       s.is_paid,
       a.status AS appointment_status,
-      a.patient_id
+      a.patient_id,
+      EXISTS (
+        SELECT 1
+        FROM session_works sw
+        JOIN treatment_plans tp ON tp.id = sw.treatment_plan_id AND tp.tenant_id = sw.tenant_id AND tp.branch_id = sw.branch_id
+        WHERE sw.session_id = s.id
+          AND sw.tenant_id = s.tenant_id
+          AND sw.branch_id = s.branch_id
+          AND tp.agreed_total > COALESCE(tp.total_paid, 0)
+      ) AS has_plan_due
     FROM sessions s
     JOIN appointments a ON a.id = s.appointment_id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
     WHERE s.id = $1
@@ -513,7 +537,7 @@ async function updateSessionNotesFields(session_id, notess, tenant_id, branch_id
 }
 
 export default {
-  createSession, getAllNormalSessions, getNormalSession, getSession, updateSession, deleteSession, deleteSessionWorksBySiD, createSessionWork, updateSessionTotal, getAllUnPaidSessions, getWorksForNormalSession, getWorksForSessions,
+  createSession, getAllNormalSessions, getNormalSession, getSession, updateSession, deleteSession, deleteSessionWorksBySiD, createSessionWork, bulkCreateSessionWorks, updateSessionTotal, getAllUnPaidSessions, getWorksForNormalSession, getWorksForSessions,
   getSessionWithAppointment, getTreatmentPlansForSession, getSessionPaymentContext, getSessionWithAppointmentForUpdate,
   getTreatmentPlansForSessions, hasPlanDue, updateSessionNotesFields
 }

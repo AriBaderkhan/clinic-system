@@ -36,6 +36,18 @@ async function getWorkById(id, tenant_id, branch_id, client = pool) {
   return rows[0] || null;
 }
 
+async function getWorksByIds(ids, tenant_id, branch_id, client = pool) {
+  const query = `
+    SELECT id, code, name, min_price, allow_installments, min_installment_amount, is_active
+    FROM work_catalog
+    WHERE id = ANY($1::int[])
+    AND tenant_id = $2
+    AND branch_id = $3
+  `;
+  const { rows } = await client.query(query, [ids, tenant_id, branch_id]);
+  return rows;
+}
+
 async function getWorkByType(type, tenant_id, branch_id, client = pool) {
   const query = `
     SELECT id, code, name, min_price, allow_installments, min_installment_amount
@@ -85,8 +97,8 @@ export default {
   createWork,
   getWorks,
   getWorkById,
+  getWorksByIds,
   getWorkByType,
   updateWork,
   deleteWork
-
 };

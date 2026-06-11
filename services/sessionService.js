@@ -62,12 +62,12 @@ async function getAll({ day, search, page, limit }, tenant_id, branch_id) {
 
 async function getNormal(session_id, tenant_id, branch_id) {
 
-  const base = await sessionModel.getNormalSession(session_id, tenant_id, branch_id);
+  const [base, worksRows] = await Promise.all([
+    sessionModel.getNormalSession(session_id, tenant_id, branch_id),
+    sessionModel.getWorksForNormalSession(session_id, tenant_id, branch_id),
+  ]);
   if (!base) throw appError("SESSION_NOT_FOUND", "session not found", 404);
 
-
-
-  const worksRows = await sessionModel.getWorksForNormalSession(session_id, tenant_id, branch_id);
   const worksSummary = buildWorksSummary(worksRows);
 
 
@@ -149,38 +149,39 @@ async function editNormal(session_id, fields, userId, tenant_id, branch_id) {
       normalMinTotal = 0;
       normalGrandTotal = 0;
 
+      const workIds = works.map(w => w.work_id);
+      const catalogRows = await workCatalogModel.getWorksByIds(workIds, tenant_id, branch_id, client);
+      const catalogMap = Object.fromEntries(catalogRows.map(c => [c.id, c]));
+
+      const workItems = [];
       for (const w of works) {
         const { work_id, quantity, tooth_number } = w;
 
-        const catalog = await workCatalogModel.getWorkById(work_id, tenant_id, branch_id, client);
+        const catalog = catalogMap[work_id];
         if (!catalog) throw appError("WORK_NOT_FOUND", "Work not found", 404);
 
         const minUnit = Number(catalog.min_price) || 0;
-        const unit = minUnit; // for now
-
+        const unit = minUnit;
         const qty = Number(quantity) || 1;
-
         const rowMin = minUnit * qty;
         const rowTotal = unit * qty;
 
-        await sessionModel.createSessionWork(
-          {
-            sessionId: session_id,
-            workId: work_id,
-            quantity: qty,
-            toothNumber: tooth_number ?? null,
-            minUnitPrice: minUnit,
-            unitPrice: unit,
-            totalMinPrice: rowMin,
-            totalPrice: rowTotal,
-            treatmentPlanId: null, // âœ… normal only
-          },
-          tenant_id, branch_id, client
-        );
+        workItems.push({
+          sessionId: session_id,
+          workId: work_id,
+          quantity: qty,
+          toothNumber: tooth_number ?? null,
+          minUnitPrice: minUnit,
+          unitPrice: unit,
+          totalMinPrice: rowMin,
+          totalPrice: rowTotal,
+          treatmentPlanId: null,
+        });
 
         normalMinTotal += rowMin;
         normalGrandTotal += rowTotal;
       }
+      await sessionModel.bulkCreateSessionWorks(workItems, tenant_id, branch_id, client);
     }
 
     let sessionsAfterRecalc = null;
@@ -258,9 +259,15 @@ async function editNormal(session_id, fields, userId, tenant_id, branch_id) {
 
     await client.query("COMMIT");
 
-    // return fresh details (optional)
-    const after = await sessionModel.getNormalSession(session_id, tenant_id, branch_id, client);
-    return after;
+    return {
+      ...base,
+      min_total: updatedTotals.min_total,
+      total: updatedTotals.total,
+      total_paid: updatedTotals.total_paid,
+      is_paid: updatedTotals.is_paid,
+      notes: notes !== undefined ? notes : base.notes,
+      next_plan: next_plan !== undefined ? next_plan : base.next_plan,
+    };
   } catch (err) {
     await client.query("ROLLBACK");
     throw err;
@@ -290,8 +297,11 @@ async function getUnpaid(tenant_id, branch_id, { limit, q } = {}) {
 
   const sessionIds = baseSessions.map(s => s.session_id);
 
-  // STEP 2: works
-  const worksRows = await sessionModel.getWorksForSessions(sessionIds, tenant_id, branch_id);
+  // STEP 2 + 3: fetch works and plans in parallel
+  const [worksRows, planRows] = await Promise.all([
+    sessionModel.getWorksForSessions(sessionIds, tenant_id, branch_id),
+    sessionModel.getTreatmentPlansForSessions(sessionIds, tenant_id, branch_id),
+  ]);
 
   const worksBySession = {};
   for (const row of worksRows) {
@@ -324,9 +334,6 @@ async function getUnpaid(tenant_id, branch_id, { limit, q } = {}) {
     delete worksBySession[sid]._groups;
   }
 
-  // STEP 3: ðŸ”¥ FETCH TREATMENT PLANS (THIS WAS MISSING)
-  const planRows = await sessionModel.getTreatmentPlansForSessions(sessionIds, tenant_id, branch_id);
-
   const plansBySession = {};
   for (const row of planRows) {
     if (!plansBySession[row.session_id]) {
@@ -344,7 +351,7 @@ async function getUnpaid(tenant_id, branch_id, { limit, q } = {}) {
     });
   }
 
-  // STEP 4: build final response
+  // STEP 4: group and build final response
   const sessions = baseSessions.map(s => {
     const ws = worksBySession[s.session_id] || { items_count: 0, works: [] };
 
@@ -420,9 +427,9 @@ async function pay({ sessionId, normalAmount, planPayments, note, userId }, tena
     const payPlans =
       Array.isArray(planPayments) && planPayments.length > 0;
 
-    // what is actually due
+    // what is actually due (has_plan_due comes from the lock query — no extra round-trip)
     const sessionDue = total > totalPaid;
-    const planDue = await sessionModel.hasPlanDue(sessionId, tenant_id, branch_id, client);
+    const planDue = session.has_plan_due;
 
     // â— RULE: allow empty ONLY if nothing is due
     if (!payNormal && !payPlans) {
@@ -467,7 +474,9 @@ async function pay({ sessionId, normalAmount, planPayments, note, userId }, tena
         tenant_id, branch_id, client
       );
 
-      await sessionPaymentModel.recalcSessionTotals(sessionId, tenant_id, branch_id, client);
+      const recalc = await sessionPaymentModel.recalcSessionTotals(sessionId, tenant_id, branch_id, client);
+      session.total_paid = recalc.total_paid;
+      session.is_paid = recalc.is_paid;
     }
 
     // -------------------------
@@ -528,25 +537,6 @@ async function pay({ sessionId, normalAmount, planPayments, note, userId }, tena
         }
 
 
-        // RULE: min installment from work_catalog (unchanged)
-        const code = String(plan.type || "").toUpperCase(); // ORTHO/IMPLANT/RCT
-        const catalog = await workCatalogModel.getWorkByType(code, tenant_id, branch_id, client);
-        if (!catalog) {
-          throw appError(
-            "WORK_CATALOG_NOT_FOUND",
-            `Work catalog entry not found for code ${code}`,
-            404
-          );
-        }
-
-        const minInstallment = Number(catalog.min_installment_amount) || 0;
-        // if (amount < minInstallment && remainingAmount > minInstallment) {
-        //   throw appError(
-        //     "AMOUNT_BELOW_MIN_INSTALLMENT",
-        //     `Amount for treatment plan ID ${plan_id} cannot be less than minimum installment amount of ${minInstallment}`, 400
-        //   );
-        // }
-
         await treatmentPlanPaymentModel.createTreatmentPlanPayment(
           {
             treatmentPlanId: plan_id,
@@ -563,19 +553,16 @@ async function pay({ sessionId, normalAmount, planPayments, note, userId }, tena
       }
     }
 
-    // refresh session after recalcs
-    const sessionAfter = await sessionModel.getSessionPaymentContext(sessionId, tenant_id, branch_id, client);
-
     await client.query("COMMIT");
 
     return {
       session: {
-        session_id: sessionAfter.session_id,
+        session_id: session.session_id,
         totals: {
-          min_total: Number(sessionAfter.min_total),
-          total: Number(sessionAfter.total),
-          total_paid: Number(sessionAfter.total_paid),
-          is_paid: sessionAfter.is_paid,
+          min_total: Number(session.min_total),
+          total: Number(session.total),
+          total_paid: Number(session.total_paid),
+          is_paid: session.is_paid,
         },
       },
       treatment_plans: updatedPlans.map((p) => ({
