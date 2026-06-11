@@ -108,6 +108,17 @@ const getAll = asyncWrap(async (req, res) => {
     res.status(200).json({ ok: true, data: rows, total, page: safePage, limit: safeLimit });
 })
 
+const getCalendar = asyncWrap(async (req, res) => {
+    const { from, to } = req.query;
+    const { tenant_id, branch_id, role } = req.user;
+
+    // doctors only see their own appointments on the calendar
+    const doctor_id = role === 'doctor' ? req.user.id : null;
+
+    const result = await appointmentService.getCalendar({ from, to, doctor_id }, tenant_id, branch_id);
+    res.status(200).json({ ok: true, data: result });
+})
+
 const getActiveToday = asyncWrap(async (req, res) => {
     const { tenant_id, branch_id } = req.user
 
@@ -126,5 +137,5 @@ const getSession = asyncWrap(async (req, res) => {
 export default {
     create, getById, update, delete: _delete,
     checkIn, start, complete, cancel, noShow,
-    getAll, getActiveToday, getSession
+    getAll, getCalendar, getActiveToday, getSession
 };

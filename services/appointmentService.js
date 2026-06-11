@@ -376,6 +376,26 @@ async function getAll({ day, type, search, page, limit }, tenant_id, branch_id) 
     return result;
 }
 
+// FOR CALENDAR (reception/branch_manager see all, doctor sees only their own)
+async function getCalendar({ from, to, doctor_id }, tenant_id, branch_id) {
+
+    if (!from || !to) throw appError('INVALID_CALENDAR_RANGE', 'from and to dates are required', 400);
+
+    const fromDate = new Date(from);
+    const toDate = new Date(to);
+
+    if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) throw appError('INVALID_CALENDAR_RANGE', 'from and to must be valid dates', 400);
+    if (fromDate >= toDate) throw appError('INVALID_CALENDAR_RANGE', 'from must be before to', 400);
+
+    const appointments = await appointmentModel.findAppointmentsForCalendar({
+        from: fromDate.toISOString(),
+        to: toDate.toISOString(),
+        doctor_id: doctor_id || null,
+    }, tenant_id, branch_id);
+
+    return appointments;
+}
+
 // FOR DASHBOARD
 async function getActiveToday(tenant_id, branch_id) {
 
@@ -400,5 +420,5 @@ async function getSession(appointmentId, tenant_id, branch_id) {
 export default {
     create, getById, delete: _delete, update,
     checkIn, start, complete, cancel, noShow, getAll,
-    getActiveToday, getSession
+    getCalendar, getActiveToday, getSession
 }

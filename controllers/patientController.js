@@ -69,7 +69,9 @@ const getSessions = asyncWrap(async (req, res) => {
     const patientId = Number(req.params.patientId)
     const { tenant_id, branch_id } = req.user;
 
-    const result = await patientService.getSessions(patientId, tenant_id, branch_id);
+    const limit = Math.min(50, parseInt(req.query.limit) || 0) || null;
+
+    const result = await patientService.getSessions(patientId, tenant_id, branch_id, limit);
     res.status(200).json({ ok: true, data: result });
 })
 

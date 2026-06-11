@@ -313,6 +313,41 @@ async function findAppointmentsWithFilters({ from, to, type, search, page, limit
   return { rows: rows.map(({ total_count, ...rest }) => rest), total };
 }
 
+// for calendar view (month/week range, optional doctor filter for doctor role)
+async function findAppointmentsForCalendar({ from, to, doctor_id }, tenant_id, branch_id) {
+  const baseQuery = `
+    SELECT
+      a.id,
+      a.patient_id,
+      a.doctor_id,
+      p.name  AS patient_name,
+      p.phone AS patient_phone,
+      pr.full_name AS doctor_name,
+      a.scheduled_start,
+      a.status,
+      a.appointment_type
+    FROM appointments a
+    JOIN patients  p  ON a.patient_id = p.id AND a.tenant_id = p.tenant_id
+    JOIN doctors   d  ON a.doctor_id = d.id AND a.tenant_id = d.tenant_id AND a.branch_id = d.branch_id
+    JOIN profiles  pr ON d.id = pr.user_id
+    WHERE a.tenant_id = $1 AND a.branch_id = $2
+      AND a.scheduled_start >= $3
+      AND a.scheduled_start <  $4 `;
+
+  const values = [tenant_id, branch_id, from, to];
+
+  let query = baseQuery;
+  if (doctor_id) {
+    query += ` AND a.doctor_id = $5`;
+    values.push(doctor_id);
+  }
+
+  query += ` ORDER BY a.scheduled_start ASC`;
+
+  const { rows } = await pool.query(query, values);
+  return rows;
+}
+
 // for dashboard
 async function activeTodayAppt({ from, to }, tenant_id, branch_id) {
   const query = `
@@ -371,6 +406,7 @@ export default {
   isDoctorSlotTakenExactForUpdate,
   isDoctorAvailableInOneHourWindowForUpdate,
   findAppointmentsWithFilters,
+  findAppointmentsForCalendar,
   activeTodayAppt,
   getSessionByApptId
 };

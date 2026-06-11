@@ -14,6 +14,7 @@ router.use(branchAssigmentMiddleware)
 router.post('/', permissionMiddleware('create_appointment'), appointmentValidate.create, appointmentController.create);
 router.get("/", permissionMiddleware('view_appointment'), appointmentValidate.filters, appointmentController.getAll);
 router.get("/active/today", permissionMiddleware('view_appointment'), appointmentController.getActiveToday);
+router.get("/calendar", permissionMiddleware('view_appointment'), appointmentController.getCalendar);
 router.get('/:appointmentId', permissionMiddleware('view_appointment'), validateIdParam('appointmentId'), appointmentController.getById);
 router.put('/:appointmentId', permissionMiddleware('update_appointment'), validateIdParam('appointmentId'), appointmentValidate.update, appointmentController.update);
 router.delete('/:appointmentId', permissionMiddleware('delete_appointment'), validateIdParam('appointmentId'), appointmentController.delete);

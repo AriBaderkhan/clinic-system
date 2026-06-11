@@ -175,7 +175,7 @@ ORDER BY a.scheduled_start DESC;
   return rows;
 }
 
-async function getAllSessionsPatient(patientId, tenant_id, branch_id) {
+async function getAllSessionsPatient(patientId, tenant_id, branch_id, limit = null) {
   const query = `
     SELECT 
         s.id AS session_id,
@@ -202,8 +202,9 @@ async function getAllSessionsPatient(patientId, tenant_id, branch_id) {
     WHERE a.patient_id=$1
     AND a.tenant_id = $2
     AND a.branch_id = $3
-    ORDER BY s.created_at DESC`;
-  const value = [patientId, tenant_id, branch_id];
+    ORDER BY s.created_at DESC
+    ${limit ? 'LIMIT $4' : ''}`;
+  const value = limit ? [patientId, tenant_id, branch_id, limit] : [patientId, tenant_id, branch_id];
   const { rows } = await pool.query(query, value);
   return rows;
 }

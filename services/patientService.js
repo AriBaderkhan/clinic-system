@@ -63,9 +63,9 @@ async function getAppointments(patientId, tenant_id, branch_id) {
     return apptsPatient;
 }
 
-async function getSessions(patientId, tenant_id, branch_id) {
+async function getSessions(patientId, tenant_id, branch_id, limit = null) {
 
-    const sessionsPatient = await patientModel.getAllSessionsPatient(patientId, tenant_id, branch_id);
+    const sessionsPatient = await patientModel.getAllSessionsPatient(patientId, tenant_id, branch_id, limit);
 
     return sessionsPatient;
 }
