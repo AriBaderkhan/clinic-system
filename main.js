@@ -49,6 +49,7 @@ import featureRoute from './routes/featureRoute.js';
 import subscriptionRoute from './routes/subscriptionRoute.js';
 import adminPlatformRoute from './routes/adminPlatformRoute.js';
 import worksRoute from './routes/worksRoute.js';
+import labRoute from './routes/labRoute.js';
 const PORT = process.env.PORT || 1000;
 
 
@@ -71,6 +72,7 @@ app.use('/api/features', featureRoute)
 app.use('/api/subscriptions', subscriptionRoute)
 app.use('/api/admin-platform', adminPlatformRoute)
 app.use('/api/works', worksRoute)
+app.use('/api/labs', labRoute)
 
 app.use((req, res) => {
     res.status(404).json({ message: "Route not found", code: "ROUTE_NOT_FOUND", support_code: req.requestId || 'N/A' });
