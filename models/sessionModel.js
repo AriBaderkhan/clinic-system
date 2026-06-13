@@ -358,6 +358,32 @@ async function getWorksForSessions(session_ids, tenant_id, branch_id) {
   return rows;
 }
 
+// ALL works done in a session — normal AND treatment-plan works together (for display).
+// (getWorksForSessions stays normal-only because it feeds the unpaid/payment flow.)
+async function getAllWorksForSession(session_id, tenant_id, branch_id) {
+  const query = `
+    SELECT
+      sw.session_id,
+      sw.work_id,
+      sw.tooth_number,
+      sw.quantity,
+      sw.unit_price,
+      sw.total_price,
+      sw.treatment_plan_id,
+      tp.type AS plan_type,
+      wc.name AS work_name
+    FROM session_works sw
+    JOIN work_catalog wc ON wc.id = sw.work_id AND wc.tenant_id = sw.tenant_id AND wc.branch_id = sw.branch_id
+    LEFT JOIN treatment_plans tp ON tp.id = sw.treatment_plan_id AND tp.tenant_id = sw.tenant_id AND tp.branch_id = sw.branch_id
+    WHERE sw.session_id = $1
+      AND sw.tenant_id = $2
+      AND sw.branch_id = $3
+    ORDER BY wc.name, sw.tooth_number
+  `;
+  const { rows } = await pool.query(query, [session_id, tenant_id, branch_id]);
+  return rows;
+}
+
 async function getWorksForNormalSession(session_id, tenant_id, branch_id) {
 
 
@@ -537,7 +563,7 @@ async function updateSessionNotesFields(session_id, notess, tenant_id, branch_id
 }
 
 export default {
-  createSession, getAllNormalSessions, getNormalSession, getSession, updateSession, deleteSession, deleteSessionWorksBySiD, createSessionWork, bulkCreateSessionWorks, updateSessionTotal, getAllUnPaidSessions, getWorksForNormalSession, getWorksForSessions,
+  createSession, getAllNormalSessions, getNormalSession, getSession, updateSession, deleteSession, deleteSessionWorksBySiD, createSessionWork, bulkCreateSessionWorks, updateSessionTotal, getAllUnPaidSessions, getWorksForNormalSession, getWorksForSessions, getAllWorksForSession,
   getSessionWithAppointment, getTreatmentPlansForSession, getSessionPaymentContext, getSessionWithAppointmentForUpdate,
   getTreatmentPlansForSessions, hasPlanDue, updateSessionNotesFields
 }

@@ -61,12 +61,12 @@ const deleteLab = asyncWrap(async (req, res) => {
 // ===================== ORDERS =====================
 
 const createOrder = asyncWrap(async (req, res) => {
-    const { lab_id, appointment_id, patient_id, doctor_id, work_id, quantity, notes } = req.body;
+    const { lab_id, appointment_id, patient_id, doctor_id, items, notes } = req.body;
     const created_by = req.user.id;
     const { tenant_id, branch_id } = req.user;
 
     const result = await labService.createOrder({
-        lab_id, appointment_id, patient_id, doctor_id, work_id, quantity, notes, created_by,
+        lab_id, appointment_id, patient_id, doctor_id, items, notes, created_by,
     }, tenant_id, branch_id);
 
     res.status(201).json({ ok: true, data: result });
@@ -100,10 +100,10 @@ const getOrderById = asyncWrap(async (req, res) => {
 
 const updateOrder = asyncWrap(async (req, res) => {
     const orderId = Number(req.params.orderId);
-    const { patient_id, doctor_id, work_id, quantity, notes } = req.body;
+    const { items, notes } = req.body;
     const { tenant_id, branch_id } = req.user;
 
-    const result = await labService.updateOrder(orderId, { patient_id, doctor_id, work_id, quantity, notes }, tenant_id, branch_id);
+    const result = await labService.updateOrder(orderId, { items, notes }, tenant_id, branch_id);
     res.status(200).json({ ok: true, data: result });
 })
 

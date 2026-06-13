@@ -21,10 +21,11 @@ function buildWorksSummary(worksRows) {
     };
   }
 
-  const groups = {}; // key: work_id-unit_price
+  const groups = {}; // key: work_id-unit_price-plan
 
   for (const row of worksRows) {
-    const key = `${row.work_id}-${row.unit_price}`;
+    const isPlan = !!row.treatment_plan_id;
+    const key = `${row.work_id}-${row.unit_price}-${row.treatment_plan_id || 'normal'}`;
 
     if (!groups[key]) {
       groups[key] = {
@@ -32,6 +33,8 @@ function buildWorksSummary(worksRows) {
         quantity: 0,
         total_price: 0,
         teeth: [],
+        is_plan: isPlan,                           // treatment-plan work vs normal
+        plan_type: row.plan_type || null,
       };
     }
 
@@ -59,8 +62,8 @@ async function getSessionDetails(session_id, tenant_id, branch_id) {
     throw appError("SESSION_NOT_FOUND", "session not found", 404);
   }
 
-  // 2) works for this session (note the ARRAY argument)
-  const worksRows = await sessionModel.getWorksForSessions([session_id], tenant_id, branch_id);
+  // 2) ALL works for this session — normal + treatment-plan together
+  const worksRows = await sessionModel.getAllWorksForSession(session_id, tenant_id, branch_id);
   const worksSummary = buildWorksSummary(worksRows);
 
   // 3) (optional now) payments for this session – you can add later

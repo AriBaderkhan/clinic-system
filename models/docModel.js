@@ -75,8 +75,9 @@ async function activeTodayAppt({ from, to, doc_id}, tenant_id, branch_id ) {
 
 async function findApptsPerDoctorWithFilters({ from, to, type, search, doc_id }, tenant_id, branch_id) {
   const baseQuery = `
-    SELECT 
+    SELECT
       a.id,
+      a.patient_id,
       p.name  AS patient_name,
       p.phone AS patient_phone,
       pr.full_name AS doctor_name,

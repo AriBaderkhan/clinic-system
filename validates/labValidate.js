@@ -42,13 +42,20 @@ function updateLab(req, res, next) {
 
 // ===================== ORDERS =====================
 
+const orderItem = Joi.object({
+    work_id: Joi.number().integer().positive().required(),
+    quantity: Joi.number().integer().positive().min(1).max(1000).required(),
+});
+
 const schemaOrderCreate = Joi.object({
     lab_id: Joi.number().integer().positive().required(),
     appointment_id: Joi.number().integer().positive(),
     patient_id: Joi.number().integer().positive(),
     doctor_id: Joi.number().integer().positive(),
-    work_id: Joi.number().integer().positive().required(),
-    quantity: Joi.number().integer().positive().min(1).max(1000).required(),
+    items: Joi.array().items(orderItem).min(1).required().messages({
+        'array.min': 'Add at least one treatment',
+        'any.required': 'Add at least one treatment',
+    }),
     notes: Joi.string().max(1000).allow('', null),
 })
     // either an appointment (patient + doctor derived from it) or both ids directly
@@ -65,10 +72,7 @@ function createOrder(req, res, next) {
 }
 
 const schemaOrderUpdate = Joi.object({
-    patient_id: Joi.number().integer().positive(),
-    doctor_id: Joi.number().integer().positive(),
-    work_id: Joi.number().integer().positive(),
-    quantity: Joi.number().integer().positive().min(1).max(1000),
+    items: Joi.array().items(orderItem).min(1),
     notes: Joi.string().max(1000).allow('', null),
 }).min(1);
 

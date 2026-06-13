@@ -126,7 +126,36 @@ async function deleteLab(labId, tenant_id, branch_id) {
 
 // ===================== ORDERS =====================
 
-async function createOrder({ lab_id, appointment_id, patient_id, doctor_id, work_id, quantity, notes, created_by }, tenant_id, branch_id) {
+// turn requested [{work_id, quantity}] into priced line items using this lab's price list.
+// throws if any treatment isn't offered by the lab or is duplicated. returns { items, total }.
+async function priceItems(lab_id, items, tenant_id, branch_id, client) {
+  if (!Array.isArray(items) || items.length === 0) {
+    throw appError('LAB_ITEMS_REQUIRED', 'At least one treatment is required', 400);
+  }
+
+  const workIds = items.map((it) => it.work_id);
+  if (new Set(workIds).size !== workIds.length) {
+    throw appError('LAB_ITEM_DUPLICATE', 'Same treatment added more than once', 400);
+  }
+
+  const priceRows = await labModel.getLabTreatmentCosts(lab_id, workIds, tenant_id, branch_id, client);
+  const costByWork = new Map(priceRows.map((r) => [r.work_id, Number(r.cost)]));
+
+  let total = 0;
+  const priced = items.map((it) => {
+    if (!costByWork.has(it.work_id)) {
+      throw appError('LAB_TREATMENT_NOT_FOUND', 'This lab does not offer one of the selected treatments', 400);
+    }
+    const unit_cost = costByWork.get(it.work_id);          // snapshot at order time
+    const line_total = unit_cost * it.quantity;
+    total += line_total;
+    return { work_id: it.work_id, quantity: it.quantity, unit_cost, total_cost: line_total };
+  });
+
+  return { items: priced, total };
+}
+
+async function createOrder({ lab_id, appointment_id, patient_id, doctor_id, items, notes, created_by }, tenant_id, branch_id) {
   // appointment chosen -> patient and doctor come from it automatically
   if (appointment_id) {
     const appt = await appointmentModel.getAppointment(appointment_id, tenant_id, branch_id);
@@ -139,31 +168,39 @@ async function createOrder({ lab_id, appointment_id, patient_id, doctor_id, work
     throw appError('ORDER_TARGET_REQUIRED', 'Select an appointment (or a patient and a doctor)', 400);
   }
 
-  // independent lookups -> run them in parallel
-  // (patient/doctor existence is already guaranteed when they come from the appointment)
-  const [lab, labTreatment, patient, doctor] = await Promise.all([
-    labModel.getLabById(lab_id, tenant_id, branch_id),
-    labModel.getLabTreatmentCost(lab_id, work_id, tenant_id, branch_id),
-    appointment_id ? null : patientModel.getPatient(patient_id, tenant_id, branch_id),
-    appointment_id ? null : doctorModel.getDoctorById(doctor_id, tenant_id, branch_id),
-  ]);
-
+  const lab = await labModel.getLabById(lab_id, tenant_id, branch_id);
   if (!lab || !lab.is_active) throw appError('LAB_NOT_FOUND', 'Lab not found', 404);
-  if (!labTreatment) throw appError('LAB_TREATMENT_NOT_FOUND', 'This lab does not offer this treatment', 400);
-  if (!appointment_id && !patient) throw appError('PATIENT_NOT_FOUND', 'Patient not found', 404);
-  if (!appointment_id && !doctor) throw appError('DOCTOR_NOT_FOUND', 'Doctor not found', 404);
 
-  // snapshot the cost at order time (price changes later must not affect old orders)
-  const unit_cost = Number(labTreatment.cost);
-  const total_cost = unit_cost * quantity;
+  if (!appointment_id) {
+    const [patient, doctor] = await Promise.all([
+      patientModel.getPatient(patient_id, tenant_id, branch_id),
+      doctorModel.getDoctorById(doctor_id, tenant_id, branch_id),
+    ]);
+    if (!patient) throw appError('PATIENT_NOT_FOUND', 'Patient not found', 404);
+    if (!doctor) throw appError('DOCTOR_NOT_FOUND', 'Doctor not found', 404);
+  }
 
-  const order = await labModel.createOrder({
-    lab_id, appointment_id, patient_id, doctor_id, work_id, quantity,
-    unit_cost, total_cost, notes: notes || null, created_by,
-  }, tenant_id, branch_id);
-  if (!order) throw appError('LAB_ORDER_CREATE_FAILED', 'Order create failed', 500);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
 
-  return order;
+    const { items: priced, total } = await priceItems(lab_id, items, tenant_id, branch_id, client);
+
+    const order = await labModel.createOrderHeader({
+      lab_id, appointment_id, patient_id, doctor_id, total_cost: total, notes: notes || null, created_by,
+    }, tenant_id, branch_id, client);
+    if (!order) throw appError('LAB_ORDER_CREATE_FAILED', 'Order create failed', 500);
+
+    const orderItems = await labModel.bulkCreateOrderItems(order.id, priced, tenant_id, branch_id, client);
+
+    await client.query('COMMIT');
+    return { ...order, items: orderItems };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 const VALID_ORDER_STATUSES = ['ordered', 'ready', 'delivered', 'cancelled'];
@@ -186,68 +223,56 @@ async function getOrders({ status, lab_id, search, page, limit }, tenant_id, bra
 async function getOrderById(orderId, tenant_id, branch_id) {
   const order = await labModel.getOrderById(orderId, tenant_id, branch_id);
   if (!order) throw appError('LAB_ORDER_NOT_FOUND', 'Order not found', 404);
-  return order;
+
+  const items = await labModel.getOrderItems(orderId, tenant_id, branch_id);
+  return { ...order, items };
 }
 
-async function updateOrder(orderId, { patient_id, doctor_id, work_id, quantity, notes }, tenant_id, branch_id) {
+async function updateOrder(orderId, { notes, items }, tenant_id, branch_id) {
   const order = await labModel.getOrderById(orderId, tenant_id, branch_id);
   if (!order) throw appError('LAB_ORDER_NOT_FOUND', 'Order not found', 404);
 
-  const fields = {
-    ...(patient_id ? { patient_id } : {}),
-    ...(doctor_id ? { doctor_id } : {}),
-    ...(notes !== undefined ? { notes: notes || null } : {}),
-  };
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
 
-  const newWorkId = work_id ?? order.work_id;
-  const newQuantity = quantity ?? order.quantity;
+    const fields = {};
+    if (notes !== undefined) fields.notes = notes || null;
 
-  // treatment or quantity changed -> re-snapshot cost from this lab's price list
-  if (work_id || quantity) {
-    const labTreatment = await labModel.getLabTreatmentCost(order.lab_id, newWorkId, tenant_id, branch_id);
-    if (!labTreatment) throw appError('LAB_TREATMENT_NOT_FOUND', 'This lab does not offer this treatment', 400);
+    // items sent -> re-price from this lab's current price list and replace them
+    let updatedItems;
+    if (items !== undefined) {
+      const { items: priced, total } = await priceItems(order.lab_id, items, tenant_id, branch_id, client);
+      await labModel.deleteOrderItems(orderId, tenant_id, branch_id, client);
+      updatedItems = await labModel.bulkCreateOrderItems(orderId, priced, tenant_id, branch_id, client);
+      fields.total_cost = total;
+    } else {
+      updatedItems = await labModel.getOrderItems(orderId, tenant_id, branch_id, client);
+    }
 
-    const unit_cost = Number(labTreatment.cost);
-    fields.work_id = newWorkId;
-    fields.quantity = newQuantity;
-    fields.unit_cost = unit_cost;
-    fields.total_cost = unit_cost * newQuantity;
+    let updated = order;
+    if (Object.keys(fields).length > 0) {
+      updated = await labModel.updateOrder(orderId, fields, tenant_id, branch_id, client);
+      if (!updated) throw appError('LAB_ORDER_UPDATE_FAILED', 'Order update failed', 500);
+    }
+
+    await client.query('COMMIT');
+    return { ...updated, items: updatedItems };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
   }
-
-  if (patient_id) {
-    const patient = await patientModel.getPatient(patient_id, tenant_id, branch_id);
-    if (!patient) throw appError('PATIENT_NOT_FOUND', 'Patient not found', 404);
-  }
-
-  if (doctor_id) {
-    const doctor = await doctorModel.getDoctorById(doctor_id, tenant_id, branch_id);
-    if (!doctor) throw appError('DOCTOR_NOT_FOUND', 'Doctor not found', 404);
-  }
-
-  if (Object.keys(fields).length === 0) {
-    throw appError('NO_FIELDS_TO_UPDATE', 'No fields provided to update', 400);
-  }
-
-  const updated = await labModel.updateOrder(orderId, fields, tenant_id, branch_id);
-  if (!updated) throw appError('LAB_ORDER_UPDATE_FAILED', 'Order update failed', 500);
-  return updated;
 }
-
-const FINAL_ORDER_STATUSES = ['delivered', 'cancelled'];
 
 async function setOrderStatus(orderId, status, tenant_id, branch_id) {
   if (!VALID_ORDER_STATUSES.includes(status)) {
     throw appError('INVALID_ORDER_STATUS', 'Invalid order status', 400);
   }
 
-  const order = await labModel.getOrderById(orderId, tenant_id, branch_id);
-  if (!order) throw appError('LAB_ORDER_NOT_FOUND', 'Order not found', 404);
-
-  // delivered/cancelled are final — status can never change again
-  if (FINAL_ORDER_STATUSES.includes(order.status)) {
-    throw appError('ORDER_STATUS_LOCKED', `A ${order.status} order cannot change status anymore`, 400);
-  }
-
+  // status can move freely (incl. reverting); the model clears ready/delivered
+  // dates when the status no longer warrants them.
   const updated = await labModel.setOrderStatus(orderId, status, tenant_id, branch_id);
   if (!updated) throw appError('LAB_ORDER_NOT_FOUND', 'Order not found', 404);
   return updated;

@@ -144,7 +144,7 @@ async function deleteLabTreatments(labId, tenant_id, branch_id, client = pool) {
   await client.query(query, [labId, tenant_id, branch_id]);
 }
 
-// cost lookup for the order snapshot
+// cost lookup for the order snapshot (single)
 async function getLabTreatmentCost(labId, workId, tenant_id, branch_id, client = pool) {
   const query = `
     SELECT cost
@@ -155,18 +155,71 @@ async function getLabTreatmentCost(labId, workId, tenant_id, branch_id, client =
   return rows[0] || null;
 }
 
+// batch cost lookup: all this lab's prices for the given works, one round-trip
+async function getLabTreatmentCosts(labId, workIds, tenant_id, branch_id, client = pool) {
+  const query = `
+    SELECT work_id, cost
+    FROM lab_treatments
+    WHERE lab_id = $1 AND work_id = ANY($2::int[]) AND tenant_id = $3 AND branch_id = $4
+  `;
+  const { rows } = await client.query(query, [labId, workIds, tenant_id, branch_id]);
+  return rows;
+}
+
 // ===================== LAB ORDERS =====================
 
-async function createOrder(orderData, tenant_id, branch_id, client = pool) {
-  const { lab_id, appointment_id, patient_id, doctor_id, work_id, quantity, unit_cost, total_cost, notes, created_by } = orderData;
+async function createOrderHeader(orderData, tenant_id, branch_id, client = pool) {
+  const { lab_id, appointment_id, patient_id, doctor_id, total_cost, notes, created_by } = orderData;
   const query = `
-    INSERT INTO lab_orders (lab_id, appointment_id, patient_id, doctor_id, work_id, quantity, unit_cost, total_cost, notes, created_by, tenant_id, branch_id)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    INSERT INTO lab_orders (lab_id, appointment_id, patient_id, doctor_id, total_cost, notes, created_by, tenant_id, branch_id)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
     RETURNING *
   `;
-  const values = [lab_id, appointment_id || null, patient_id, doctor_id, work_id, quantity, unit_cost, total_cost, notes, created_by, tenant_id, branch_id];
+  const values = [lab_id, appointment_id || null, patient_id, doctor_id, total_cost, notes, created_by, tenant_id, branch_id];
   const { rows } = await client.query(query, values);
   return rows[0] || null;
+}
+
+// single bulk INSERT for all order line items
+async function bulkCreateOrderItems(orderId, items, tenant_id, branch_id, client = pool) {
+  const values = [];
+  const placeholders = items.map((it, i) => {
+    const b = i * 7;
+    values.push(orderId, it.work_id, it.quantity, it.unit_cost, it.total_cost, tenant_id, branch_id);
+    return `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6},$${b + 7})`;
+  });
+  const query = `
+    INSERT INTO lab_order_items (order_id, work_id, quantity, unit_cost, total_cost, tenant_id, branch_id)
+    VALUES ${placeholders.join(', ')}
+    RETURNING *
+  `;
+  const { rows } = await client.query(query, values);
+  return rows;
+}
+
+async function getOrderItems(orderId, tenant_id, branch_id, client = pool) {
+  const query = `
+    SELECT
+      i.id,
+      i.work_id,
+      i.quantity,
+      i.unit_cost,
+      i.total_cost,
+      wc.name AS work_name
+    FROM lab_order_items i
+    JOIN work_catalog wc ON wc.id = i.work_id AND wc.tenant_id = i.tenant_id AND wc.branch_id = i.branch_id
+    WHERE i.order_id = $1 AND i.tenant_id = $2 AND i.branch_id = $3
+    ORDER BY wc.name
+  `;
+  const { rows } = await client.query(query, [orderId, tenant_id, branch_id]);
+  return rows;
+}
+
+async function deleteOrderItems(orderId, tenant_id, branch_id, client = pool) {
+  await client.query(
+    `DELETE FROM lab_order_items WHERE order_id = $1 AND tenant_id = $2 AND branch_id = $3`,
+    [orderId, tenant_id, branch_id]
+  );
 }
 
 // paginated + filters (status, lab, search by patient/doctor/lab name)
@@ -178,9 +231,6 @@ async function findOrdersWithFilters({ status, lab_id, search, page, limit }, te
       o.appointment_id,
       o.patient_id,
       o.doctor_id,
-      o.work_id,
-      o.quantity,
-      o.unit_cost,
       o.total_cost,
       o.status,
       o.order_date,
@@ -191,14 +241,22 @@ async function findOrdersWithFilters({ status, lab_id, search, page, limit }, te
       p.name AS patient_name,
       p.phone AS patient_phone,
       pr.full_name AS doctor_name,
-      wc.name AS work_name,
+      items.summary AS items_summary,
+      items.items_count,
       COUNT(*) OVER() AS total_count
     FROM lab_orders o
     JOIN labs l ON l.id = o.lab_id AND l.tenant_id = o.tenant_id AND l.branch_id = o.branch_id
     JOIN patients p ON p.id = o.patient_id AND p.tenant_id = o.tenant_id
     JOIN doctors d ON d.id = o.doctor_id AND d.tenant_id = o.tenant_id AND d.branch_id = o.branch_id
     JOIN profiles pr ON pr.user_id = d.id
-    JOIN work_catalog wc ON wc.id = o.work_id AND wc.tenant_id = o.tenant_id AND wc.branch_id = o.branch_id
+    LEFT JOIN LATERAL (
+      SELECT
+        string_agg(wc.name || ' x' || i.quantity, ', ' ORDER BY wc.name) AS summary,
+        COUNT(*) AS items_count
+      FROM lab_order_items i
+      JOIN work_catalog wc ON wc.id = i.work_id AND wc.tenant_id = i.tenant_id AND wc.branch_id = i.branch_id
+      WHERE i.order_id = o.id
+    ) items ON true
     WHERE o.tenant_id = $1 AND o.branch_id = $2 `;
 
   const where = [];
@@ -259,7 +317,6 @@ async function getOrderById(orderId, tenant_id, branch_id, client = pool) {
       p.name AS patient_name,
       p.phone AS patient_phone,
       pr.full_name AS doctor_name,
-      wc.name AS work_name,
       pr2.full_name AS created_by_name,
       a.scheduled_start AS appointment_date
     FROM lab_orders o
@@ -267,7 +324,6 @@ async function getOrderById(orderId, tenant_id, branch_id, client = pool) {
     JOIN patients p ON p.id = o.patient_id AND p.tenant_id = o.tenant_id
     JOIN doctors d ON d.id = o.doctor_id AND d.tenant_id = o.tenant_id AND d.branch_id = o.branch_id
     JOIN profiles pr ON pr.user_id = d.id
-    JOIN work_catalog wc ON wc.id = o.work_id AND wc.tenant_id = o.tenant_id AND wc.branch_id = o.branch_id
     LEFT JOIN profiles pr2 ON pr2.user_id = o.created_by
     LEFT JOIN appointments a ON a.id = o.appointment_id AND a.tenant_id = o.tenant_id AND a.branch_id = o.branch_id
     WHERE o.id = $1 AND o.tenant_id = $2 AND o.branch_id = $3
@@ -293,12 +349,24 @@ async function updateOrder(orderId, fields, tenant_id, branch_id, client = pool)
 }
 
 async function setOrderStatus(orderId, status, tenant_id, branch_id) {
-  // ready/delivered dates fill automatically the first time each status is reached
+  // dates follow the status so reverting clears them:
+  //  - back to 'ordered'   -> clear ready_date AND delivered_date
+  //  - 'ready'             -> set ready_date (keep if already set), clear delivered_date
+  //  - 'delivered'         -> set delivered_date (keep if already set), keep ready_date
+  //  - 'cancelled'         -> keep dates as they were
   const query = `
     UPDATE lab_orders
        SET status = $2::varchar,
-           ready_date     = CASE WHEN $2::varchar = 'ready'     AND ready_date     IS NULL THEN NOW() ELSE ready_date     END,
-           delivered_date = CASE WHEN $2::varchar = 'delivered' AND delivered_date IS NULL THEN NOW() ELSE delivered_date END
+           ready_date = CASE
+             WHEN $2::varchar = 'ready'     THEN COALESCE(ready_date, NOW())
+             WHEN $2::varchar = 'ordered'   THEN NULL
+             ELSE ready_date
+           END,
+           delivered_date = CASE
+             WHEN $2::varchar = 'delivered'             THEN COALESCE(delivered_date, NOW())
+             WHEN $2::varchar IN ('ordered', 'ready')   THEN NULL
+             ELSE delivered_date
+           END
      WHERE id = $1 AND tenant_id = $3 AND branch_id = $4
      RETURNING *
   `;
@@ -323,7 +391,11 @@ export default {
   bulkCreateLabTreatments,
   deleteLabTreatments,
   getLabTreatmentCost,
-  createOrder,
+  getLabTreatmentCosts,
+  createOrderHeader,
+  bulkCreateOrderItems,
+  getOrderItems,
+  deleteOrderItems,
   findOrdersWithFilters,
   getOrderById,
   updateOrder,
