@@ -29,12 +29,21 @@ async function getAllNormalSessions({ from, to, search, page, limit }, tenant_id
       d.id         AS doctor_id,
       pr.full_name AS doctor_name,
 
+      pay.payment_note,
+
       COUNT(*) OVER() AS total_count
   FROM sessions s
   JOIN appointments a ON a.id = s.appointment_id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
-  JOIN patients p     ON p.id = a.patient_id AND p.tenant_id = a.tenant_id 
+  JOIN patients p     ON p.id = a.patient_id AND p.tenant_id = a.tenant_id
   JOIN doctors d      ON d.id = a.doctor_id AND d.tenant_id = a.tenant_id AND d.branch_id = a.branch_id
-  JOIN profiles pr    ON pr.user_id = d.id 
+  JOIN profiles pr    ON pr.user_id = d.id
+  LEFT JOIN LATERAL (
+    SELECT string_agg(NULLIF(sp.note, ''), ' | ' ORDER BY sp.created_at) AS payment_note
+    FROM session_payments sp
+    WHERE sp.session_id = s.id
+      AND sp.tenant_id = s.tenant_id
+      AND sp.branch_id = s.branch_id
+  ) pay ON true
   WHERE s.tenant_id = $1
   AND s.branch_id = $2`;
 

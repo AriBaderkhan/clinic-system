@@ -67,7 +67,8 @@ async function getSessionsForTp(tpId, tenant_id, branch_id) {
   s.notes,
   a.finished_at,
 
-  COALESCE(SUM(tpp.amount), 0) AS paid_for_this_plan_in_this_session
+  COALESCE(SUM(tpp.amount), 0) AS paid_for_this_plan_in_this_session,
+  string_agg(NULLIF(tpp.note, ''), ' | ' ORDER BY tpp.created_at) AS payment_note
 FROM sessions s
 JOIN appointments a 
   ON a.id = s.appointment_id
