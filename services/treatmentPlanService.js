@@ -1,4 +1,6 @@
 import treatmentPlanModel from '../models/treatmentPlanModel.js';
+import appError from '../utils/appError.js';
+
 async function getActive(patientId, type, tenant_id, branch_id) {
   const plan = await treatmentPlanModel.getActivePlan(patientId, type, tenant_id, branch_id);
   return plan;

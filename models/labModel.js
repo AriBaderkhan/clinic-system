@@ -125,7 +125,7 @@ async function getLabTreatments(labId, tenant_id, branch_id, client = pool) {
 async function bulkCreateLabTreatments(labId, treatments, tenant_id, branch_id, client = pool) {
   const values = [];
   const placeholders = treatments.map((t, i) => {
-    const b = i * 5;
+    const b = i * 5; // bcz it needs 5 fields per row: lab_id, work_id, cost, tenant_id, branch_id
     values.push(labId, t.work_id, t.cost, tenant_id, branch_id);
     return `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5})`;
   });

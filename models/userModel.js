@@ -91,16 +91,12 @@ async function updateUser(user_id, tenant_id, userData) {
         const values = [userData.email, userData.password, userData.is_active, user_id, tenant_id];
         const result = await client.query(query, values);
 
-        const query2 = `
-        UPDATE user_branch_roles
-        SET is_active = COALESCE($1, is_active),
-        branch_id= COALESCE($2, branch_id),
-        role_id= COALESCE($3, role_id)
-        WHERE user_id = $4 AND tenant_id = $5
-        RETURNING *
-        `;
-        const values2 = [userData.is_active, userData.branch_id, userData.role_id, user_id, tenant_id];
-        const result2 = await client.query(query2, values2);
+        // NOTE: editing a user updates identity/profile only. Branch & role
+        // assignments are managed through the dedicated "Assign to Branch" flow.
+        // (Updating user_branch_roles here used to touch EVERY assignment of the
+        // user with no branch filter, which collapsed a multi-branch user's rows
+        // onto the same (user_id, branch_id, role_id) and hit the unique
+        // constraint -> "Duplicate value".)
 
         const query3 = `
             UPDATE profiles 
@@ -140,9 +136,13 @@ async function updateUser(user_id, tenant_id, userData) {
 
 
 async function assigendToTheBranch(user_id, tenant_id, branch_id, role_id) {
+    // idempotent: re-assigning the same (user, branch, role) reactivates the row
+    // instead of throwing a unique-constraint "Duplicate value" error.
     const query = `
     INSERT INTO user_branch_roles (user_id,branch_id,tenant_id,role_id)
     VALUES ($1,$2,$3,$4)
+    ON CONFLICT (user_id, branch_id, role_id)
+        DO UPDATE SET is_active = true
     RETURNING *;
     `;
     const values = [user_id, branch_id, tenant_id, role_id];

@@ -150,7 +150,7 @@ async function getSession(session_id, tenant_id, branch_id, client = pool) {
 }
 
 async function updateSession(sessionID, fields, updatedBy, tenant_id, branch_id) {
-  const allowedFields = ['complaint', 'diagnosis', 'next_plan', 'notes'];
+  const allowedFields = ['next_plan', 'notes'];
 
   const keys = Object.keys(fields).filter((key) => allowedFields.includes(key));
 
