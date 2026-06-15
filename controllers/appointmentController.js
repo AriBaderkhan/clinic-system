@@ -60,12 +60,12 @@ const start = asyncWrap(async (req, res) => {
 })
 
 const complete = asyncWrap(async (req, res) => {
-    const { next_plan, notes, works, agreementTotals, planCompletion } = req.body;
+    const { next_plan, notes, works, completedPlanIds } = req.body;
     const appointmentId = Number(req.params.appointmentId);
     const userId = req.user.id;
     const { tenant_id, branch_id } = req.user
 
-    const result = await appointmentService.complete({ appointmentId, doctorId: userId, next_plan, notes, works, agreementTotals, planCompletion }, tenant_id, branch_id);
+    const result = await appointmentService.complete({ appointmentId, doctorId: userId, next_plan, notes, works, completedPlanIds }, tenant_id, branch_id);
 
     io.to('reception_room').emit('appointment_completed', {
         message: ` Dr. ${result.details.doctor_name} has completed appointment for patient ${result.details.patient_name}`

@@ -185,7 +185,7 @@ async function start(appointmentId, userId, tenant_id, branch_id) {
 // Its job is to:
 // Close an in-progress appointment, 
 // create a session, register all works, manage treatment plans, calculate totals,
-async function complete({ appointmentId, doctorId, next_plan, notes, works, agreementTotals, planCompletion }, tenant_id, branch_id) {
+async function complete({ appointmentId, doctorId, next_plan, notes, works, completedPlanIds }, tenant_id, branch_id) {
     const client = await pool.connect();
 
     try {
@@ -223,48 +223,45 @@ async function complete({ appointmentId, doctorId, next_plan, notes, works, agre
 
 
 
-            // if works include the treatment plans
-            // ðŸ”¹ ORTHO / IMPLANT / RCT
+            // Treatment-plan works (ORTHO / IMPLANT / RCT / RE_RCT): the doctor
+            // either CONTINUES an existing active plan (w.treatment_plan_id) or
+            // starts a NEW one with its own agreement total (w.agreed_total).
+            // A patient can have several active plans of the same type at once.
             let rawTreatmentPlanId = null;
             if (['ortho', 'implant', 'rct', 're_rct'].includes(code)) {
-                let plan = await treatmentPlanModel.getActivePlan(
-                    appt.patient_id,
-                    code,
-                    tenant_id,
-                    branch_id,
-                    client
-                );
-
-
-                // first time ever
-                if (!plan) {
-                    const agreedTotal = Number(agreementTotals?.[code]); // âœ… pick only this type
-
+                if (w.treatment_plan_id) {
+                    // continue an existing active plan
+                    const plan = await treatmentPlanModel.getTreatmentPlanByIdForUpdate(
+                        Number(w.treatment_plan_id), tenant_id, branch_id, client
+                    );
+                    if (!plan) throw appError('PLAN_NOT_FOUND', `Treatment plan ${w.treatment_plan_id} not found`, 404);
+                    if (Number(plan.patient_id) !== Number(appt.patient_id)) {
+                        throw appError('PLAN_PATIENT_MISMATCH', 'Treatment plan does not belong to this patient', 400);
+                    }
+                    if (String(plan.type) !== code) {
+                        throw appError('PLAN_TYPE_MISMATCH', `Selected plan is not a ${code} plan`, 400);
+                    }
+                    if (plan.status !== 'active') {
+                        throw appError('PLAN_NOT_ACTIVE', 'Selected treatment plan is not active', 400);
+                    }
+                    rawTreatmentPlanId = plan.id;
+                } else {
+                    // start a NEW plan with its own agreement total
+                    const agreedTotal = Number(w.agreed_total);
                     if (!agreedTotal || agreedTotal <= 0) {
                         throw appError('AGREEMENT_TOTAL_REQUIRED', `${code} agreement total required`, 400);
                     }
-
-                    // optional: enforce >= min_price from work_catalog
                     if (agreedTotal < Number(catalog.min_price)) {
                         throw appError('AGREEMENT_TOTAL_BELOW_MIN', `${code} agreement must be >= ${catalog.min_price}`, 400);
                     }
-
-                    plan = await treatmentPlanModel.createPlan({
+                    const plan = await treatmentPlanModel.createPlan({
                         patientId: appt.patient_id,
                         type: code,
-                        agreedTotal: agreedTotal,
+                        agreedTotal,
                         createdBy: doctorId,
-                    },
-                        tenant_id,
-                        branch_id,
-                        client
-                    );
+                    }, tenant_id, branch_id, client);
+                    rawTreatmentPlanId = plan.id;
                 }
-                rawTreatmentPlanId = plan.id;
-                if (rawTreatmentPlanId && planCompletion?.[code] === true) {
-                    await treatmentPlanModel.markCompleted(rawTreatmentPlanId, tenant_id, branch_id, client);
-                }
-
             }
 
             const minUnit = catalog.min_price;
@@ -295,6 +292,18 @@ async function complete({ appointmentId, doctorId, next_plan, notes, works, agre
                 normalGrandTotal += rowTotal;
             }
 
+        }
+
+        // Mark the existing plans the doctor ticked "completed" (validated to
+        // belong to this patient). Done after the works loop so a final session
+        // can attach to a plan and complete it in the same visit.
+        if (Array.isArray(completedPlanIds) && completedPlanIds.length > 0) {
+            for (const pid of completedPlanIds) {
+                const plan = await treatmentPlanModel.getTreatmentPlanByIdForUpdate(Number(pid), tenant_id, branch_id, client);
+                if (plan && Number(plan.patient_id) === Number(appt.patient_id)) {
+                    await treatmentPlanModel.markCompleted(Number(pid), tenant_id, branch_id, client);
+                }
+            }
         }
 
         const min_total = normalMinTotal;

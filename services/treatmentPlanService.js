@@ -2,8 +2,9 @@ import treatmentPlanModel from '../models/treatmentPlanModel.js';
 import appError from '../utils/appError.js';
 
 async function getActive(patientId, type, tenant_id, branch_id) {
-  const plan = await treatmentPlanModel.getActivePlan(patientId, type, tenant_id, branch_id);
-  return plan;
+  // returns ALL active plans of this type (a patient can have several at once)
+  const plans = await treatmentPlanModel.getActivePlans(patientId, type, tenant_id, branch_id);
+  return plans;
 }
 
 

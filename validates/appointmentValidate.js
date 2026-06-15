@@ -59,23 +59,17 @@ const schemaCompleteFillWork = Joi.object({
                 work_id: Joi.number().integer().positive().required(),
                 quantity: Joi.number().integer().positive().min(1).required(),
                 tooth_number: Joi.number().integer().min(11).max(48).allow(null),
+                // For a treatment-plan work, the doctor either continues an
+                // existing plan (treatment_plan_id) OR starts a new one (agreed_total).
+                treatment_plan_id: Joi.number().integer().positive().allow(null),
+                agreed_total: Joi.number().min(0).allow(null),
             })
         )
         .min(1)
         .required(),
 
-    agreementTotals: Joi.object({
-        ortho: Joi.number().min(0),
-        implant: Joi.number().min(0),
-        rct: Joi.number().min(0),
-        re_rct: Joi.number().min(0),
-    }).optional(),
-    planCompletion: Joi.object({
-        ortho: Joi.boolean(),
-        implant: Joi.boolean(),
-        rct: Joi.boolean(),
-        re_rct: Joi.boolean(),
-    }).optional().unknown(false)
+    // existing active plans the doctor ticked "mark completed" for
+    completedPlanIds: Joi.array().items(Joi.number().integer().positive()).optional(),
 });
 
 function complete(req, res, next) {

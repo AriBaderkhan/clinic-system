@@ -18,6 +18,30 @@ async function getActivePlan(patientId, type, tenant_id, branch_id, client = poo
   return rows[0] || null;
 }
 
+// All active plans of a type for a patient (a patient may have several of the
+// same type running in parallel, e.g. two separate RCTs). Includes the tooth
+// number(s) so the doctor can recognise WHICH treatment a plan is, instead of
+// relying on a plan id.
+async function getActivePlans(patientId, type, tenant_id, branch_id, client = pool) {
+  const query = `
+    SELECT tp.id, tp.type, tp.agreed_total, tp.total_paid, tp.is_paid, tp.is_completed, tp.status, tp.created_at,
+      (SELECT string_agg(DISTINCT sw.tooth_number::text, ', ' ORDER BY sw.tooth_number::text)
+         FROM session_works sw
+         WHERE sw.treatment_plan_id = tp.id
+           AND sw.tenant_id = tp.tenant_id
+           AND sw.branch_id = tp.branch_id
+           AND sw.tooth_number IS NOT NULL) AS teeth
+    FROM treatment_plans tp
+    WHERE tp.patient_id = $1
+      AND tp.type = $2
+      AND tp.tenant_id = $3
+      AND tp.branch_id = $4
+      AND tp.status = 'active'
+    ORDER BY tp.created_at ASC`;
+  const { rows } = await client.query(query, [patientId, type, tenant_id, branch_id]);
+  return rows;
+}
+
 async function createPlan({ patientId, type, agreedTotal, createdBy }, tenant_id, branch_id, client = pool) {
   const query = ` INSERT INTO treatment_plans
                     (patient_id, type, agreed_total, created_by,tenant_id,branch_id)
@@ -297,7 +321,7 @@ WHERE id = $2 AND tenant_id = $3 AND branch_id = $4;
 
 
 export default {
-  getActivePlan, createPlan, getTreatmentPlanByIdForUpdate, markCompleted, getSessionsForTp, getAllTreatmentPlansForSection,
+  getActivePlan, getActivePlans, createPlan, getTreatmentPlanByIdForUpdate, markCompleted, getSessionsForTp, getAllTreatmentPlansForSection,
   editTp, deleteTp, updatePaidForTpSession
 }
 
