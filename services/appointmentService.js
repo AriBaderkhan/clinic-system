@@ -5,6 +5,7 @@ import patientModel from '../models/patientModel.js';
 import doctorModel from '../models/docModel.js';
 import sessionModel from '../models/sessionModel.js';
 import dateRange from '../utils/dateRange.js';
+import settingModel from '../models/settingModel.js';
 import workCatalogModel from '../models/workCatalogModel.js';
 import treatmentPlanModel from '../models/treatmentPlanModel.js';
 import pool from '../db_connection.js';
@@ -371,7 +372,8 @@ async function noShow(appointmentId, userId, cancel_reason, tenant_id, branch_id
 // for filtters and searches by type and p.name, p.phone and d.name
 async function getAll({ day, type, search, page, limit }, tenant_id, branch_id) {
 
-    const range = day ? dateRange.getDateRange(day) : null;
+    const settings = await settingModel.getEffectiveSettings(tenant_id, branch_id);
+    const range = day ? dateRange.getDateRange(day, settings?.timezone) : null;
 
     const result = await appointmentModel.findAppointmentsWithFilters({
         from: range ? range.from : null,
@@ -408,7 +410,8 @@ async function getCalendar({ from, to, doctor_id }, tenant_id, branch_id) {
 // FOR DASHBOARD
 async function getActiveToday(tenant_id, branch_id) {
 
-    const todayAppt = dateRange.getDateRange('today');
+    const settings = await settingModel.getEffectiveSettings(tenant_id, branch_id);
+    const todayAppt = dateRange.getDateRange('today', settings?.timezone);
 
     if (!todayAppt || !todayAppt.from || !todayAppt.to) throw appError('ACTIVE_TODAY_APPT', 'Could not compute date range for today', 400);
 

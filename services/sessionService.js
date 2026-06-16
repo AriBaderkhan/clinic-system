@@ -8,6 +8,7 @@ import treatmentPlanModel from '../models/treatmentPlanModel.js';
 import workCatalogModel from '../models/workCatalogModel.js';
 import treatmentPlanPaymentModel from '../models/treatmentPlanPaymentModel.js';
 import dateRange from '../utils/dateRange.js';
+import settingModel from '../models/settingModel.js';
 
 function buildWorksSummary(worksRows) {
   if (!worksRows || worksRows.length === 0) {
@@ -49,7 +50,8 @@ function buildWorksSummary(worksRows) {
 }
 
 async function getAll({ day, search, page, limit }, tenant_id, branch_id) {
-  const range = day ? dateRange.getDateRange(day) : null;
+  const settings = await settingModel.getEffectiveSettings(tenant_id, branch_id);
+  const range = day ? dateRange.getDateRange(day, settings?.timezone) : null;
   const result = await sessionModel.getAllNormalSessions({
     from: range ? range.from : null,
     to: range ? range.to : null,

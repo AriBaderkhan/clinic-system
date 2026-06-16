@@ -1,5 +1,6 @@
 import docModel from '../models/docModel.js';
 import dateRange from '../utils/dateRange.js';
+import settingModel from '../models/settingModel.js';
 import appError from '../utils/appError.js';
 
 async function getAll(tenant_id, branch_id) {
@@ -11,7 +12,8 @@ async function getAll(tenant_id, branch_id) {
 
 async function getActiveToday(doc_id, tenant_id, branch_id) {
 
-    const todayAppt = dateRange.getDateRange('today');
+    const settings = await settingModel.getEffectiveSettings(tenant_id, branch_id);
+    const todayAppt = dateRange.getDateRange('today', settings?.timezone);
 
     if (!todayAppt || !todayAppt.from || !todayAppt.to) throw appError('ACTIVE_TODAY_APPT', 'Could not compute date range for today', 400);
 
@@ -42,8 +44,9 @@ async function getAppointments(rawFilters = {}, tenant_id, branch_id) {
             ? search.trim()
             : null;
 
-    // 4) Build date range (or null)
-    const range = dayFilter ? dateRange.getDateRange(dayFilter) : null;
+    // 4) Build date range (or null) — in the clinic's timezone
+    const settings = await settingModel.getEffectiveSettings(tenant_id, branch_id);
+    const range = dayFilter ? dateRange.getDateRange(dayFilter, settings?.timezone) : null;
 
     // 5) Call model (SQL layer) with clean filters
     const appointments = await docModel.findApptsPerDoctorWithFilters({
