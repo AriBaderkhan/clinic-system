@@ -25,6 +25,7 @@ function buildWorksSummary(worksRows) {
 
     if (!groups[key]) {
       groups[key] = {
+        work_id: row.work_id,                      // keep the id so the UI never matches by name
         work_name: row.work_name,
         quantity: 0,
         total_price: 0,
@@ -49,6 +50,31 @@ function buildWorksSummary(worksRows) {
 
 }
 
+// Treatment-plan works, grouped for READ-ONLY display in the edit modal.
+// They are governed by the treatment plan (agreed total / payments), so they
+// must never be edited through the normal-works editor.
+function buildPlanWorks(rows) {
+  const groups = {};
+  for (const row of rows) {
+    const key = `${row.treatment_plan_id}-${row.work_id}`;
+    if (!groups[key]) {
+      groups[key] = {
+        work_id: row.work_id,
+        work_name: row.work_name,
+        plan_type: row.plan_type || null,
+        treatment_plan_id: row.treatment_plan_id,
+        quantity: 0,
+        teeth: [],
+      };
+    }
+    groups[key].quantity += row.quantity;
+    if (row.tooth_number !== null && row.tooth_number !== undefined) {
+      groups[key].teeth.push(row.tooth_number);
+    }
+  }
+  return Object.values(groups);
+}
+
 async function getAll({ day, search, page, limit }, tenant_id, branch_id) {
   const settings = await settingModel.getEffectiveSettings(tenant_id, branch_id);
   const range = day ? dateRange.getDateRange(day, settings?.timezone) : null;
@@ -64,13 +90,17 @@ async function getAll({ day, search, page, limit }, tenant_id, branch_id) {
 
 async function getNormal(session_id, tenant_id, branch_id) {
 
-  const [base, worksRows] = await Promise.all([
+  const [base, allWorks] = await Promise.all([
     sessionModel.getNormalSession(session_id, tenant_id, branch_id),
-    sessionModel.getWorksForNormalSession(session_id, tenant_id, branch_id),
+    sessionModel.getAllWorksForSession(session_id, tenant_id, branch_id), // normal + plan, with work_id
   ]);
   if (!base) throw appError("SESSION_NOT_FOUND", "session not found", 404);
 
-  const worksSummary = buildWorksSummary(worksRows);
+  const normalRows = allWorks.filter((r) => r.treatment_plan_id == null);
+  const planRows = allWorks.filter((r) => r.treatment_plan_id != null);
+
+  const worksSummary = buildWorksSummary(normalRows); // editable normal works
+  const planWorks = buildPlanWorks(planRows);          // read-only plan works
 
 
   return {
@@ -115,7 +145,8 @@ async function getNormal(session_id, tenant_id, branch_id) {
     },
 
     sw_id: base.sw,
-    works_summary: worksSummary, // <-- Filling 3x, Scaling 2x, etc.
+    works_summary: worksSummary, // <-- Filling 3x, Scaling 2x, etc. (editable normal works)
+    plan_works: planWorks,       // <-- treatment-plan works, read-only display
 
   };
 }
