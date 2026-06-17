@@ -25,6 +25,13 @@ app.use(cors({
 
 app.use(express.json());
 
+// Serve locally-stored case images in dev (when Supabase Storage env is absent).
+// In production (Supabase) this folder is empty and the route is harmless.
+import path from 'path';
+import { fileURLToPath } from 'url';
+const __dirnameMain = path.dirname(fileURLToPath(import.meta.url));
+app.use('/uploads', express.static(path.join(__dirnameMain, 'uploads')));
+
 app.get("/health", (req, res) => {
     res.status(200).json({ ok: true });
 });

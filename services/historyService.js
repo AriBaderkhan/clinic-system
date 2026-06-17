@@ -1,5 +1,6 @@
 import historyModel from '../models/historyModel.js'
 import sessionModel from '../models/sessionModel.js'
+import sessionImageService from './sessionImageService.js';
 import appError from '../utils/appError.js';
 
 
@@ -72,6 +73,9 @@ async function getSessionDetails(session_id, tenant_id, branch_id) {
     payments = await historyModel.getSessionPayments(session_id, tenant_id, branch_id);
   }
 
+  // 3b) case images (with fresh signed URLs); never breaks details if storage hiccups
+  const images = await sessionImageService.listForDetails(session_id, tenant_id, branch_id);
+
   // 4) final clean object for frontend
   return {
     session: {
@@ -117,6 +121,7 @@ async function getSessionDetails(session_id, tenant_id, branch_id) {
 
     works_summary: worksSummary,     // <-- Filling 3x, Scaling 2x, etc.
     payments,                        // <-- leave empty for now if you want
+    images,                          // <-- case photos/x-rays for this session
   };
 }
 
