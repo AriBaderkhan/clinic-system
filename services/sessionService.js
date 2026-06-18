@@ -50,29 +50,19 @@ function buildWorksSummary(worksRows) {
 
 }
 
-// Treatment-plan works, grouped for READ-ONLY display in the edit modal.
-// They are governed by the treatment plan (agreed total / payments), so they
-// must never be edited through the normal-works editor.
+// Treatment-plan works as INDIVIDUAL rows (one per tooth) for the editor.
+// Each carries its session_work_id so the tooth can be edited in place. The
+// plan itself (money/type) is never touched here.
 function buildPlanWorks(rows) {
-  const groups = {};
-  for (const row of rows) {
-    const key = `${row.treatment_plan_id}-${row.work_id}`;
-    if (!groups[key]) {
-      groups[key] = {
-        work_id: row.work_id,
-        work_name: row.work_name,
-        plan_type: row.plan_type || null,
-        treatment_plan_id: row.treatment_plan_id,
-        quantity: 0,
-        teeth: [],
-      };
-    }
-    groups[key].quantity += row.quantity;
-    if (row.tooth_number !== null && row.tooth_number !== undefined) {
-      groups[key].teeth.push(row.tooth_number);
-    }
-  }
-  return Object.values(groups);
+  return rows.map((row) => ({
+    session_work_id: row.session_work_id,
+    work_id: row.work_id,
+    work_name: row.work_name,
+    plan_type: row.plan_type || null,
+    treatment_plan_id: row.treatment_plan_id,
+    tooth_number: row.tooth_number,
+    quantity: row.quantity,
+  }));
 }
 
 async function getAll({ day, search, page, limit }, tenant_id, branch_id) {
@@ -186,6 +176,7 @@ async function editNormal(session_id, fields, userId, tenant_id, branch_id) {
       const catalogRows = await workCatalogModel.getWorksByIds(workIds, tenant_id, branch_id, client);
       const catalogMap = Object.fromEntries(catalogRows.map(c => [c.id, c]));
 
+      const PLAN_CODES = ['ortho', 'implant', 'rct', 're_rct'];
       const workItems = [];
       for (const w of works) {
         const { work_id, quantity, tooth_number } = w;
@@ -193,11 +184,37 @@ async function editNormal(session_id, fields, userId, tenant_id, branch_id) {
         const catalog = catalogMap[work_id];
         if (!catalog) throw appError("WORK_NOT_FOUND", "Work not found", 404);
 
+        const code = String(catalog.code || "").toLowerCase();
         const minUnit = Number(catalog.min_price) || 0;
         const unit = minUnit;
         const qty = Number(quantity) || 1;
         const rowMin = minUnit * qty;
         const rowTotal = unit * qty;
+
+        // Treatment-plan works added during an edit: CONTINUE an existing active
+        // plan (treatment_plan_id) or start a NEW one with its agreement total.
+        let treatmentPlanId = null;
+        if (PLAN_CODES.includes(code)) {
+          if (w.treatment_plan_id) {
+            const plan = await treatmentPlanModel.getTreatmentPlanByIdForUpdate(Number(w.treatment_plan_id), tenant_id, branch_id, client);
+            if (!plan) throw appError('PLAN_NOT_FOUND', `Treatment plan ${w.treatment_plan_id} not found`, 404);
+            if (Number(plan.patient_id) !== Number(base.patient_id)) throw appError('PLAN_PATIENT_MISMATCH', 'Treatment plan does not belong to this patient', 400);
+            if (String(plan.type) !== code) throw appError('PLAN_TYPE_MISMATCH', `Selected plan is not a ${code} plan`, 400);
+            if (plan.status !== 'active') throw appError('PLAN_NOT_ACTIVE', 'Selected treatment plan is not active', 400);
+            treatmentPlanId = plan.id;
+          } else {
+            const agreedTotal = Number(w.agreed_total);
+            if (!agreedTotal || agreedTotal <= 0) throw appError('AGREEMENT_TOTAL_REQUIRED', `${code} agreement total required`, 400);
+            if (agreedTotal < minUnit) throw appError('AGREEMENT_TOTAL_BELOW_MIN', `${code} agreement must be >= ${minUnit}`, 400);
+            const plan = await treatmentPlanModel.createPlan({
+              patientId: base.patient_id,
+              type: code,
+              agreedTotal,
+              createdBy: userId,
+            }, tenant_id, branch_id, client);
+            treatmentPlanId = plan.id;
+          }
+        }
 
         workItems.push({
           sessionId: session_id,
@@ -208,11 +225,14 @@ async function editNormal(session_id, fields, userId, tenant_id, branch_id) {
           unitPrice: unit,
           totalMinPrice: rowMin,
           totalPrice: rowTotal,
-          treatmentPlanId: null,
+          treatmentPlanId,
         });
 
-        normalMinTotal += rowMin;
-        normalGrandTotal += rowTotal;
+        // plan works don't count toward the session (normal) total
+        if (treatmentPlanId === null) {
+          normalMinTotal += rowMin;
+          normalGrandTotal += rowTotal;
+        }
       }
       await sessionModel.bulkCreateSessionWorks(workItems, tenant_id, branch_id, client);
     }
@@ -243,15 +263,19 @@ async function editNormal(session_id, fields, userId, tenant_id, branch_id) {
     // if (!updatedTotals) throw appError("SESSION_UPDATE_FAILED", "session Update failed", 500);
 
     // âœ… update amount in session_payments (via model)
-    const updatedPayment = await sessionPaymentModel.upsertSessionPaymentBySessionId({
-      sessionId: session_id,
-      amount: finalPaid,
-      createdBy: userId,
+    // session_payments.amount has a CHECK (amount > 0); only record a payment
+    // when money was actually paid. A zero/unpaid session keeps no payment row.
+    if (finalPaid > 0) {
+      const updatedPayment = await sessionPaymentModel.upsertSessionPaymentBySessionId({
+        sessionId: session_id,
+        amount: finalPaid,
+        createdBy: userId,
 
-    }, tenant_id, branch_id, client
-    );
-    if (!updatedPayment) {
-      throw appError("PAYMENT_UPDATE_FAILED", "session payment not found for this session", 404);
+      }, tenant_id, branch_id, client
+      );
+      if (!updatedPayment) {
+        throw appError("PAYMENT_UPDATE_FAILED", "session payment not found for this session", 404);
+      }
     }
 
     // âœ… recalc -> updates sessions.total_paid and sessions.is_paid correctly
@@ -309,6 +333,39 @@ async function editNormal(session_id, fields, userId, tenant_id, branch_id) {
   }
 }
 
+
+// Update ONLY the tooth of treatment-plan works in a session. No money, no plan
+// changes. updates = [{ session_work_id, tooth_number }].
+async function updatePlanWorkTeeth(session_id, updates, tenant_id, branch_id) {
+  if (!Array.isArray(updates) || updates.length === 0) return [];
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const out = [];
+    for (const u of updates) {
+      const id = Number(u.session_work_id ?? u.id);
+      if (!Number.isFinite(id)) throw appError("INVALID_PLAN_WORK", "Invalid plan work id", 400);
+
+      let tooth = u.tooth_number;
+      tooth = tooth === "" || tooth === null || tooth === undefined ? null : Number(tooth);
+      if (tooth !== null && (!Number.isInteger(tooth) || tooth < 11 || tooth > 85)) {
+        throw appError("INVALID_TOOTH", "Tooth number is invalid", 400);
+      }
+
+      const row = await sessionModel.updatePlanWorkTooth(id, tooth, session_id, tenant_id, branch_id, client);
+      if (!row) throw appError("PLAN_WORK_NOT_FOUND", `Plan work ${id} not found for this session`, 404);
+      out.push(row);
+    }
+    await client.query("COMMIT");
+    return out;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
 
 async function _delete(sessionID, tenant_id, branch_id) {
   try {
@@ -621,5 +678,5 @@ async function pay({ sessionId, normalAmount, planPayments, note, userId }, tena
 
 
 export default {
-  getAll, getNormal, editNormal, delete: _delete, getUnpaid, pay
+  getAll, getNormal, editNormal, delete: _delete, getUnpaid, pay, updatePlanWorkTeeth
 }

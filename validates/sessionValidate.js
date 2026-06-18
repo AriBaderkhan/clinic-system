@@ -9,12 +9,15 @@ const schemaEditSession = Joi.object({
             Joi.object({
                 work_id: Joi.number().integer().positive().required(),
                 quantity: Joi.number().integer().positive().min(1).required(),
-                tooth_number: Joi.number().integer().min(11).max(48).allow(null),
+                tooth_number: Joi.number().integer().min(11).max(85).allow(null),
+                // for adding treatment-plan works during an edit:
+                treatment_plan_id: Joi.number().integer().positive().allow(null).optional(),
+                agreed_total: Joi.number().positive().allow(null).optional(),
             })
         )
         .min(1)
         .optional(),
-    total_paid: Joi.number().positive().optional()
+    total_paid: Joi.number().min(0).optional()
 });
 
 function edit(req, res, next) {

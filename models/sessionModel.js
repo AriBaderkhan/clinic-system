@@ -178,8 +178,11 @@ async function deleteSession(sessionID, tenant_id, branch_id) {
   return rows[0] || null;
 }
 
+// Deletes ONLY the normal works of a session (treatment_plan_id IS NULL).
+// Treatment-plan works are intentionally preserved — they belong to the plan
+// and are never part of the normal-works edit/recalc.
 async function deleteSessionWorksBySiD(session_id, tenant_id, branch_id, client = pool) {
-  const query = `DELETE FROM session_works sw WHERE sw.session_id=$1 AND sw.tenant_id=$2 AND sw.branch_id=$3 RETURNING *`;
+  const query = `DELETE FROM session_works sw WHERE sw.session_id=$1 AND sw.tenant_id=$2 AND sw.branch_id=$3 AND sw.treatment_plan_id IS NULL RETURNING *`;
   const value = [session_id, tenant_id, branch_id];
   const { rows } = await client.query(query, value);
   return rows[0] || null;
@@ -372,6 +375,7 @@ async function getWorksForSessions(session_ids, tenant_id, branch_id) {
 async function getAllWorksForSession(session_id, tenant_id, branch_id) {
   const query = `
     SELECT
+      sw.id AS session_work_id,
       sw.session_id,
       sw.work_id,
       sw.tooth_number,
@@ -548,6 +552,24 @@ async function hasPlanDue(sessionId, tenant_id, branch_id, client = pool) {
 
 
 
+// In-place tooth change for a SINGLE treatment-plan work row. Money-neutral and
+// plan-neutral: it only updates the tooth, and only for rows that belong to a
+// plan (treatment_plan_id IS NOT NULL) within this session/tenant/branch.
+async function updatePlanWorkTooth(sessionWorkId, tooth_number, session_id, tenant_id, branch_id, client = pool) {
+  const query = `
+    UPDATE session_works
+       SET tooth_number = $1
+     WHERE id = $2
+       AND session_id = $3
+       AND tenant_id = $4
+       AND branch_id = $5
+       AND treatment_plan_id IS NOT NULL
+     RETURNING *
+  `;
+  const { rows } = await client.query(query, [tooth_number, sessionWorkId, session_id, tenant_id, branch_id]);
+  return rows[0] || null;
+}
+
 async function updateSessionNotesFields(session_id, notess, tenant_id, branch_id, client = pool) {
   const keys = Object.keys(notess);
   const values = Object.values(notess);
@@ -574,5 +596,5 @@ async function updateSessionNotesFields(session_id, notess, tenant_id, branch_id
 export default {
   createSession, getAllNormalSessions, getNormalSession, getSession, updateSession, deleteSession, deleteSessionWorksBySiD, createSessionWork, bulkCreateSessionWorks, updateSessionTotal, getAllUnPaidSessions, getWorksForNormalSession, getWorksForSessions, getAllWorksForSession,
   getSessionWithAppointment, getTreatmentPlansForSession, getSessionPaymentContext, getSessionWithAppointmentForUpdate,
-  getTreatmentPlansForSessions, hasPlanDue, updateSessionNotesFields
+  getTreatmentPlansForSessions, hasPlanDue, updateSessionNotesFields, updatePlanWorkTooth
 }

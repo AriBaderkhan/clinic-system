@@ -17,6 +17,7 @@ router.get('/', permissionMiddleware('view_session'), sessionValidate.filters, s
 router.get('/unpaid', permissionMiddleware('view_session'), sessionController.getUnpaid);
 router.get('/:sessionId/normal', permissionMiddleware('view_session'), validateIdParam('sessionId'), sessionController.getNormal);
 router.put('/:sessionId/normal', permissionMiddleware('edit_session'), validateIdParam('sessionId'), sessionValidate.edit, sessionController.editNormal);
+router.patch('/:sessionId/plan-works/tooth', permissionMiddleware('edit_session', 'finalize_session'), validateIdParam('sessionId'), sessionController.updatePlanTeeth);
 router.delete('/:sessionId', permissionMiddleware('delete_session'), validateIdParam('sessionId'), sessionController.delete);
 router.post('/:sessionId/pay', permissionMiddleware('collect_payment'), validateIdParam('sessionId'), sessionController.pay);
 

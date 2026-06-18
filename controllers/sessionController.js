@@ -59,6 +59,15 @@ const pay = asyncWrap(async (req, res) => {
     res.status(200).json({ ok: true, data: result });
 })
 
+const updatePlanTeeth = asyncWrap(async (req, res) => {
+    const session_id = Number(req.params.sessionId);
+    const { updates } = req.body;
+    const { tenant_id, branch_id } = req.user;
+
+    const result = await sessionService.updatePlanWorkTeeth(session_id, updates, tenant_id, branch_id);
+    res.status(200).json({ ok: true, data: result });
+})
+
 export default {
-    getAll, getNormal, editNormal, delete: _delete, getUnpaid, pay
+    getAll, getNormal, editNormal, delete: _delete, getUnpaid, pay, updatePlanTeeth
 }
