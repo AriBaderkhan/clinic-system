@@ -184,6 +184,7 @@ async function getAllSessionsPatient(patientId, tenant_id, branch_id, limit = nu
         s.total,
         s.total_paid,
         s.is_paid,
+        s.currency_code,
         s.created_at,
 
         a.id AS appointment_id,
@@ -216,6 +217,7 @@ async function getAllPaymentsPatient(patientId, tenant_id, branch_id) {
         sp.amount,
         sp.method,
         sp.note,
+        sp.currency_code,
         sp.created_at,
 
         s.id AS session_id,
@@ -252,6 +254,7 @@ async function getAllTreatmentPlansPatient(patientId, tenant_id, branch_id) {
         is_paid,
         is_completed,
         status,
+        currency_code,
         created_at
     FROM treatment_plans
     WHERE patient_id = $1 AND tenant_id = $2 AND branch_id = $3

@@ -8,8 +8,9 @@ async function getPaymentsHistory(tenant_id, branch_id) {
         sp.session_id,
         sp.amount,
         sp.note,
-        sp.created_at, 
-   
+        sp.currency_code,
+        sp.created_at,
+
         s.id AS session_id,
     
         p.name  AS patient_name,
@@ -42,6 +43,7 @@ async function getSessionDetails(session_id, tenant_id, branch_id) {
       s.total,
       s.total_paid,
       s.is_paid,
+      s.currency_code,
       s.next_plan,
       s.notes,
       s.created_at,

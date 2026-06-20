@@ -3,3 +3,6 @@ node_modules/
 dist
 coverage
 .DS_Store
+
+# Local dev image storage (patient case images). Never commit — prod uses Supabase Storage.
+uploads/

@@ -19,6 +19,7 @@ async function getAllNormalSessions({ from, to, search, page, limit }, tenant_id
       s.total,
       s.total_paid,
       s.is_paid,
+      s.currency_code,
       s.created_at,
 
       a.finished_at AS appointment_end_time,
@@ -112,6 +113,7 @@ async function getNormalSession(session_id, tenant_id, branch_id, client = pool)
       s.total,
       s.total_paid,
       s.is_paid,
+      s.currency_code,
       s.next_plan,
       s.notes,
       s.created_at,
@@ -311,6 +313,7 @@ async function getAllUnPaidSessions(tenant_id, branch_id, { limit, q } = {}) {
       s.total,
       s.total_paid,
       s.is_paid,
+      s.currency_code,
       s.next_plan,
       s.notes,
 

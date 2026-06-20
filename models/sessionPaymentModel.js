@@ -14,7 +14,7 @@ async function createSessionPayment({ sessionId, amount, note, createdBy }, tena
 
 async function recalcSessionTotals(sessionId, tenant_id, branch_id, client = pool) {
   const sumQuery = `
-    SELECT COALESCE(SUM(amount), 0)::bigint AS total_paid
+    SELECT COALESCE(SUM(amount), 0)::numeric AS total_paid
     FROM session_payments
     WHERE session_id = $1
     AND tenant_id = $2
@@ -26,8 +26,8 @@ async function recalcSessionTotals(sessionId, tenant_id, branch_id, client = poo
   const updateQuery = `
     UPDATE sessions
     SET
-      total_paid = $2::bigint,
-      is_paid = ($2::bigint > 0),
+      total_paid = $2::numeric,
+      is_paid = ($2::numeric > 0),
       updated_at = NOW()
     WHERE id = $1
     AND tenant_id = $3

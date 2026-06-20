@@ -232,6 +232,7 @@ async function findOrdersWithFilters({ status, lab_id, search, page, limit }, te
       o.patient_id,
       o.doctor_id,
       o.total_cost,
+      o.currency_code,
       o.status,
       o.order_date,
       o.ready_date,

@@ -97,6 +97,7 @@ async function getNormal(session_id, tenant_id, branch_id) {
     session: {
       session_id: base.session_id,
       appointment_id: base.appointment_id,
+      currency_code: base.currency_code,
 
       totals: {
         min_total: Number(base.min_total),
@@ -450,6 +451,7 @@ async function getUnpaid(tenant_id, branch_id, { limit, q } = {}) {
     return {
       session_id: s.session_id,
       appointment_id: s.appointment_id,
+      currency_code: s.currency_code,
 
       patient: {
         id: s.patient_id,
@@ -498,7 +500,7 @@ async function pay({ sessionId, normalAmount, planPayments, note, userId }, tena
   try {
     await client.query("BEGIN");
 
-    // âœ… lock session row (prevents double-pay race)
+    // prevents double-pay race
     const session = await sessionModel.getSessionWithAppointmentForUpdate(sessionId, tenant_id, branch_id, client);
     if (!session) throw appError("SESSION_NOT_FOUND", "Session not found", 404);
 

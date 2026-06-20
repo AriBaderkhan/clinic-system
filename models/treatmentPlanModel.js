@@ -24,7 +24,7 @@ async function getActivePlan(patientId, type, tenant_id, branch_id, client = poo
 // relying on a plan id.
 async function getActivePlans(patientId, type, tenant_id, branch_id, client = pool) {
   const query = `
-    SELECT tp.id, tp.type, tp.agreed_total, tp.total_paid, tp.is_paid, tp.is_completed, tp.status, tp.created_at,
+    SELECT tp.id, tp.type, tp.agreed_total, tp.total_paid, tp.is_paid, tp.is_completed, tp.status, tp.created_at, tp.currency_code,
       (SELECT string_agg(DISTINCT sw.tooth_number::text, ', ' ORDER BY sw.tooth_number::text)
          FROM session_works sw
          WHERE sw.treatment_plan_id = tp.id
@@ -136,6 +136,7 @@ async function getAllTreatmentPlansForSection({ isPaid, isCompleted, search, pag
         tp.is_completed,
         tp.status,
         tp.created_at,
+        tp.currency_code,
 
         p.name AS patient_name,
         COUNT(*) OVER() AS total_count

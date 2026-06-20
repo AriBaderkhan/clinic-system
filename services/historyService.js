@@ -81,6 +81,7 @@ async function getSessionDetails(session_id, tenant_id, branch_id) {
     session: {
       session_id: base.session_id,
       appointment_id: base.appointment_id,
+      currency_code: base.currency_code,
 
       totals: {
         min_total: Number(base.min_total),
