@@ -32,6 +32,14 @@ async function getAllNormalSessions({ from, to, search, page, limit }, tenant_id
 
       pay.payment_note,
 
+      EXISTS (
+        SELECT 1 FROM session_works sw
+        WHERE sw.session_id = s.id
+          AND sw.tenant_id = s.tenant_id
+          AND sw.branch_id = s.branch_id
+          AND sw.treatment_plan_id IS NULL
+      ) AS has_normal_works,
+
       COUNT(*) OVER() AS total_count
   FROM sessions s
   JOIN appointments a ON a.id = s.appointment_id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
@@ -72,15 +80,9 @@ async function getAllNormalSessions({ from, to, search, page, limit }, tenant_id
     idx++;
   }
 
-  where.push(`
-  EXISTS (
-    SELECT 1
-    FROM session_works sw
-    WHERE sw.session_id = s.id
-      AND sw.tenant_id = s.tenant_id
-      AND sw.branch_id = s.branch_id
-      AND sw.treatment_plan_id IS NULL
-  )`)
+  // Show ALL sessions in the Sessions tab — including plan-only sessions.
+  // (Treatment-plan money still lives in its own tab; plan-only rows are
+  // badged on the frontend via has_normal_works.)
 
   let query = baseQuery;
   if (where.length > 0) {
