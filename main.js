@@ -64,6 +64,7 @@ import subscriptionRoute from './routes/subscriptionRoute.js';
 import adminPlatformRoute from './routes/adminPlatformRoute.js';
 import worksRoute from './routes/worksRoute.js';
 import labRoute from './routes/labRoute.js';
+import reminderRoute from './routes/reminderRoute.js';
 const PORT = process.env.PORT || 1000;
 
 
@@ -87,6 +88,7 @@ app.use('/api/subscriptions', subscriptionRoute)
 app.use('/api/admin-platform', adminPlatformRoute)
 app.use('/api/works', worksRoute)
 app.use('/api/labs', labRoute)
+app.use('/api/reminders', reminderRoute)
 
 app.use((req, res) => {
     res.status(404).json({ message: "Route not found", code: "ROUTE_NOT_FOUND", support_code: req.requestId || 'N/A' });
@@ -106,6 +108,13 @@ export const io = new Server(server, {
 
 setupSocket(io);
 
-server.listen(PORT, () => {
-    console.log(`Server Runing on Port ${PORT}`);
-});
+// In tests we import `app` into Supertest directly and never open a real port,
+// so only start listening when NOT running tests.
+if (process.env.NODE_ENV !== 'test') {
+    server.listen(PORT, () => {
+        console.log(`Server Runing on Port ${PORT}`);
+    });
+}
+
+// Exported so Supertest (and any tooling) can use the app without a live server.
+export default app;
