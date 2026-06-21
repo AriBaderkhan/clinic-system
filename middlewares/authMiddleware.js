@@ -17,6 +17,11 @@ async function authMiddleware(req, res, next) {
         return res.status(401).send("Invalid Token");
     }
 
+    // A refresh token must never be accepted as an access token.
+    if (decoded.type === 'refresh') {
+        return res.status(401).send("Invalid Token");
+    }
+
     try {
         // Identity (id/tenant/branch) comes from the verified token, but role +
         // permissions are read LIVE from the DB so changes apply instantly and a

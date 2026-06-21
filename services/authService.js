@@ -1,4 +1,6 @@
 import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import appError from '../utils/appError.js';
 
 import authModel from '../models/authModel.js';
@@ -6,6 +8,63 @@ import tenantModel from '../models/tenantModel.js';
 import branchModel from '../models/branchModel.js';
 import userBranchRoleModel from '../models/userBranchRoleModel.js';
 import permissionsModel from '../models/permissionsModel.js';
+import refreshTokenModel from '../models/refreshTokenModel.js';
+
+// ── Token settings ──────────────────────────────────────────────────────────
+// Access token is short-lived (a leaked one dies in a day). Refresh token is the
+// long-lived, REVOCABLE key that silently mints new access tokens.
+const ACCESS_TOKEN_EXPIRES = '1d';
+const REFRESH_TOKEN_DAYS = 30;
+// Separate secret keeps a refresh token from ever being accepted as an access
+// token; falls back to JWT_SECRET if not set (the type check still protects us).
+const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET;
+
+const hashToken = (raw) => crypto.createHash('sha256').update(raw).digest('hex');
+
+function signAccessToken(identity) {
+    return jwt.sign(identity, process.env.JWT_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRES });
+}
+
+// Make a refresh token (a JWT carrying identity) and store ONLY its hash so we
+// can revoke it later. Returns the raw token to hand to the client.
+async function issueRefreshToken(identity) {
+    const refreshToken = jwt.sign({ ...identity, type: 'refresh' }, REFRESH_SECRET, {
+        expiresIn: `${REFRESH_TOKEN_DAYS}d`,
+    });
+    const expires_at = new Date(Date.now() + REFRESH_TOKEN_DAYS * 24 * 60 * 60 * 1000);
+    await refreshTokenModel.insert(identity.id, hashToken(refreshToken), expires_at);
+    return refreshToken;
+}
+
+// Validate a refresh token and mint a NEW access token from it.
+async function rotateAccessToken(refreshToken) {
+    if (!refreshToken) throw appError('REFRESH_INVALID', 'No refresh token', 401);
+
+    let payload;
+    try {
+        payload = jwt.verify(refreshToken, REFRESH_SECRET); // also checks expiry
+    } catch {
+        throw appError('REFRESH_INVALID', 'Invalid or expired refresh token', 401);
+    }
+    if (payload.type !== 'refresh') throw appError('REFRESH_INVALID', 'Not a refresh token', 401);
+
+    const row = await refreshTokenModel.findByHash(hashToken(refreshToken));
+    if (!row || row.revoked) throw appError('REFRESH_INVALID', 'Refresh token revoked', 401);
+
+    const identity = {
+        id: payload.id,
+        tenant_id: payload.tenant_id,
+        branch_id: payload.branch_id,
+        role: payload.role,
+        name: payload.name,
+    };
+    return signAccessToken(identity);
+}
+
+async function revokeRefreshToken(refreshToken) {
+    if (!refreshToken) return;
+    await refreshTokenModel.revokeByHash(hashToken(refreshToken));
+}
 
 const DUMMY_HASH =
     process.env.DUMMY_BCRYPT_HASH ||
@@ -134,4 +193,4 @@ async function getLiveContext(user_id, tenant_id, branch_id) {
     return { role: assignment.role_name, permissions, is_active: true };
 }
 
-export default { login, switchBranch, getLiveContext }
+export default { login, switchBranch, getLiveContext, signAccessToken, issueRefreshToken, rotateAccessToken, revokeRefreshToken }
