@@ -65,4 +65,22 @@ const switchBranch = asyncWrap(async (req, res) => {
     });
 })
 
-export default { login, switchBranch }
+// Returns the caller's CURRENT identity + live role/permissions.
+// authMiddleware has already replaced req.user.permissions/role with fresh DB
+// values, so the frontend can call this to keep its UI (button show/hide) in sync
+// without forcing a re-login.
+const me = asyncWrap(async (req, res) => {
+    res.status(200).json({
+        ok: true,
+        user: {
+            id: req.user.id,
+            tenant_id: req.user.tenant_id,
+            branch_id: req.user.branch_id,
+            role: req.user.role,
+            name: req.user.name,
+            permissions: req.user.permissions,
+        },
+    });
+});
+
+export default { login, switchBranch, me }

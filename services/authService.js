@@ -113,4 +113,25 @@ async function switchBranch(user_id, tenant_id, branch_id) {
     }
 }
 
-export default { login, switchBranch }
+// Read the user's CURRENT role + permissions straight from the DB.
+// Used on every request so permission/role changes apply instantly, instead of
+// trusting a stale list baked into a long-lived token. A deactivated assignment
+// returns no permissions, which effectively locks the user out immediately.
+async function getLiveContext(user_id, tenant_id, branch_id) {
+    // Platform admin (no tenant) keeps system-wide access, same as login.
+    if (!tenant_id) {
+        return { role: 'platform_admin', permissions: ['manage_system'], is_active: true };
+    }
+
+    const assignment = await userBranchRoleModel.findUserByAll(user_id, tenant_id, branch_id);
+    if (!assignment || !assignment.is_active) {
+        return { role: null, permissions: [], is_active: false };
+    }
+
+    const permissionsRow = await permissionsModel.findPermissionsByRole(assignment.role_id);
+    const permissions = permissionsRow.map(row => row.permission_key);
+
+    return { role: assignment.role_name, permissions, is_active: true };
+}
+
+export default { login, switchBranch, getLiveContext }

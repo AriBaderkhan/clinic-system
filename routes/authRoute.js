@@ -7,5 +7,6 @@ import authMiddleware from '../middlewares/authMiddleware.js';
 
 router.post('/login', authValidate.login, authController.login)
 router.post('/switch-branch', authMiddleware, authController.switchBranch)
+router.get('/me', authMiddleware, authController.me)
 
 export default router;
