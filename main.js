@@ -3,6 +3,7 @@ import errorMiddleware from './middlewares/errorMiddleware.js';
 import http from 'http';
 import { Server } from 'socket.io';
 import setupSocket from './socket.js';
+import helmet from 'helmet';
 
 import dotenv from 'dotenv';
 dotenv.config();
@@ -10,9 +11,15 @@ dotenv.config();
 import express from 'express';
 const app = express();
 
+// On Render we sit behind their proxy. Trust the FIRST proxy hop so rate-limit
+// (and req.ip) see the real client IP instead of lumping everyone under the
+// proxy's single IP. '1' = trust one hop, not a blind "trust everything".
+app.set('trust proxy', 1);
+
 import requestIdMiddleware from './middlewares/requestIdMiddleware.js';
 app.use(requestIdMiddleware);
 
+app.use(helmet());
 
 // PROBLEM : broweser block the request from your frontend to backend
 // SOLVE : Cors allows this connection , it provides the permission
