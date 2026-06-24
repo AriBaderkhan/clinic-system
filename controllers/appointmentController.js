@@ -3,11 +3,11 @@ import asyncWrap from '../utils/asyncWrap.js';
 import { io } from '../main.js';
 
 const create = asyncWrap(async (req, res) => {
-    const { patient_id, doctor_id, scheduled_start, appointment_type } = req.body;
+    const { patient_id, doctor_id, scheduled_start, appointment_type, complaint } = req.body;
     const created_by = req.user.id;
     const { tenant_id, branch_id } = req.user
 
-    const appointmentData = { patient_id, doctor_id, scheduled_start, created_by, appointment_type }
+    const appointmentData = { patient_id, doctor_id, scheduled_start, created_by, appointment_type, complaint }
 
     const result = await appointmentService.create(appointmentData, tenant_id, branch_id)
     res.status(201).json({ ok: true, data: result });
@@ -22,12 +22,12 @@ const getById = asyncWrap(async (req, res) => {
 })
 
 const update = asyncWrap(async (req, res) => {
-    const { patient_id, doctor_id, scheduled_start } = req.body;
+    const { patient_id, doctor_id, scheduled_start, complaint } = req.body;
     const appointmentId = Number(req.params.appointmentId);
     const updatedBy = req.user.id;
     const { tenant_id, branch_id } = req.user
 
-    const appointmentDataForUpdate = { appointmentId, patient_id, doctor_id, scheduled_start, updatedBy }
+    const appointmentDataForUpdate = { appointmentId, patient_id, doctor_id, scheduled_start, complaint, updatedBy }
 
     const result = await appointmentService.update(appointmentDataForUpdate, tenant_id, branch_id)
     res.status(200).json({ ok: true, data: result });
@@ -60,12 +60,12 @@ const start = asyncWrap(async (req, res) => {
 })
 
 const complete = asyncWrap(async (req, res) => {
-    const { next_plan, notes, works, completedPlanIds } = req.body;
+    const { next_plan, notes, works, completedPlanIds, prescription } = req.body;
     const appointmentId = Number(req.params.appointmentId);
     const userId = req.user.id;
     const { tenant_id, branch_id } = req.user
 
-    const result = await appointmentService.complete({ appointmentId, doctorId: userId, next_plan, notes, works, completedPlanIds }, tenant_id, branch_id);
+    const result = await appointmentService.complete({ appointmentId, doctorId: userId, next_plan, notes, works, completedPlanIds, prescription }, tenant_id, branch_id);
 
     io.to('reception_room').emit('appointment_completed', {
         message: ` Dr. ${result.details.doctor_name} has completed appointment for patient ${result.details.patient_name}`

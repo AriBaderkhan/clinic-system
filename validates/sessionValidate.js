@@ -17,7 +17,17 @@ const schemaEditSession = Joi.object({
         )
         .min(1)
         .optional(),
-    total_paid: Joi.number().min(0).optional()
+    total_paid: Joi.number().min(0).optional(),
+    // optional prescription edited alongside the works
+    prescription: Joi.array().items(
+        Joi.object({
+            drug_name: Joi.string().trim().min(1).required(),
+            dosage: Joi.string().trim().allow('', null).optional(),
+            frequency: Joi.string().trim().allow('', null).optional(),
+            duration: Joi.string().trim().allow('', null).optional(),
+            instructions: Joi.string().trim().allow('', null).optional(),
+        })
+    ).optional()
 });
 
 function edit(req, res, next) {

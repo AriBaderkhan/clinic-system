@@ -12,7 +12,11 @@ const schemaPatientAdd = Joi.object({
         'number.min': 'Age must be at least 3'
     }),
     gender: Joi.string().valid('male', 'female', 'other').optional(),
-    address: Joi.string().trim().optional()
+    address: Joi.string().trim().optional(),
+    // Tier 3 medical fields (all optional)
+    allergies: Joi.string().trim().allow('', null).optional(),
+    chronic_diseases: Joi.string().trim().allow('', null).optional(),
+    blood_type: Joi.string().valid('A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-').allow('', null).optional()
 })
 
 function create(req, res, next) {

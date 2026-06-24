@@ -45,9 +45,13 @@ async function activeTodayAppt({ from, to, doc_id}, tenant_id, branch_id ) {
       a.doctor_id,
       a.status,
       a.appointment_type,
+      a.complaint,
       a.scheduled_start,
       p.name  AS patient_name,
       p.phone AS patient_phone,
+      p.allergies        AS patient_allergies,
+      p.blood_type       AS patient_blood_type,
+      p.chronic_diseases AS patient_chronic_diseases,
       pr.full_name AS doctor_name
     FROM appointments a
     JOIN patients p ON p.id = a.patient_id AND a.tenant_id = p.tenant_id

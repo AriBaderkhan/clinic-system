@@ -1,9 +1,9 @@
 import pool from '../db_connection.js';
 
 
-async function createPatient(name, phone, age, gender, address, created_by, tenant_id, branch_id) {
-  const query = `INSERT INTO patients (name,phone,age,gender,address,created_by,tenant_id,branch_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *;`;
-  const values = [name, phone, age, gender, address, created_by, tenant_id, branch_id];
+async function createPatient(name, phone, age, gender, address, allergies, blood_type, chronic_diseases, created_by, tenant_id, branch_id) {
+  const query = `INSERT INTO patients (name,phone,age,gender,address,allergies,blood_type,chronic_diseases,created_by,tenant_id,branch_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *;`;
+  const values = [name, phone, age, gender, address, allergies, blood_type, chronic_diseases, created_by, tenant_id, branch_id];
   const { rows } = await pool.query(query, values);
   return rows[0] || null;
 }
@@ -56,7 +56,9 @@ WHERE p.tenant_id = $1
 
 async function getPatient(patientId, tenant_id, branch_id) {
   const query = `
-  SELECT p.id, p.name, p.phone, p.age, p.gender, p.address, p.created_by, p.updated_by
+  SELECT p.id, p.name, p.phone, p.age, p.gender, p.address,
+         p.allergies, p.blood_type, p.chronic_diseases,
+         p.created_by, p.updated_by
 FROM patients p
 WHERE p.id = $1
   AND p.tenant_id = $2

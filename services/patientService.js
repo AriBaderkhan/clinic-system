@@ -3,8 +3,8 @@ import appError from '../utils/appError.js';
 
 async function create(patientData, tenant_id, branch_id) {
 
-    const { name, phone, age, gender, address, created_by } = patientData;
-    const patient = await patientModel.createPatient(name, phone, age, gender, address, created_by, tenant_id, branch_id);
+    const { name, phone, age, gender, address, allergies, blood_type, chronic_diseases, created_by } = patientData;
+    const patient = await patientModel.createPatient(name, phone, age, gender, address, allergies, blood_type, chronic_diseases, created_by, tenant_id, branch_id);
 
     if (!patient) throw appError('INSERT_FAILED', 'Failed to create patient', 500);
     return patient;

@@ -7,6 +7,7 @@ import appointmentModel from '../models/appointmentModel.js';
 import treatmentPlanModel from '../models/treatmentPlanModel.js';
 import workCatalogModel from '../models/workCatalogModel.js';
 import treatmentPlanPaymentModel from '../models/treatmentPlanPaymentModel.js';
+import prescriptionModel from '../models/prescriptionModel.js';
 import dateRange from '../utils/dateRange.js';
 import settingModel from '../models/settingModel.js';
 
@@ -92,12 +93,16 @@ async function getNormal(session_id, tenant_id, branch_id) {
   const worksSummary = buildWorksSummary(normalRows); // editable normal works
   const planWorks = buildPlanWorks(planRows);          // read-only plan works
 
+  // prescription lives on the appointment (the visit) — load it so the doctor
+  // sees/edits it inside the session.
+  const prescription = await prescriptionModel.getByAppointment(base.appointment_id, tenant_id, branch_id);
 
   return {
     session: {
       session_id: base.session_id,
       appointment_id: base.appointment_id,
       currency_code: base.currency_code,
+      prescription: { items: prescription?.items || [] },
 
       totals: {
         min_total: Number(base.min_total),
@@ -145,7 +150,7 @@ async function getNormal(session_id, tenant_id, branch_id) {
 async function editNormal(session_id, fields, userId, tenant_id, branch_id) {
   const client = await pool.connect();
 
-  const { notes, next_plan, works, total_paid } = fields;
+  const { notes, next_plan, works, total_paid, prescription } = fields;
 
   try {
     await client.query("BEGIN");
@@ -313,6 +318,14 @@ async function editNormal(session_id, fields, userId, tenant_id, branch_id) {
       const notess = { notes, next_plan }
       const updatedPlan = await sessionModel.updateSessionNotesFields(session_id, notess, tenant_id, branch_id, client);
       if (!updatedPlan) throw appError("SESSION_UPDATE_FAILED", "session Update failed", 500);
+    }
+
+    // prescription (optional) — saved against the session's appointment, same transaction
+    if (prescription !== undefined) {
+      await prescriptionModel.saveForAppointment(
+        { appointment_id: base.appointment_id, tenant_id, branch_id, doctor_id: userId, items: prescription || [] },
+        client
+      );
     }
 
     await client.query("COMMIT");

@@ -11,6 +11,7 @@ const schemaAppointmentAdd = Joi.object({
         'any.required': 'Appointment start time is required',
         'date.base': 'Appointment start time must be a valid ISO date'
     }),
+    complaint: Joi.string().max(1000).allow('', null).optional(),
 })
 
 function create(req, res, next) {
@@ -70,6 +71,17 @@ const schemaCompleteFillWork = Joi.object({
 
     // existing active plans the doctor ticked "mark completed" for
     completedPlanIds: Joi.array().items(Joi.number().integer().positive()).optional(),
+
+    // optional prescription written during the visit
+    prescription: Joi.array().items(
+        Joi.object({
+            drug_name: Joi.string().trim().min(1).required(),
+            dosage: Joi.string().trim().allow('', null).optional(),
+            frequency: Joi.string().trim().allow('', null).optional(),
+            duration: Joi.string().trim().allow('', null).optional(),
+            instructions: Joi.string().trim().allow('', null).optional(),
+        })
+    ).optional(),
 });
 
 function complete(req, res, next) {

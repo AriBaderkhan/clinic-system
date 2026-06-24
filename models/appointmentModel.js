@@ -1,9 +1,9 @@
 import pool from '../db_connection.js';
 
 
-async function createAppointment(patient_id, doctor_id, scheduled_start, created_by, appointment_type, tenant_id, branch_id) {
-  const query = `INSERT INTO appointments (patient_id, doctor_id, scheduled_start, created_by, appointment_type,tenant_id,branch_id) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`;
-  const values = [patient_id, doctor_id, scheduled_start, created_by, appointment_type, tenant_id, branch_id];
+async function createAppointment(patient_id, doctor_id, scheduled_start, created_by, appointment_type, complaint, tenant_id, branch_id) {
+  const query = `INSERT INTO appointments (patient_id, doctor_id, scheduled_start, created_by, appointment_type, complaint, tenant_id, branch_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`;
+  const values = [patient_id, doctor_id, scheduled_start, created_by, appointment_type, complaint, tenant_id, branch_id];
   const { rows } = await pool.query(query, values);
   return rows[0];
 }
@@ -35,6 +35,9 @@ async function getAppointment(appointmentId, tenant_id, branch_id, client = pool
       a.doctor_id,
       p.name  AS patient_name,
       p.phone AS patient_phone,
+      p.allergies        AS patient_allergies,
+      p.blood_type       AS patient_blood_type,
+      p.chronic_diseases AS patient_chronic_diseases,
       pr.full_name AS doctor_name,
       a.scheduled_start,
       a.status,
@@ -42,7 +45,8 @@ async function getAppointment(appointmentId, tenant_id, branch_id, client = pool
       a.started_at,
       a.finished_at,
       a.cancel_reason,
-      a.appointment_type
+      a.appointment_type,
+      a.complaint
     FROM appointments a
     JOIN patients  p  ON a.patient_id = p.id AND a.tenant_id = p.tenant_id
     JOIN doctors   d  ON a.doctor_id = d.id AND a.tenant_id = d.tenant_id AND a.branch_id = d.branch_id
@@ -357,9 +361,13 @@ async function activeTodayAppt({ from, to }, tenant_id, branch_id) {
       a.doctor_id,
       a.status,
       a.appointment_type,
+      a.complaint,
       a.scheduled_start,
       p.name  AS patient_name,
       p.phone AS patient_phone,
+      p.allergies        AS patient_allergies,
+      p.blood_type       AS patient_blood_type,
+      p.chronic_diseases AS patient_chronic_diseases,
       pr.full_name AS doctor_name
     FROM appointments a
     JOIN patients p ON p.id = a.patient_id AND a.tenant_id = p.tenant_id

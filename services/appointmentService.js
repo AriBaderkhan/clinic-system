@@ -8,11 +8,12 @@ import dateRange from '../utils/dateRange.js';
 import settingModel from '../models/settingModel.js';
 import workCatalogModel from '../models/workCatalogModel.js';
 import treatmentPlanModel from '../models/treatmentPlanModel.js';
+import prescriptionModel from '../models/prescriptionModel.js';
 import pool from '../db_connection.js';
 
 
 async function create(appointmentData, tenant_id, branch_id) {
-    const { patient_id, doctor_id, scheduled_start, created_by, appointment_type } = appointmentData;
+    const { patient_id, doctor_id, scheduled_start, created_by, appointment_type, complaint } = appointmentData;
 
     const patient = await patientModel.getPatient(patient_id, tenant_id, branch_id);
     if (!patient) throw appError('PATIENT_NOT_FOUND', 'Patient not found', 404);
@@ -45,7 +46,7 @@ async function create(appointmentData, tenant_id, branch_id) {
     //     }
     // }
 
-    const appointment = await appointmentModel.createAppointment(patient_id, doctor_id, scheduled_start, created_by, appointment_type, tenant_id, branch_id);
+    const appointment = await appointmentModel.createAppointment(patient_id, doctor_id, scheduled_start, created_by, appointment_type, complaint, tenant_id, branch_id);
     if (!appointment) throw appError('APPOINTMENT_CREATE_FAILED', 'Appointment create failed', 500);
     return appointment;
 }
@@ -58,7 +59,7 @@ async function getById(appointmentId, tenant_id, branch_id) {
 }
 
 async function update(appointmentDataForUpdate, tenant_id, branch_id) {
-    const { appointmentId, patient_id, doctor_id, scheduled_start, updatedBy } =
+    const { appointmentId, patient_id, doctor_id, scheduled_start, complaint, updatedBy } =
         appointmentDataForUpdate;
 
     // 1) Load current appointment
@@ -81,6 +82,7 @@ async function update(appointmentDataForUpdate, tenant_id, branch_id) {
         ...(patient_id ? { patient_id } : {}),
         ...(doctor_id ? { doctor_id } : {}),
         ...(scheduled_start ? { scheduled_start } : {}),
+        ...(complaint !== undefined ? { complaint } : {}),
     };
 
     if (Object.keys(fields).length === 0) {
@@ -186,7 +188,7 @@ async function start(appointmentId, userId, tenant_id, branch_id) {
 // Its job is to:
 // Close an in-progress appointment, 
 // create a session, register all works, manage treatment plans, calculate totals,
-async function complete({ appointmentId, doctorId, next_plan, notes, works, completedPlanIds }, tenant_id, branch_id) {
+async function complete({ appointmentId, doctorId, next_plan, notes, works, completedPlanIds, prescription }, tenant_id, branch_id) {
     const client = await pool.connect();
 
     try {
@@ -317,6 +319,14 @@ async function complete({ appointmentId, doctorId, next_plan, notes, works, comp
 
         const updatedAppointment = await appointmentModel.setAppointmentComplete(appointmentId, doctorId, tenant_id, branch_id, client);
         if (!updatedAppointment) throw appError('APPOINTMENT_COMPLETE_FAILED', 'Appointment complete failed', 500);
+
+        // Prescription (optional) — saved against the appointment, in the same transaction.
+        if (prescription !== undefined) {
+            await prescriptionModel.saveForAppointment(
+                { appointment_id: appointmentId, tenant_id, branch_id, doctor_id: doctorId, items: prescription || [] },
+                client
+            );
+        }
 
         await client.query("COMMIT");
 

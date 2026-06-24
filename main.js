@@ -37,7 +37,14 @@ app.use(express.json());
 import path from 'path';
 import { fileURLToPath } from 'url';
 const __dirnameMain = path.dirname(fileURLToPath(import.meta.url));
-app.use('/uploads', express.static(path.join(__dirnameMain, 'uploads')));
+// Allow the frontend (a different origin in dev: Vite :5173 vs API :1000) to
+// embed these images. Helmet's default Cross-Origin-Resource-Policy is
+// 'same-origin', which otherwise blocks the <img> loads. In prod, images come
+// from Supabase signed URLs, so this only affects locally-served uploads.
+app.use('/uploads', (req, res, next) => {
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    next();
+}, express.static(path.join(__dirnameMain, 'uploads')));
 
 app.get("/health", (req, res) => {
     res.status(200).json({ ok: true });
@@ -65,6 +72,7 @@ import adminPlatformRoute from './routes/adminPlatformRoute.js';
 import worksRoute from './routes/worksRoute.js';
 import labRoute from './routes/labRoute.js';
 import reminderRoute from './routes/reminderRoute.js';
+import prescriptionRoute from './routes/prescriptionRoute.js';
 const PORT = process.env.PORT || 1000;
 
 
@@ -89,6 +97,7 @@ app.use('/api/admin-platform', adminPlatformRoute)
 app.use('/api/works', worksRoute)
 app.use('/api/labs', labRoute)
 app.use('/api/reminders', reminderRoute)
+app.use('/api/prescriptions', prescriptionRoute)
 
 app.use((req, res) => {
     res.status(404).json({ message: "Route not found", code: "ROUTE_NOT_FOUND", support_code: req.requestId || 'N/A' });

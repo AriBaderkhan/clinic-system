@@ -49,7 +49,7 @@ function formatDateTime(scheduled_start) {
   };
 }
 
-// Replace {patient_name} {date} {time} in a template string.
+
 function fillTemplate(text, vars) {
   return String(text || '')
     .replaceAll('{patient_name}', vars.patient_name ?? '')
@@ -57,8 +57,7 @@ function fillTemplate(text, vars) {
     .replaceAll('{time}', vars.time ?? '');
 }
 
-// Build the 48h reminder list: each appointment with its phone + ready-filled
-// message in all three languages, so reception can pick/edit and send.
+
 async function getUpcomingReminders(tenant_id, branch_id) {
   const template = await reminderModel.getTemplate(tenant_id, branch_id);
   if (!template) {
@@ -89,7 +88,7 @@ async function getUpcomingReminders(tenant_id, branch_id) {
   });
 }
 
-// Read the branch's editable template (for the "Edit template" panel).
+
 async function getTemplate(tenant_id, branch_id) {
   const template = await reminderModel.getTemplate(tenant_id, branch_id);
   if (!template) {
@@ -98,12 +97,11 @@ async function getTemplate(tenant_id, branch_id) {
   return template;
 }
 
-// Save edits to the branch template.
+
 async function updateTemplate(tenant_id, branch_id, body, updated_by) {
   return reminderModel.upsertTemplate(tenant_id, branch_id, body, updated_by);
 }
 
-// Mark a reminder as sent (logs it → the appointment disappears from the list).
 async function markSent({ tenant_id, branch_id, appointment_id, patient_id, language, message, sent_by }) {
   const already = await reminderModel.existsForAppointment(tenant_id, branch_id, appointment_id);
   if (already) throw appError('REMINDER_ALREADY_SENT', 'Reminder already sent for this appointment', 409);

@@ -1,6 +1,7 @@
 import historyModel from '../models/historyModel.js'
 import sessionModel from '../models/sessionModel.js'
 import sessionImageService from './sessionImageService.js';
+import prescriptionModel from '../models/prescriptionModel.js';
 import appError from '../utils/appError.js';
 
 
@@ -76,12 +77,16 @@ async function getSessionDetails(session_id, tenant_id, branch_id) {
   // 3b) case images (with fresh signed URLs); never breaks details if storage hiccups
   const images = await sessionImageService.listForDetails(session_id, tenant_id, branch_id);
 
+  // 3c) prescription (lives on the appointment) — so the read-only view shows it too
+  const prescription = await prescriptionModel.getByAppointment(base.appointment_id, tenant_id, branch_id);
+
   // 4) final clean object for frontend
   return {
     session: {
       session_id: base.session_id,
       appointment_id: base.appointment_id,
       currency_code: base.currency_code,
+      prescription: { items: prescription?.items || [] },
 
       totals: {
         min_total: Number(base.min_total),
@@ -103,12 +108,16 @@ async function getSessionDetails(session_id, tenant_id, branch_id) {
         start_time: base.appointment_start_time,
         end_time: base.appointment_end_time,
         status: base.appointment_status,
+        complaint: base.appointment_complaint || null,
       },
 
       patient: {
         id: base.patient_id,
         full_name: base.patient_name,
         phone: base.patient_phone,
+        allergies: base.patient_allergies || null,
+        blood_type: base.patient_blood_type || null,
+        chronic_diseases: base.patient_chronic_diseases || null,
       },
 
       doctor: {

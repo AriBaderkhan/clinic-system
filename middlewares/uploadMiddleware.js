@@ -3,7 +3,9 @@ import appError from '../utils/appError.js';
 
 const ALLOWED = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB per image
-const MAX_FILES = 12;
+// Effectively "as many as they want" for real clinical use — kept high (not
+// unlimited) only so a single request can't exhaust server memory.
+const MAX_FILES = 50;
 
 const upload = multer({
   storage: multer.memoryStorage(),

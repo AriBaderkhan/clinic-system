@@ -53,10 +53,14 @@ async function getSessionDetails(session_id, tenant_id, branch_id) {
       a.started_at  AS appointment_start_time,
       a.finished_at AS appointment_end_time,
       a.status      AS appointment_status,
+      a.complaint   AS appointment_complaint,
 
       p.id    AS patient_id,
       p.name  AS patient_name,
       p.phone AS patient_phone,
+      p.allergies        AS patient_allergies,
+      p.blood_type       AS patient_blood_type,
+      p.chronic_diseases AS patient_chronic_diseases,
 
       d.id         AS doctor_id,
       pr.full_name AS doctor_name,
