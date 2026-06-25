@@ -48,9 +48,12 @@ async function assignRole(client, userId, roleId, tenantId, branchId) {
 
 // 7. Create Subscription (Transaction Safe)
 async function createSubscription(client, tenantId, planId) {
+    // First period = 37 days (30 of value + a 7-day buffer). After this the
+    // tenant sees the renewal banner and pays to extend.
     const { rows } = await client.query(
-        'INSERT INTO subscriptions (tenant_id, plan_id, status) VALUES ($1, $2, $3) RETURNING *',
-        [tenantId, planId, 'active']
+        `INSERT INTO subscriptions (tenant_id, plan_id, status, start_date, end_date)
+         VALUES ($1, $2, 'active', NOW(), NOW() + INTERVAL '37 days') RETURNING *`,
+        [tenantId, planId]
     );
     return rows[0];
 }

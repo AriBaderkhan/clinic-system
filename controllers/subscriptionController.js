@@ -25,4 +25,16 @@ const update = asyncWrap(async (req, res) => {
     res.status(200).json({ ok: true, data: result });
 })
 
-export default { create, getAll, getById, update }
+// Tenant self-service: my current plan + lifecycle state + days left + pending.
+const myStatus = asyncWrap(async (req, res) => {
+    const result = await subscriptionService.getMyStatus(req.user.tenant_id);
+    res.status(200).json({ ok: true, data: result });
+})
+
+// Tenant self-service: feature codes my plan includes (frontend hides the rest).
+const myFeatures = asyncWrap(async (req, res) => {
+    const result = await subscriptionService.getMyFeatures(req.user.tenant_id);
+    res.status(200).json({ ok: true, data: result });
+})
+
+export default { create, getAll, getById, update, myStatus, myFeatures }

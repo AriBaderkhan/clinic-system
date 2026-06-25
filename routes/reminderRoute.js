@@ -12,10 +12,11 @@ import reminderController from '../controllers/reminderController.js';
 router.use(authMiddleware);
 router.use(branchAssigmentMiddleware);
 
-router.use(permissionMiddleware('send_reminders'))
-// Every route requires: the tenant's plan includes 'reminders' AND the user's
-// role has 'send_reminders'.
-// const feature = featureMiddleware.checkFeature('reminders');
+// Every reminder route requires BOTH gates:
+//  1) the tenant's PLAN includes 'reminders' (billing/entitlement)
+//  2) the user's ROLE has 'send_reminders' (RBAC)
+router.use(featureMiddleware.checkFeature('reminders'));
+router.use(permissionMiddleware('send_reminders'));
 
 router.get('/upcoming',  reminderController.getUpcoming);
 router.get('/template',  reminderController.getTemplate);
