@@ -32,6 +32,11 @@ app.use(cors({
 
 app.use(express.json());
 
+// Append-only activity log: records successful mutations after the response is
+// sent (reads req.user at finish-time, set by each route's authMiddleware).
+import auditMiddleware from './middlewares/auditMiddleware.js';
+app.use(auditMiddleware);
+
 // Serve locally-stored case images in dev (when Supabase Storage env is absent).
 // In production (Supabase) this folder is empty and the route is harmless.
 import path from 'path';
@@ -73,6 +78,7 @@ import worksRoute from './routes/worksRoute.js';
 import labRoute from './routes/labRoute.js';
 import reminderRoute from './routes/reminderRoute.js';
 import prescriptionRoute from './routes/prescriptionRoute.js';
+import auditRoute from './routes/auditRoute.js';
 const PORT = process.env.PORT || 1000;
 
 
@@ -98,6 +104,7 @@ app.use('/api/works', worksRoute)
 app.use('/api/labs', labRoute)
 app.use('/api/reminders', reminderRoute)
 app.use('/api/prescriptions', prescriptionRoute)
+app.use('/api/audit', auditRoute)
 
 app.use((req, res) => {
     res.status(404).json({ message: "Route not found", code: "ROUTE_NOT_FOUND", support_code: req.requestId || 'N/A' });
