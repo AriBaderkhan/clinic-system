@@ -98,4 +98,16 @@ const me = asyncWrap(async (req, res) => {
     });
 });
 
-export default { login, switchBranch, me, refresh, logout }
+// Public: send a reset code to the email (always 200 — never leak existence).
+const forgotPassword = asyncWrap(async (req, res) => {
+    const result = await authService.forgotPassword(req.body.email);
+    res.status(200).json({ ok: true, data: result });
+});
+
+// Public: verify the code + set the new password.
+const resetPassword = asyncWrap(async (req, res) => {
+    const result = await authService.resetPassword(req.body.email, req.body.code, req.body.newPassword);
+    res.status(200).json({ ok: true, data: result });
+});
+
+export default { login, switchBranch, me, refresh, logout, forgotPassword, resetPassword }

@@ -13,6 +13,8 @@ const loginLimiter = rateLimit({
 });
 
 router.post('/login', loginLimiter,authValidate.login, authController.login)
+router.post('/forgot-password', loginLimiter, authValidate.forgotPassword, authController.forgotPassword)
+router.post('/reset-password', loginLimiter, authValidate.resetPassword, authController.resetPassword)
 router.post('/switch-branch', authMiddleware, authController.switchBranch)
 router.get('/me', authMiddleware, authController.me)
 router.post('/refresh', authController.refresh)   // no authMiddleware: access token may be expired

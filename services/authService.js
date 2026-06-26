@@ -9,6 +9,7 @@ import branchModel from '../models/branchModel.js';
 import userBranchRoleModel from '../models/userBranchRoleModel.js';
 import permissionsModel from '../models/permissionsModel.js';
 import refreshTokenModel from '../models/refreshTokenModel.js';
+import verificationService from './verificationService.js';
 
 // ── Token settings ──────────────────────────────────────────────────────────
 // Access token is short-lived (a leaked one dies in a day). Refresh token is the
@@ -193,4 +194,26 @@ async function getLiveContext(user_id, tenant_id, branch_id) {
     return { role: assignment.role_name, permissions, is_active: true };
 }
 
-export default { login, switchBranch, getLiveContext, signAccessToken, issueRefreshToken, rotateAccessToken, revokeRefreshToken }
+// ── Forgot / reset password (public, reuses the generic OTP engine) ──
+const RESET_PURPOSE = 'reset_password';
+
+async function forgotPassword(email) {
+    // Only send if the account exists, but ALWAYS respond the same so we don't
+    // reveal whether an email is registered.
+    const user = await authModel.findByEmail(email);
+    if (user) await verificationService.requestCode(email, RESET_PURPOSE);
+    return { sent: true };
+}
+
+async function resetPassword(email, code, newPassword) {
+    await verificationService.confirmCode(email, code, RESET_PURPOSE);
+    const row = await verificationService.assertVerified(email, RESET_PURPOSE);
+    const user = await authModel.findByEmail(email);
+    if (!user) throw appError('USER_NOT_FOUND', 'No account for this email', 404);
+    const hash = await bcrypt.hash(newPassword, 10);
+    await authModel.updatePassword(user.id, hash);
+    await verificationService.consume(row.id);
+    return { reset: true };
+}
+
+export default { login, switchBranch, getLiveContext, signAccessToken, issueRefreshToken, rotateAccessToken, revokeRefreshToken, forgotPassword, resetPassword }

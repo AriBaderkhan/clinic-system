@@ -20,4 +20,29 @@ async function selectAUser(user_id, tenant_id) {
         const { rows } = await pool.query(query, value);
         return rows[0] || null;
 }
-export default { loginUser, selectAUser }
+
+// ── Account helpers (password reset / change, email change) ──
+async function findByEmail(email) {
+        const { rows } = await pool.query(`SELECT id, email FROM users WHERE LOWER(email) = LOWER($1)`, [email]);
+        return rows[0] || null;
+}
+
+async function getCredById(user_id) {
+        const { rows } = await pool.query(`SELECT id, email, password FROM users WHERE id = $1`, [user_id]);
+        return rows[0] || null;
+}
+
+async function emailExists(email) {
+        const { rows } = await pool.query(`SELECT 1 FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1`, [email]);
+        return rows.length > 0;
+}
+
+async function updatePassword(user_id, password_hash) {
+        await pool.query(`UPDATE users SET password = $2 WHERE id = $1`, [user_id, password_hash]);
+}
+
+async function updateEmail(user_id, email) {
+        await pool.query(`UPDATE users SET email = $2 WHERE id = $1`, [user_id, email]);
+}
+
+export default { loginUser, selectAUser, findByEmail, getCredById, emailExists, updatePassword, updateEmail }

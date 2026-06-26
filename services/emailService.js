@@ -21,13 +21,22 @@ async function sendMail({ to, subject, text, html }) {
     return getTransporter().sendMail({ from, to, subject, text, html });
 }
 
+// What each code is for — so the email clearly states its purpose and the user
+// doesn't mix up codes from two different flows.
+const PURPOSE_LABEL = {
+    register: 'completing your Tradi registration',
+    reset_password: 'resetting your Tradi password',
+    change_email: 'changing your Tradi account email',
+};
+
 // Reusable: a one-time verification code (register / reset / change email).
-async function sendVerificationCode(to, code) {
+async function sendVerificationCode(to, code, purpose) {
+    const label = PURPOSE_LABEL[purpose] || 'verifying your email';
     return sendMail({
         to,
-        subject: 'Your Tradi verification code',
-        text: `Your verification code is ${code}. It expires in 10 minutes.`,
-        html: `<p>Your verification code is <b style="font-size:18px">${code}</b>.</p><p>It expires in 10 minutes.</p>`,
+        subject: `Tradi code ${code} — for ${label}`,
+        text: `Your verification code for ${label} is ${code}. It expires in 10 minutes.`,
+        html: `<p>Your verification code for <b>${label}</b> is <b style="font-size:18px">${code}</b>.</p><p>It expires in 10 minutes.</p>`,
     });
 }
 

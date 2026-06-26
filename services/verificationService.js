@@ -25,7 +25,7 @@ async function requestCode(email, purpose) {
     const code = sixDigit();
     const expiresAt = new Date(Date.now() + CODE_TTL_MIN * 60_000);
     await emailVerificationModel.insertCode(email, code, purpose, expiresAt);
-    await emailService.sendVerificationCode(email, code);
+    await emailService.sendVerificationCode(email, code, purpose);
     return { sent: true };
 }
 
