@@ -79,6 +79,7 @@ import labRoute from './routes/labRoute.js';
 import reminderRoute from './routes/reminderRoute.js';
 import prescriptionRoute from './routes/prescriptionRoute.js';
 import auditRoute from './routes/auditRoute.js';
+import registrationRoute from './routes/registrationRoute.js';
 const PORT = process.env.PORT || 1000;
 
 
@@ -105,6 +106,7 @@ app.use('/api/labs', labRoute)
 app.use('/api/reminders', reminderRoute)
 app.use('/api/prescriptions', prescriptionRoute)
 app.use('/api/audit', auditRoute)
+app.use('/api/register', registrationRoute)
 
 app.use((req, res) => {
     res.status(404).json({ message: "Route not found", code: "ROUTE_NOT_FOUND", support_code: req.requestId || 'N/A' });

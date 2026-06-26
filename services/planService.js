@@ -1,4 +1,5 @@
 import planModel from '../models/planModel.js';
+import featureModel from '../models/featureModel.js';
 import appError from '../utils/appError.js';
 
 async function create(body) {
@@ -10,6 +11,18 @@ async function create(body) {
 async function getAll() {
     const plans = await planModel.getPlans();
     return plans;
+}
+
+// Public pricing: every plan with its assigned features (for the marketing site
+// and the signup page). No auth — read-only marketing data.
+async function getPublic() {
+    const plans = await planModel.getPlans();
+    return Promise.all(
+        plans.map(async (plan) => ({
+            ...plan,
+            features: await featureModel.getPlanFeatures(plan.id),
+        }))
+    );
 }
 
 async function getById(id) {
@@ -36,4 +49,4 @@ async function _delete(id) {
     return deletedPlan;
 }
 
-export default { create, getAll, getById, update, delete: _delete };
+export default { create, getAll, getPublic, getById, update, delete: _delete };

@@ -11,6 +11,12 @@ const getAll = asyncWrap(async (req, res) => {
     res.status(200).json({ ok: true, data: result });
 })
 
+// Public: plans + their features (no auth).
+const getPublic = asyncWrap(async (req, res) => {
+    const result = await planService.getPublic();
+    res.status(200).json({ ok: true, data: result });
+})
+
 const getById = asyncWrap(async (req, res) => {
     const result = await planService.getById(Number(req.params.planId));
     res.status(200).json({ ok: true, data: result });
@@ -26,4 +32,4 @@ const _delete = asyncWrap(async (req, res) => {
     res.status(200).json({ ok: true });
 })
 
-export default { create, getAll, getById, update, delete: _delete };
+export default { create, getAll, getPublic, getById, update, delete: _delete };
