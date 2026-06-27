@@ -11,7 +11,7 @@ const checkMaxBranches = asyncWrap(async (req, res, next) => {
         SELECT p.max_branches 
         FROM subscriptions s
         JOIN plans p ON s.plan_id = p.id
-        WHERE s.tenant_id = $1
+        WHERE s.tenant_id = $1 
     `;
     const planRes = await pool.query(planQuery, [tenant_id]);
 

@@ -1,3 +1,6 @@
+// Loaded first so Sentry is initialised before any other module runs.
+import './instrument.js';
+
 import errorMiddleware from './middlewares/errorMiddleware.js';
 
 import http from 'http';
