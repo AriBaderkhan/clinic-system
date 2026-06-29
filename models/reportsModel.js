@@ -318,6 +318,203 @@ async function theLeastWorkDoneByBranch(from, to, tenant_id) {
   return rows;
 }
 
+// ----------------------------------------------------------------------
+// INSIGHTS ASSISTANT FUNCTIONS (tenant-wide, grouped by branch)
+// Read-only. Feed the tenant_manager assistant widget via insightsService.js.
+// Every row carries branch_name so the service can show per-branch + totals.
+// ----------------------------------------------------------------------
+
+// The tenant's branches — used to decide single vs multi-branch display and to
+// show every branch (including ones with zero activity in the period).
+async function getTenantBranches(tenant_id) {
+  const query = `SELECT id, name FROM branches WHERE tenant_id = $1 ORDER BY name ASC`;
+  const { rows } = await pool.query(query, [tenant_id]);
+  return rows;
+}
+
+// Returning patients: registered BEFORE the period, but had an appointment IN it.
+async function returningPatientsByBranch(from, to, tenant_id) {
+  const query = `
+    SELECT b.name AS branch_name, COUNT(DISTINCT a.patient_id) AS total
+    FROM appointments a
+    JOIN patients p ON p.id = a.patient_id AND p.tenant_id = a.tenant_id
+    JOIN branches b ON b.id = a.branch_id
+    WHERE a.tenant_id = $3 AND a.scheduled_start >= $1 AND a.scheduled_start < $2
+      AND p.created_at < $1
+    GROUP BY b.name
+    ORDER BY total DESC;`;
+  const { rows } = await pool.query(query, [from, to, tenant_id]);
+  return rows;
+}
+
+// Patients grouped into age buckets. If from/to are null → all-time (overall).
+async function patientsByAgeBucketByBranch(from, to, tenant_id) {
+  const values = [tenant_id];
+  let dateFilter = '';
+  if (from && to) {
+    dateFilter = ` AND p.created_at >= $2 AND p.created_at < $3`;
+    values.push(from, to);
+  }
+  const query = `
+    SELECT
+      b.name AS branch_name,
+      CASE WHEN p.age < 20 THEN '6-19'
+           WHEN p.age < 45 THEN '20-44'
+           ELSE '45+' END AS label,
+      COUNT(*) AS total
+    FROM patients p
+    JOIN branches b ON b.id = p.branch_id
+    WHERE p.tenant_id = $1${dateFilter}
+    GROUP BY b.name, label
+    ORDER BY b.name, label;`;
+  const { rows } = await pool.query(query, values);
+  return rows;
+}
+
+// Why each patient came (referral source), for patients registered in the period.
+async function referralBreakdownByBranch(from, to, tenant_id) {
+  const query = `
+    SELECT
+      b.name AS branch_name,
+      COALESCE(NULLIF(TRIM(p.referral_source), ''), 'Unknown') AS label,
+      COUNT(*) AS total
+    FROM patients p
+    JOIN branches b ON b.id = p.branch_id
+    WHERE p.tenant_id = $3 AND p.created_at >= $1 AND p.created_at < $2
+    GROUP BY b.name, label
+    ORDER BY b.name, total DESC;`;
+  const { rows } = await pool.query(query, [from, to, tenant_id]);
+  return rows;
+}
+
+// Top cancellation reasons (status = cancelled) in the period.
+async function cancellationReasonsByBranch(from, to, tenant_id) {
+  const query = `
+    SELECT
+      b.name AS branch_name,
+      COALESCE(NULLIF(TRIM(a.cancel_reason), ''), 'No reason given') AS label,
+      COUNT(*) AS total
+    FROM appointments a
+    JOIN branches b ON b.id = a.branch_id
+    WHERE a.tenant_id = $3 AND a.scheduled_start >= $1 AND a.scheduled_start < $2
+      AND a.status = 'cancelled'
+    GROUP BY b.name, label
+    ORDER BY b.name, total DESC;`;
+  const { rows } = await pool.query(query, [from, to, tenant_id]);
+  return rows;
+}
+
+// Follow-up patients: distinct patients who had a 'follow_up' work in the period.
+async function followUpPatientsByBranch(from, to, tenant_id) {
+  const query = `
+    SELECT b.name AS branch_name, COUNT(DISTINCT a.patient_id) AS total
+    FROM session_works sw
+    JOIN work_catalog wc ON wc.id = sw.work_id AND wc.tenant_id = sw.tenant_id AND wc.branch_id = sw.branch_id
+    JOIN sessions s ON s.id = sw.session_id AND s.tenant_id = sw.tenant_id AND s.branch_id = sw.branch_id
+    JOIN appointments a ON a.id = s.appointment_id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
+    JOIN branches b ON b.id = s.branch_id
+    WHERE s.tenant_id = $3 AND s.created_at >= $1 AND s.created_at < $2
+      AND wc.code = 'follow_up'
+    GROUP BY b.name
+    ORDER BY total DESC;`;
+  const { rows } = await pool.query(query, [from, to, tenant_id]);
+  return rows;
+}
+
+// Every treatment with its quantity (full ordered list). Most = first, least = last.
+async function treatmentBreakdownByBranch(from, to, tenant_id) {
+  const query = `
+    SELECT
+      b.name AS branch_name,
+      wc.name AS label,
+      SUM(COALESCE(sw.quantity, 1)) AS total
+    FROM session_works sw
+    JOIN work_catalog wc ON wc.id = sw.work_id AND wc.tenant_id = sw.tenant_id AND wc.branch_id = sw.branch_id
+    JOIN sessions s ON s.id = sw.session_id AND s.tenant_id = sw.tenant_id AND s.branch_id = sw.branch_id
+    JOIN branches b ON b.id = s.branch_id
+    WHERE s.tenant_id = $3 AND s.created_at >= $1 AND s.created_at < $2
+    GROUP BY b.name, wc.name
+    ORDER BY b.name, total DESC;`;
+  const { rows } = await pool.query(query, [from, to, tenant_id]);
+  return rows;
+}
+
+// Revenue per doctor (Option B): session payments + treatment-plan payments that
+// trace to a doctor via their session. Plan payments with NO session_id fall into
+// an "Unassigned" row (only appears if such payments exist).
+async function revenuePerDoctorByBranch(from, to, tenant_id) {
+  const query = `
+    WITH pay AS (
+      SELECT sp.branch_id, a.doctor_id, sp.amount
+      FROM session_payments sp
+      JOIN sessions s ON s.id = sp.session_id AND s.tenant_id = sp.tenant_id AND s.branch_id = sp.branch_id
+      JOIN appointments a ON a.id = s.appointment_id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
+      WHERE sp.tenant_id = $3 AND sp.created_at >= $1 AND sp.created_at < $2
+      UNION ALL
+      SELECT tp.branch_id, a.doctor_id, tp.amount
+      FROM treatment_payments tp
+      JOIN sessions s ON s.id = tp.session_id AND s.tenant_id = tp.tenant_id AND s.branch_id = tp.branch_id
+      JOIN appointments a ON a.id = s.appointment_id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
+      WHERE tp.tenant_id = $3 AND tp.created_at >= $1 AND tp.created_at < $2 AND tp.session_id IS NOT NULL
+      UNION ALL
+      SELECT tp.branch_id, NULL AS doctor_id, tp.amount
+      FROM treatment_payments tp
+      WHERE tp.tenant_id = $3 AND tp.created_at >= $1 AND tp.created_at < $2 AND tp.session_id IS NULL
+    )
+    SELECT
+      b.name AS branch_name,
+      COALESCE(pr.full_name, 'Unassigned') AS label,
+      COALESCE(SUM(pay.amount), 0) AS total
+    FROM pay
+    JOIN branches b ON b.id = pay.branch_id
+    LEFT JOIN profiles pr ON pr.user_id = pay.doctor_id
+    GROUP BY b.name, pr.full_name
+    ORDER BY b.name, total DESC;`;
+  const { rows } = await pool.query(query, [from, to, tenant_id]);
+  return rows;
+}
+
+// Revenue per treatment = billed value (SUM of session_works.total_price) per work.
+// (Cash payments are per-session, not per-work, so the billed value is the only
+// honest per-treatment revenue figure.)
+async function revenuePerTreatmentByBranch(from, to, tenant_id) {
+  const query = `
+    SELECT
+      b.name AS branch_name,
+      wc.name AS label,
+      COALESCE(SUM(sw.total_price), 0) AS total
+    FROM session_works sw
+    JOIN work_catalog wc ON wc.id = sw.work_id AND wc.tenant_id = sw.tenant_id AND wc.branch_id = sw.branch_id
+    JOIN sessions s ON s.id = sw.session_id AND s.tenant_id = sw.tenant_id AND s.branch_id = sw.branch_id
+    JOIN branches b ON b.id = s.branch_id
+    WHERE s.tenant_id = $3 AND s.created_at >= $1 AND s.created_at < $2
+    GROUP BY b.name, wc.name
+    ORDER BY b.name, total DESC;`;
+  const { rows } = await pool.query(query, [from, to, tenant_id]);
+  return rows;
+}
+
+// Flat list of appointments in a window, across all branches, with patient,
+// doctor and branch names. Used by the tenant-manager dashboard "today" view.
+async function appointmentsListByBranch(from, to, tenant_id) {
+  const query = `
+    SELECT
+      a.id,
+      p.name        AS patient_name,
+      pr.full_name  AS doctor_name,
+      b.name        AS branch_name,
+      a.scheduled_start,
+      a.status
+    FROM appointments a
+    JOIN patients p  ON p.id = a.patient_id AND p.tenant_id = a.tenant_id
+    JOIN branches b  ON b.id = a.branch_id
+    LEFT JOIN profiles pr ON pr.user_id = a.doctor_id
+    WHERE a.tenant_id = $3 AND a.scheduled_start >= $1 AND a.scheduled_start < $2
+    ORDER BY a.scheduled_start ASC;`;
+  const { rows } = await pool.query(query, [from, to, tenant_id]);
+  return rows;
+}
+
 export default {
   registeredPatient, getAppts, patientsHasAppt, apptForEachDoctor, apptsDoneByStatus,
   sumOfSessionsAmount, sumOfTreatmentPlansAmount, monthlyExpenses, theMostWorkDone,
@@ -332,5 +529,16 @@ export default {
   sumOfTreatmentPlansAmountByBranch,
   monthlyExpensesByBranch,
   theMostWorkDoneByBranch,
-  theLeastWorkDoneByBranch
+  theLeastWorkDoneByBranch,
+  // Insights Assistant Exports
+  getTenantBranches,
+  returningPatientsByBranch,
+  patientsByAgeBucketByBranch,
+  referralBreakdownByBranch,
+  cancellationReasonsByBranch,
+  followUpPatientsByBranch,
+  treatmentBreakdownByBranch,
+  revenuePerDoctorByBranch,
+  revenuePerTreatmentByBranch,
+  appointmentsListByBranch
 }

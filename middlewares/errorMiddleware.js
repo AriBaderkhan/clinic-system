@@ -39,6 +39,7 @@ function errorMiddleware(err, req, res, next) {
         return res.status(err.status).json({
             message: err.message || "Error",
             code: err.code || "Error",
+            meta: err.meta,            // variable values for translated messages (if any)
             support_code: requestId
         })
     }

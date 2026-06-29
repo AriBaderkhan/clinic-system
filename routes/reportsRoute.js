@@ -22,4 +22,10 @@ const gateCustomRange = (req, res, next) => {
 
 router.get('/monthly/pdf', permissionMiddleware('view_reports'), gateCustomRange, reportsValidate.monthly, reportsController.downloadMonthlyPdf)
 
+// Insights assistant (tenant_manager only — role is enforced in the controller).
+// Paid feature: gated to plans that include 'insights_assistant' (Pro).
+// Catalog = the question menu; :metricId = run one question.
+router.get('/insights/catalog', permissionMiddleware('view_reports'), featureMiddleware.checkFeature('insights_assistant'), reportsController.getInsightsCatalog)
+router.get('/insights/:metricId', permissionMiddleware('view_reports'), featureMiddleware.checkFeature('insights_assistant'), reportsValidate.insight, reportsController.getInsight)
+
 export default router

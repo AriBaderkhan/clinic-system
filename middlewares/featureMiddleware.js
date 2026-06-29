@@ -18,7 +18,9 @@ const checkFeature = (featureCode) => {
         const { rows } = await pool.query(query, [tenant_id, featureCode]);
 
         if (rows.length === 0) {
-            throw appError('FEATURE_NOT_INCLUDED', `Your plan does not include: ${featureCode}`, 403);
+            // Pass the feature as meta so the frontend can translate the sentence
+            // and fill in {{feature}} in the chosen language.
+            throw appError('FEATURE_NOT_INCLUDED', `Your plan does not include: ${featureCode}`, 403, { feature: featureCode });
         }
 
         next();

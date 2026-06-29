@@ -184,14 +184,28 @@ async function getLiveContext(user_id, tenant_id, branch_id) {
     }
 
     const assignment = await userBranchRoleModel.findUserByAll(user_id, tenant_id, branch_id);
-    if (!assignment || !assignment.is_active) {
-        return { role: null, permissions: [], is_active: false };
+    if (assignment && assignment.is_active) {
+        const permissionsRow = await permissionsModel.findPermissionsByRole(assignment.role_id);
+        const permissions = permissionsRow.map(row => row.permission_key);
+        return { role: assignment.role_name, permissions, is_active: true };
     }
 
-    const permissionsRow = await permissionsModel.findPermissionsByRole(assignment.role_id);
-    const permissions = permissionsRow.map(row => row.permission_key);
+    // No assignment on THIS branch. A tenant_manager owns every branch in their
+    // tenant (same exemption branchAssigmentMiddleware already grants them), so
+    // fall back to their organization-level tenant_manager role + permissions.
+    // This only elevates real, active tenant_managers of THIS tenant — every
+    // other user still gets locked out of branches they aren't assigned to.
+    const allAssignments = await userBranchRoleModel.findUserById(user_id, tenant_id);
+    const managerRow = (allAssignments || []).find(
+        (r) => String(r.role_name).toLowerCase() === 'tenant_manager' && r.is_active
+    );
+    if (managerRow) {
+        const permissionsRow = await permissionsModel.findPermissionsByRole(managerRow.role_id);
+        const permissions = permissionsRow.map(row => row.permission_key);
+        return { role: managerRow.role_name, permissions, is_active: true };
+    }
 
-    return { role: assignment.role_name, permissions, is_active: true };
+    return { role: null, permissions: [], is_active: false };
 }
 
 // ── Forgot / reset password (public, reuses the generic OTP engine) ──

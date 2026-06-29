@@ -1,11 +1,25 @@
 import pool from '../db_connection.js';
 
 
-async function createPatient(name, phone, age, gender, address, allergies, blood_type, chronic_diseases, created_by, tenant_id, branch_id) {
-  const query = `INSERT INTO patients (name,phone,age,gender,address,allergies,blood_type,chronic_diseases,created_by,tenant_id,branch_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *;`;
-  const values = [name, phone, age, gender, address, allergies, blood_type, chronic_diseases, created_by, tenant_id, branch_id];
+async function createPatient(name, phone, age, gender, address, allergies, blood_type, chronic_diseases, referral_source, created_by, tenant_id, branch_id) {
+  const query = `INSERT INTO patients (name,phone,age,gender,address,allergies,blood_type,chronic_diseases,referral_source,created_by,tenant_id,branch_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *;`;
+  const values = [name, phone, age, gender, address, allergies, blood_type, chronic_diseases, referral_source, created_by, tenant_id, branch_id];
   const { rows } = await pool.query(query, values);
   return rows[0] || null;
+}
+
+// Distinct referral sources already saved by this tenant — used to surface
+// previously-added "Other" values back into the dropdown (no separate table).
+async function getReferralSources(tenant_id) {
+  const query = `
+    SELECT DISTINCT referral_source
+    FROM patients
+    WHERE tenant_id = $1
+      AND referral_source IS NOT NULL
+      AND referral_source <> ''
+    ORDER BY referral_source ASC;`;
+  const { rows } = await pool.query(query, [tenant_id]);
+  return rows.map((r) => r.referral_source);
 }
 
 // async function getAllPatients(q) {
@@ -57,7 +71,7 @@ WHERE p.tenant_id = $1
 async function getPatient(patientId, tenant_id, branch_id) {
   const query = `
   SELECT p.id, p.name, p.phone, p.age, p.gender, p.address,
-         p.allergies, p.blood_type, p.chronic_diseases,
+         p.allergies, p.blood_type, p.chronic_diseases, p.referral_source,
          p.created_by, p.updated_by
 FROM patients p
 WHERE p.id = $1
@@ -269,5 +283,5 @@ async function getAllTreatmentPlansPatient(patientId, tenant_id, branch_id) {
 export default {
   createPatient, getAllPatients, getPatient, updatePatient, deletePatient,
   searchPatientsModel, getAllApptsPatient, getAllSessionsPatient, getAllPaymentsPatient,
-  getAllTreatmentPlansPatient
+  getAllTreatmentPlansPatient, getReferralSources
 }

@@ -14,6 +14,7 @@ router.use(branchAssigmentMiddleware);
 router.post('/', permissionMiddleware('create_patient'), patientValidate.create, patientController.create);
 router.get('/', permissionMiddleware('view_patient'), patientController.getAll);
 router.get('/search', permissionMiddleware('view_patient'), patientController.search);
+router.get('/referral-sources', permissionMiddleware('view_patient'), patientController.getReferralSources);
 router.get('/:patientId', permissionMiddleware('view_patient'), validateIdParam('patientId'), patientController.getById);
 router.put('/:patientId', permissionMiddleware('update_patient'), validateIdParam('patientId'), patientValidate.update, patientController.update);
 router.delete('/:patientId', permissionMiddleware('delete_patient'), validateIdParam('patientId'), patientController.delete);

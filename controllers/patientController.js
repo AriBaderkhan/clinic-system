@@ -2,11 +2,11 @@ import patientService from '../services/patientService.js';
 import asyncWrap from '../utils/asyncWrap.js';
 
 const create = asyncWrap(async (req, res) => {
-    const { name, phone, age, gender, address, allergies, blood_type, chronic_diseases } = req.body;
+    const { name, phone, age, gender, address, allergies, blood_type, chronic_diseases, referral_source } = req.body;
     const created_by = req.user.id;
     const { tenant_id, branch_id } = req.user;
 
-    const patientData = { name, phone, age, gender, address, allergies, blood_type, chronic_diseases, created_by }
+    const patientData = { name, phone, age, gender, address, allergies, blood_type, chronic_diseases, referral_source, created_by }
 
     const result = await patientService.create(patientData, tenant_id, branch_id);
     res.status(201).json({ ok: true, data: result });
@@ -57,6 +57,12 @@ const search = asyncWrap(async (req, res) => {
     res.status(200).json({ ok: true, data: result });
 })
 
+const getReferralSources = asyncWrap(async (req, res) => {
+    const { tenant_id } = req.user;
+    const result = await patientService.getReferralSources(tenant_id);
+    res.status(200).json({ ok: true, data: result });
+})
+
 const getAppointments = asyncWrap(async (req, res) => {
     const patientId = Number(req.params.patientId)
     const { tenant_id, branch_id } = req.user;
@@ -93,5 +99,5 @@ const getTreatmentPlans = asyncWrap(async (req, res) => {
 
 export default {
     create, getAll, getById, update, delete: _delete,
-    search, getAppointments, getSessions, getPayments, getTreatmentPlans
+    search, getReferralSources, getAppointments, getSessions, getPayments, getTreatmentPlans
 }

@@ -3,8 +3,8 @@ import appError from '../utils/appError.js';
 
 async function create(patientData, tenant_id, branch_id) {
 
-    const { name, phone, age, gender, address, allergies, blood_type, chronic_diseases, created_by } = patientData;
-    const patient = await patientModel.createPatient(name, phone, age, gender, address, allergies, blood_type, chronic_diseases, created_by, tenant_id, branch_id);
+    const { name, phone, age, gender, address, allergies, blood_type, chronic_diseases, referral_source, created_by } = patientData;
+    const patient = await patientModel.createPatient(name, phone, age, gender, address, allergies, blood_type, chronic_diseases, referral_source, created_by, tenant_id, branch_id);
 
     if (!patient) throw appError('INSERT_FAILED', 'Failed to create patient', 500);
     return patient;
@@ -55,6 +55,11 @@ async function search(q, tenant_id, branch_id) {
     return await patientModel.searchPatientsModel(q, tenant_id, branch_id);
 }
 
+// distinct referral sources for the dropdown (defaults + previously-added "Other")
+async function getReferralSources(tenant_id) {
+    return await patientModel.getReferralSources(tenant_id);
+}
+
 
 async function getAppointments(patientId, tenant_id, branch_id) {
 
@@ -87,5 +92,5 @@ async function getTreatmentPlans(patientId, tenant_id, branch_id) {
 
 export default {
     create, getAll, getById, update, delete: _delete, search,
-    getAppointments, getSessions, getPayments, getTreatmentPlans
+    getAppointments, getSessions, getPayments, getTreatmentPlans, getReferralSources
 }

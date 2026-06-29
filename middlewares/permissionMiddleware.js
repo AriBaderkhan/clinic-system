@@ -5,7 +5,10 @@ function permissionCheck(...requirePermissions) {
         if (permissions.some(permission => requirePermissions.includes(permission))) {
             next();
         } else {
-            res.status(403).json({ message: "You don't have permission for this route!", userMessage: "Access Denied" });
+            // Include a `code` so the frontend can translate the message into the
+            // user's language (it maps data.code → errors.<code>). Without a code
+            // the client falls back to this English text.
+            res.status(403).json({ code: "FORBIDDEN", message: "You don't have permission for this route!", userMessage: "Access Denied" });
         }
     }
 }

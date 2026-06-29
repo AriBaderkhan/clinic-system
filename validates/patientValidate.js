@@ -16,7 +16,9 @@ const schemaPatientAdd = Joi.object({
     // Tier 3 medical fields (all optional)
     allergies: Joi.string().trim().allow('', null).optional(),
     chronic_diseases: Joi.string().trim().allow('', null).optional(),
-    blood_type: Joi.string().valid('A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-').allow('', null).optional()
+    blood_type: Joi.string().valid('A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-').allow('', null).optional(),
+    // Free-form because reception can add custom values via "Other"; just bound the length.
+    referral_source: Joi.string().trim().max(100).allow('', null).optional()
 })
 
 function create(req, res, next) {
