@@ -166,7 +166,78 @@ async function getSessionByApptIdPerDoc(appointmentId, doc_id, tenant_id, branch
   return rows[0] || null;
 }
 
+// ---------------------------------------------------------------------------
+// DOCTOR'S OWN REPORT (current branch only, scoped to the logged-in doctor)
+// ---------------------------------------------------------------------------
+
+// Doctor name + branch name for the report header.
+async function getReportHeader(doc_id, tenant_id, branch_id) {
+  const query = `
+    SELECT pr.full_name AS doctor_name, b.name AS branch_name
+    FROM branches b
+    LEFT JOIN profiles pr ON pr.user_id = $1
+    WHERE b.id = $3 AND b.tenant_id = $2
+    LIMIT 1;`;
+  const { rows } = await pool.query(query, [doc_id, tenant_id, branch_id]);
+  return rows[0] || null;
+}
+
+// Revenue the doctor generated = session payments + treatment-plan payments on
+// sessions that trace back to an appointment with this doctor, in this branch.
+async function doctorRevenue(from, to, tenant_id, branch_id, doc_id) {
+  const query = `
+    SELECT
+      COALESCE(SUM(CASE WHEN src = 'session' THEN amount END), 0) AS session_total,
+      COALESCE(SUM(CASE WHEN src = 'tp' THEN amount END), 0)      AS tp_total
+    FROM (
+      SELECT 'session' AS src, sp.amount
+      FROM session_payments sp
+      JOIN sessions s     ON s.id = sp.session_id AND s.tenant_id = sp.tenant_id AND s.branch_id = sp.branch_id
+      JOIN appointments a ON a.id = s.appointment_id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
+      WHERE sp.tenant_id = $1 AND sp.branch_id = $2 AND sp.created_at >= $3 AND sp.created_at < $4 AND a.doctor_id = $5
+      UNION ALL
+      SELECT 'tp' AS src, tp.amount
+      FROM treatment_payments tp
+      JOIN sessions s     ON s.id = tp.session_id AND s.tenant_id = tp.tenant_id AND s.branch_id = tp.branch_id
+      JOIN appointments a ON a.id = s.appointment_id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
+      WHERE tp.tenant_id = $1 AND tp.branch_id = $2 AND tp.created_at >= $3 AND tp.created_at < $4
+        AND tp.session_id IS NOT NULL AND a.doctor_id = $5
+    ) x;`;
+  const { rows } = await pool.query(query, [tenant_id, branch_id, from, to, doc_id]);
+  return rows[0] || { session_total: 0, tp_total: 0 };
+}
+
+// The doctor's appointments in the period, grouped by status (so the service can
+// separate completed from still-scheduled/upcoming ones).
+async function doctorApptCountsByStatus(from, to, tenant_id, branch_id, doc_id) {
+  const query = `
+    SELECT a.status, COUNT(*) AS total
+    FROM appointments a
+    WHERE a.tenant_id = $1 AND a.branch_id = $2
+      AND a.scheduled_start >= $3 AND a.scheduled_start < $4
+      AND a.doctor_id = $5
+    GROUP BY a.status;`;
+  const { rows } = await pool.query(query, [tenant_id, branch_id, from, to, doc_id]);
+  return rows;
+}
+
+// Works/treatments the doctor performed in the period (name + total quantity).
+async function doctorWorksBreakdown(from, to, tenant_id, branch_id, doc_id) {
+  const query = `
+    SELECT wc.name AS label, wc.code AS code, SUM(COALESCE(sw.quantity, 1)) AS qty
+    FROM session_works sw
+    JOIN work_catalog wc ON wc.id = sw.work_id AND wc.tenant_id = sw.tenant_id AND wc.branch_id = sw.branch_id
+    JOIN sessions s      ON s.id = sw.session_id AND s.tenant_id = sw.tenant_id AND s.branch_id = sw.branch_id
+    JOIN appointments a  ON a.id = s.appointment_id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
+    WHERE s.tenant_id = $1 AND s.branch_id = $2 AND s.created_at >= $3 AND s.created_at < $4 AND a.doctor_id = $5
+    GROUP BY wc.name, wc.code
+    ORDER BY qty DESC;`;
+  const { rows } = await pool.query(query, [tenant_id, branch_id, from, to, doc_id]);
+  return rows;
+}
+
 export default {
   addDoc, getDoctorById, getAllDocs, activeTodayAppt, getDoc,
-  findApptsPerDoctorWithFilters, getSessionByApptIdPerDoc
+  findApptsPerDoctorWithFilters, getSessionByApptIdPerDoc,
+  getReportHeader, doctorRevenue, doctorApptCountsByStatus, doctorWorksBreakdown
 }

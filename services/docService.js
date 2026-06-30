@@ -1,6 +1,7 @@
 import docModel from '../models/docModel.js';
 import dateRange from '../utils/dateRange.js';
 import settingModel from '../models/settingModel.js';
+import resolveReportDateRange from '../utils/reportsDateRange.js';
 import appError from '../utils/appError.js';
 
 async function getAll(tenant_id, branch_id) {
@@ -67,4 +68,47 @@ async function getSession(appointmentId, doc_id, tenant_id, branch_id) {
     return sessionForAppt;
 }
 
-export default { getAll, getActiveToday, getAppointments, getSession }
+// The logged-in doctor's own report for a period (current branch only). Uses the
+// same date-range resolver as the general branch report so month/custom behave
+// identically.
+function statusTotal(rows, status) {
+    return (rows || [])
+        .filter((r) => (status ? r.status === status : true))
+        .reduce((acc, r) => acc + Number(r.total || 0), 0);
+}
+
+async function getMyReport({ month, from, to }, doc_id, tenant_id, branch_id) {
+    const period = await resolveReportDateRange({ month, from, to });
+
+    const [header, rev, statusRows, works] = await Promise.all([
+        docModel.getReportHeader(doc_id, tenant_id, branch_id),
+        docModel.doctorRevenue(period.from, period.to, tenant_id, branch_id, doc_id),
+        docModel.doctorApptCountsByStatus(period.from, period.to, tenant_id, branch_id, doc_id),
+        docModel.doctorWorksBreakdown(period.from, period.to, tenant_id, branch_id, doc_id),
+    ]);
+
+    const sessions = Number(rev.session_total || 0);
+    const treatment_plans = Number(rev.tp_total || 0);
+    const worksList = (works || []).map((w) => ({
+        name: w.label,
+        code: w.code,
+        quantity: Number(w.qty || 0),
+    }));
+
+    return {
+        period,
+        doctor_name: header?.doctor_name || null,
+        branch_name: header?.branch_name || null,
+        revenue: { sessions, treatment_plans, total: sessions + treatment_plans },
+        appointments: {
+            completed: statusTotal(statusRows, 'completed'),
+            scheduled: statusTotal(statusRows, 'scheduled'),
+            total: statusTotal(statusRows, null),
+            by_status: statusRows,
+        },
+        works_count: worksList.reduce((acc, w) => acc + w.quantity, 0),
+        works: worksList,
+    };
+}
+
+export default { getAll, getActiveToday, getAppointments, getSession, getMyReport }
