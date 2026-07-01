@@ -22,6 +22,9 @@ router.put('/template', canSend, feedbackValidate.updateTemplate, feedbackContro
 
 router.get('/appointments', canSend, feedbackController.getAppointments);
 
+// The ids the branch's static feedback QR encodes (for the settings page).
+router.get('/qr-link', canSend, feedbackController.getQrLink);
+
 router.post('/invite', canSend, feedbackValidate.invite, feedbackController.createInvite);
 router.post('/dismiss', canSend, feedbackValidate.dismiss, feedbackController.dismiss);
 

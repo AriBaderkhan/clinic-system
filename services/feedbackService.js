@@ -141,6 +141,36 @@ async function submitPublicForm(token, payload) {
   return saved;
 }
 
+// ── QR (walk-in, anonymous — static per-branch form) ─────────────────────────
+async function getQrForm(tenant_id, branch_id) {
+  const b = await feedbackModel.getBranchInfo(tenant_id, branch_id);
+  if (!b) throw appError('FEEDBACK_LINK_INVALID', 'This feedback link is not valid', 404);
+  return {
+    clinic_names: { ku: b.clinic_name_ku, ar: b.clinic_name_ar, en: b.clinic_name_en },
+    branch_name: b.branch_name,
+  };
+}
+
+async function submitQrFeedback(tenant_id, branch_id, payload) {
+  const b = await feedbackModel.getBranchInfo(tenant_id, branch_id);
+  if (!b) throw appError('FEEDBACK_LINK_INVALID', 'This feedback link is not valid', 404);
+
+  // Overall = average of the 4 rated categories (same as the token form).
+  const four = [payload.doctor_rating, payload.staff_rating, payload.cleanliness_rating, payload.cost_rating];
+  const overall_rating = Math.round(four.reduce((a, b) => a + b, 0) / four.length);
+
+  return feedbackModel.insertQrFeedback({
+    tenant_id, branch_id,
+    form_language: payload.form_language,
+    overall_rating,
+    note: payload.note || null,
+    doctor_rating: payload.doctor_rating,           doctor_comment: payload.doctor_comment || null,
+    staff_rating: payload.staff_rating,             staff_comment: payload.staff_comment || null,
+    cleanliness_rating: payload.cleanliness_rating, cleanliness_comment: payload.cleanliness_comment || null,
+    cost_rating: payload.cost_rating,               cost_comment: payload.cost_comment || null,
+  });
+}
+
 // ── Results (tenant_manager) — one payload with everything, so the page can
 //    switch branches client-side (like the tenant dashboard). ─────────────────
 async function getTenantResults(tenant_id) {
@@ -157,5 +187,6 @@ export default {
   getPatientsNeedingFeedback,
   createInvite, dismiss,
   getPublicForm, submitPublicForm,
+  getQrForm, submitQrFeedback,
   getTenantResults,
 };

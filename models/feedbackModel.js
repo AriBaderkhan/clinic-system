@@ -132,6 +132,56 @@ async function getByToken(token, client = pool) {
   return rows[0] || null;
 }
 
+// ── QR (walk-in, anonymous) ──────────────────────────────────────────────────
+// Branch + localized clinic names for a static QR (keyed by tenant + branch,
+// no patient). Returns null if the branch doesn't exist for that tenant.
+async function getBranchInfo(tenant_id, branch_id, client = pool) {
+  const query = `
+    SELECT
+      COALESCE(t.name_ku, t.name) AS clinic_name_ku,
+      COALESCE(t.name_ar, t.name) AS clinic_name_ar,
+      COALESCE(t.name_en, t.name) AS clinic_name_en,
+      b.name AS branch_name
+    FROM branches b
+    JOIN tenants t ON t.id = b.tenant_id
+    WHERE b.tenant_id = $1 AND b.id = $2
+    LIMIT 1`;
+  const { rows } = await client.query(query, [tenant_id, branch_id]);
+  return rows[0] || null;
+}
+
+// Insert a completed anonymous QR feedback (no patient, no token).
+async function insertQrFeedback(r, client = pool) {
+  const query = `
+    INSERT INTO feedbacks
+      (tenant_id, branch_id, patient_id, source, status, submitted_at, form_language, anonymous,
+       overall_rating,
+       doctor_rating, doctor_comment,
+       staff_rating, staff_comment,
+       cleanliness_rating, cleanliness_comment,
+       cost_rating, cost_comment,
+       note)
+    VALUES ($1, $2, NULL, 'qr', 'qr', NOW(), $3, TRUE,
+       $4,
+       $5, $6,
+       $7, $8,
+       $9, $10,
+       $11, $12,
+       $13)
+    RETURNING id`;
+  const values = [
+    r.tenant_id, r.branch_id, r.form_language,
+    r.overall_rating,
+    r.doctor_rating, r.doctor_comment,
+    r.staff_rating, r.staff_comment,
+    r.cleanliness_rating, r.cleanliness_comment,
+    r.cost_rating, r.cost_comment,
+    r.note,
+  ];
+  const { rows } = await client.query(query, values);
+  return rows[0];
+}
+
 async function submitByToken(token, r, client = pool) {
   const query = `
     UPDATE feedbacks SET
@@ -167,7 +217,7 @@ async function getTenantResponses(tenant_id, client = pool) {
     SELECT
       f.id, f.branch_id, b.name AS branch_name,
       f.submitted_at, f.form_language, f.anonymous,
-      CASE WHEN f.anonymous THEN NULL ELSE p.name END AS patient_name,
+      CASE WHEN f.anonymous OR p.name IS NULL THEN NULL ELSE p.name END AS patient_name,
       f.overall_rating,
       f.doctor_rating,      f.doctor_comment,
       f.staff_rating,       f.staff_comment,
@@ -175,7 +225,7 @@ async function getTenantResponses(tenant_id, client = pool) {
       f.cost_rating,        f.cost_comment,
       f.note
     FROM feedbacks f
-    JOIN patients p ON f.patient_id = p.id
+    LEFT JOIN patients p ON f.patient_id = p.id
     JOIN branches b ON f.branch_id  = b.id
     WHERE f.tenant_id = $1 AND f.submitted_at IS NOT NULL
     ORDER BY f.submitted_at DESC;`;
@@ -226,5 +276,6 @@ export default {
   getPatientsNeedingFeedback, existsForPatient,
   insertInvite, insertDismissal,
   getByToken, submitByToken,
+  getBranchInfo, insertQrFeedback,
   getTenantResponses, getOverallSummary, getBranchSummaries,
 };

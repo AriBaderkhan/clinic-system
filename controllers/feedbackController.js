@@ -51,6 +51,12 @@ const getResults = asyncWrap(async (req, res) => {
   res.status(200).json({ ok: true, data });
 });
 
+// GET /api/feedbacks/qr-link — the ids the branch's static QR encodes.
+const getQrLink = asyncWrap(async (req, res) => {
+  const { tenant_id, branch_id } = req.user;
+  res.status(200).json({ ok: true, data: { tenant_id, branch_id } });
+});
+
 // ── Public (no auth) ─────────────────────────────────────────────────────────
 const getPublicForm = asyncWrap(async (req, res) => {
   const data = await feedbackService.getPublicForm(req.params.token);
@@ -62,9 +68,21 @@ const submitPublicForm = asyncWrap(async (req, res) => {
   res.status(201).json({ ok: true });
 });
 
+// Public QR form (walk-in, anonymous) — keyed by tenant + branch, no patient.
+const getQrForm = asyncWrap(async (req, res) => {
+  const data = await feedbackService.getQrForm(Number(req.params.tenantId), Number(req.params.branchId));
+  res.status(200).json({ ok: true, data });
+});
+
+const submitQrForm = asyncWrap(async (req, res) => {
+  await feedbackService.submitQrFeedback(Number(req.params.tenantId), Number(req.params.branchId), req.body);
+  res.status(201).json({ ok: true });
+});
+
 export default {
   getTemplate, updateTemplate,
   getAppointments, createInvite, dismiss,
-  getResults,
+  getResults, getQrLink,
   getPublicForm, submitPublicForm,
+  getQrForm, submitQrForm,
 };
