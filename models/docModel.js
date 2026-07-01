@@ -173,9 +173,10 @@ async function getSessionByApptIdPerDoc(appointmentId, doc_id, tenant_id, branch
 // Doctor name + branch name for the report header.
 async function getReportHeader(doc_id, tenant_id, branch_id) {
   const query = `
-    SELECT pr.full_name AS doctor_name, b.name AS branch_name
+    SELECT pr.full_name AS doctor_name, b.name AS branch_name, t.name AS clinic_name
     FROM branches b
     LEFT JOIN profiles pr ON pr.user_id = $1
+    JOIN tenants t ON t.id = b.tenant_id
     WHERE b.id = $3 AND b.tenant_id = $2
     LIMIT 1;`;
   const { rows } = await pool.query(query, [doc_id, tenant_id, branch_id]);
@@ -184,27 +185,30 @@ async function getReportHeader(doc_id, tenant_id, branch_id) {
 
 // Revenue the doctor generated = session payments + treatment-plan payments on
 // sessions that trace back to an appointment with this doctor, in this branch.
+// Grouped PER CURRENCY (currency_code is frozen per payment; never sum across).
 async function doctorRevenue(from, to, tenant_id, branch_id, doc_id) {
   const query = `
     SELECT
+      currency_code,
       COALESCE(SUM(CASE WHEN src = 'session' THEN amount END), 0) AS session_total,
       COALESCE(SUM(CASE WHEN src = 'tp' THEN amount END), 0)      AS tp_total
     FROM (
-      SELECT 'session' AS src, sp.amount
+      SELECT 'session' AS src, sp.amount, sp.currency_code
       FROM session_payments sp
       JOIN sessions s     ON s.id = sp.session_id AND s.tenant_id = sp.tenant_id AND s.branch_id = sp.branch_id
       JOIN appointments a ON a.id = s.appointment_id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
       WHERE sp.tenant_id = $1 AND sp.branch_id = $2 AND sp.created_at >= $3 AND sp.created_at < $4 AND a.doctor_id = $5
       UNION ALL
-      SELECT 'tp' AS src, tp.amount
+      SELECT 'tp' AS src, tp.amount, tp.currency_code
       FROM treatment_payments tp
       JOIN sessions s     ON s.id = tp.session_id AND s.tenant_id = tp.tenant_id AND s.branch_id = tp.branch_id
       JOIN appointments a ON a.id = s.appointment_id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
       WHERE tp.tenant_id = $1 AND tp.branch_id = $2 AND tp.created_at >= $3 AND tp.created_at < $4
         AND tp.session_id IS NOT NULL AND a.doctor_id = $5
-    ) x;`;
+    ) x
+    GROUP BY currency_code;`;
   const { rows } = await pool.query(query, [tenant_id, branch_id, from, to, doc_id]);
-  return rows[0] || { session_total: 0, tp_total: 0 };
+  return rows; // [{ currency_code, session_total, tp_total }]
 }
 
 // The doctor's appointments in the period, grouped by status (so the service can

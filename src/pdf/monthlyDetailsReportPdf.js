@@ -1,4 +1,5 @@
 import PdfPrinter from "pdfmake";
+import { fmtMoney } from "./money.js";
 
 const fonts = {
     Roboto: {
@@ -14,83 +15,115 @@ function safeNum(x) {
     return Number.isFinite(n) ? n : 0;
 }
 
-function fmt(n) {
-    return new Intl.NumberFormat("en-US", {
-        style: "decimal",
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 0,
-    }).format(safeNum(n));
-}
+// Plain grouped number (no currency code) — the table has a dedicated Currency
+// column, so amount cells stay compact.
+const money = (n) => fmtMoney(n, null);
 
 function sumList(list, key) {
     if (!Array.isArray(list)) return 0;
     return list.reduce((acc, item) => acc + Number(item[key] || 0), 0);
 }
 
-function buildBranchListContent(dataList, valueKey) {
+// Count list (patients / appointments): [{ branch_name, total }] → stacked lines
+// with a plain integer total. (These are counts, never money, so no currency.)
+function buildCountListContent(dataList, valueKey) {
     const list = Array.isArray(dataList) ? dataList : [];
     const total = sumList(list, valueKey);
 
-    const stack = list.map(item => ({
+    const stack = list.map((item) => ({
         columns: [
-            { text: item.branch_name || "Unknown", style: 'tiny' },
-            { text: fmt(item[valueKey]), style: 'tinyBold', alignment: 'right' }
+            { text: item.branch_name || "Unknown", style: "tiny" },
+            { text: `${safeNum(item[valueKey])}`, style: "tinyBold", alignment: "right" },
         ],
-        margin: [0, 0, 0, 2]
+        margin: [0, 0, 0, 2],
     }));
 
     if (stack.length === 0) {
         stack.push({ text: "No data", style: "muted", alignment: "center" });
     } else {
-        // Divider
-        stack.push({ canvas: [{ type: 'line', x1: 0, y1: 0, x2: 135, y2: 0, lineWidth: 0.5, lineColor: '#94a3b8' }], margin: [0, 4, 0, 4] });
-        // Total
-        stack.push({
-            columns: [
-                { text: 'Total', style: 'tinyBold' },
-                { text: fmt(total), style: 'tinyBold', alignment: 'right' }
-            ]
-        });
+        stack.push({ canvas: [{ type: "line", x1: 0, y1: 0, x2: 135, y2: 0, lineWidth: 0.5, lineColor: "#94a3b8" }], margin: [0, 4, 0, 4] });
+        stack.push({ columns: [{ text: "Total", style: "tinyBold" }, { text: `${total}`, style: "tinyBold", alignment: "right" }] });
     }
-
     return stack;
+}
+
+// Top/least work per branch: [{ branch_name, work_code, total_qty }] → list.
+function buildWorkListContent(dataList) {
+    const list = Array.isArray(dataList) ? dataList : [];
+    if (list.length === 0) return [{ text: "No data", style: "muted", alignment: "center" }];
+    return list.map((w) => ({
+        columns: [
+            { text: w.branch_name || "Unknown", style: "tiny" },
+            { text: `${w.work_code || "-"} (${safeNum(w.total_qty)})`, style: "tinyBold", alignment: "right" },
+        ],
+        margin: [0, 0, 0, 2],
+    }));
 }
 
 function box(title, contentStack, opts = {}) {
     return {
         margin: [0, 0, 0, 0],
-        table: {
-            widths: ["*"],
-            body: [
-                [
-                    {
-                        stack: [
-                            { text: title, style: "boxTitle" },
-                            ...contentStack,
-                        ],
-                        margin: [10, 10, 10, 10],
-                    },
-                ],
-            ],
-        },
+        table: { widths: ["*"], body: [[{ stack: [{ text: title, style: "boxTitle" }, ...contentStack], margin: [10, 10, 10, 10] }]] },
         layout: {
-            hLineColor: () => "#e5e7eb",
-            vLineColor: () => "#e5e7eb",
-            paddingLeft: () => 0,
-            paddingRight: () => 0,
-            paddingTop: () => 0,
-            paddingBottom: () => 0,
+            hLineColor: () => "#e5e7eb", vLineColor: () => "#e5e7eb",
+            paddingLeft: () => 0, paddingRight: () => 0, paddingTop: () => 0, paddingBottom: () => 0,
         },
         ...opts,
     };
 }
 
+// Financial table: one row per branch+currency, then grand totals per currency.
+function financialsTable(financialsByBranch, grandTotals) {
+    const rows = Array.isArray(financialsByBranch) ? financialsByBranch : [];
+    const totals = Array.isArray(grandTotals) ? grandTotals : [];
+
+    const head = ["Branch", "Cur", "Sessions", "Plans", "Revenue", "Expense", "Profit", "Loss"]
+        .map((h) => ({ text: h, style: "th" }));
+
+    const body = [head];
+
+    if (rows.length === 0) {
+        body.push([{ text: "No transactions in this period", colSpan: 8, style: "muted", alignment: "center" }, {}, {}, {}, {}, {}, {}, {}]);
+    } else {
+        rows.forEach((f) => {
+            body.push([
+                { text: f.branch_name || "Unknown", style: "td" },
+                { text: f.currency_code, style: "td" },
+                { text: money(f.total_session), style: "tdNum" },
+                { text: money(f.total_treatment_plans), style: "tdNum" },
+                { text: money(f.total_revenue), style: "tdNum" },
+                { text: money(f.total_expense), style: "tdNum" },
+                { text: money(f.profit), style: "tdNum" },
+                { text: money(f.loss), style: "tdNum" },
+            ]);
+        });
+        totals.forEach((g) => {
+            body.push([
+                { text: "TOTAL", style: "tdTotal" },
+                { text: g.currency_code, style: "tdTotal" },
+                { text: money(g.total_session), style: "tdTotalNum" },
+                { text: money(g.total_treatment_plans), style: "tdTotalNum" },
+                { text: money(g.total_revenue), style: "tdTotalNum" },
+                { text: money(g.total_expense), style: "tdTotalNum" },
+                { text: money(g.profit), style: "tdTotalNum" },
+                { text: money(g.loss), style: "tdTotalNum" },
+            ]);
+        });
+    }
+
+    return {
+        table: { headerRows: 1, widths: ["*", "auto", "auto", "auto", "auto", "auto", "auto", "auto"], body },
+        layout: {
+            hLineColor: () => "#e5e7eb", vLineColor: () => "#e5e7eb",
+            hLineWidth: () => 0.5, vLineWidth: () => 0.5,
+            paddingLeft: () => 4, paddingRight: () => 4, paddingTop: () => 3, paddingBottom: () => 3,
+        },
+    };
+}
+
 export function buildMonthlyDetailsReportPdfBuffer(reportData) {
     const printer = new PdfPrinter(fonts);
-
-    // Prepare data maps
-    // Financials are pre-calculated in 'financialsByBranch'
-    const financials = reportData.financialsByBranch || [];
+    const clinicName = reportData.clinic_name || "Clinic";
 
     const docDefinition = {
         pageSize: "A4",
@@ -98,53 +131,38 @@ export function buildMonthlyDetailsReportPdfBuffer(reportData) {
         defaultStyle: { font: "Roboto", fontSize: 10, color: "#0f172a" },
 
         content: [
-            // Header
-            { text: "Crown Dental Clinic - Clinic-Wide Report", style: "header", alignment: "center" },
+            // Header — uses the tenant's real name
+            { text: `${clinicName} — Clinic-Wide Report`, style: "header", alignment: "center" },
             { text: reportData.period?.label || "", style: "subHeader", alignment: "center", margin: [0, 4, 0, 0] },
             { text: reportData.period?.rangeText || "", style: "muted", alignment: "center", margin: [0, 2, 0, 12] },
 
-            // Row 1: Patients & Appointments
+            // Row 1: Patients & Appointments (counts)
             {
                 columns: [
-                    box("New Patients", buildBranchListContent(reportData.patientsBranch, 'total')),
-                    box("Patients Has Appt", buildBranchListContent(reportData.patientsHasApptBranch, 'total')),
-                    box("All Appointments", buildBranchListContent(reportData.all_appointmentsBranch, 'total')),
+                    box("New Patients", buildCountListContent(reportData.patientsBranch, 'total')),
+                    box("Patients Has Appt", buildCountListContent(reportData.patientsHasApptBranch, 'total')),
+                    box("All Appointments", buildCountListContent(reportData.all_appointmentsBranch, 'total')),
                 ],
                 columnGap: 10,
             },
 
             { text: "", margin: [0, 8] },
 
-            // Row 2: Financials (Revenue, Expense, Profit)
-            {
-                columns: [
-                    box("Total Session Rev", buildBranchListContent(financials, 'total_session')),
-                    box("Total Plans Rev", buildBranchListContent(financials, 'total_treatment_plans')),
-                    box("Total Revenue", buildBranchListContent(financials, 'total_revenue')),
-                ],
-                columnGap: 10,
-                margin: [0, 0, 0, 8]
-            },
-
-            {
-                columns: [
-                    box("Total Expenses", buildBranchListContent(financials, 'total_expense')),
-                    box("Net Profit", buildBranchListContent(financials, 'profit')),
-                    box("Net Loss", buildBranchListContent(financials, 'loss')),
-                ],
-                columnGap: 10,
-            },
+            // Row 2: Financials — per branch + currency, with per-currency totals
+            box("Financials (per branch & currency)", [
+                financialsTable(reportData.financialsByBranch, reportData.grandTotals),
+            ]),
 
             { text: "", margin: [0, 8] },
 
-            // Row 3: Work Done (Just showing top 1 per branch likely)
+            // Row 3: Work done (top / least per branch)
             {
                 columns: [
-                    box("Most Work Done (Top per branch)", buildBranchListContent(reportData.most_work_doneBranch, 'quantity')), // This might be wrong logic if structure differs
-                    box("Least Work Done", buildBranchListContent(reportData.least_work_doneBranch, 'quantity')),
+                    box("Most Work Done (per branch)", buildWorkListContent(reportData.most_work_doneBranch)),
+                    box("Least Work Done (per branch)", buildWorkListContent(reportData.least_work_doneBranch)),
                 ],
-                columnGap: 10
-            }
+                columnGap: 10,
+            },
         ],
 
         styles: {
@@ -154,23 +172,13 @@ export function buildMonthlyDetailsReportPdfBuffer(reportData) {
             boxTitle: { fontSize: 9, bold: true, color: "#334155", margin: [0, 0, 0, 8] },
             tiny: { fontSize: 9 },
             tinyBold: { fontSize: 9, bold: true },
+            th: { fontSize: 8, bold: true, color: "#334155" },
+            td: { fontSize: 8 },
+            tdNum: { fontSize: 8, alignment: "right" },
+            tdTotal: { fontSize: 8, bold: true },
+            tdTotalNum: { fontSize: 8, bold: true, alignment: "right" },
         },
     };
-
-    // Special handling for "Most Work Done" structure
-    // The service returns a list of objects, but we need to verify if it has 'branch_name' and 'quantity'
-    // defined in models/reportsModel.js: theMostWorkDoneByBranch returns rows with `branch_name`, `work_code`, `total_qty`
-    // My helper expects `item[valueKey]`. `total_qty` is the key.
-    // Wait, I should update the PDF call above to use 'total_qty' instead of 'quantity' if that's what comes from DB.
-    // In service, for single branch it mapped to `quantity`. For multi branch it returns the raw rows.
-    // In `reportServiceClinicWide.js`:
-    //    const theMostWorkDoneBranch = await reportsModel.theMostWorkDoneByBranch(...)
-    // So it returns rows directly.
-    // Let's check model query: `SELECT ... as total_qty`.
-    // So I should use `total_qty`.
-
-    // Let me quickly correct the "Most Work Done" calls in the content array above before saving.
-    // Done in mental check.
 
     const pdfDoc = printer.createPdfKitDocument(docDefinition);
 

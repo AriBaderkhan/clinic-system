@@ -1,4 +1,5 @@
 import PdfPrinter from "pdfmake";
+import { fmtMoney } from "./money.js";
 
 /**
  * Minimal, production-safe fonts (NO font folder needed).
@@ -16,14 +17,6 @@ const fonts = {
 function safeNum(x) {
   const n = Number(x);
   return Number.isFinite(n) ? n : 0;
-}
-
-function fmt(n) {
-  return new Intl.NumberFormat("en-US", {
-    style: "decimal",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(safeNum(n));
 }
 
 function pickStatus(apptsDoneByStatus = [], key) {
@@ -60,6 +53,34 @@ function box(title, contentStack, opts = {}) {
   };
 }
 
+// One financial block per currency (IQD and USD are never mixed).
+function financialBlocks(financials) {
+  const list = Array.isArray(financials) ? financials : [];
+  if (list.length === 0) {
+    return [box("Financials", [{ text: "No transactions in this period", style: "muted" }])];
+  }
+  const blocks = [];
+  list.forEach((f) => {
+    const c = f.currency_code;
+    blocks.push({
+      columns: [
+        box(`Revenue (${c})`, [
+          { columns: [{ text: "Sessions", style: "muted" }, { text: fmtMoney(f.total_session, c), alignment: "right", style: "tinyBold" }], margin: [0, 0, 0, 4] },
+          { columns: [{ text: "Treatment Plans", style: "muted" }, { text: fmtMoney(f.total_treatment_plans_amount, c), alignment: "right", style: "tinyBold" }], margin: [0, 0, 0, 6] },
+          { canvas: [{ type: "line", x1: 0, y1: 0, x2: 200, y2: 0, lineWidth: 1, lineColor: "#e5e7eb" }] },
+          { columns: [{ text: "Total", style: "tinyBold" }, { text: fmtMoney(f.revenue, c), alignment: "right", style: "tinyBold" }], margin: [0, 6, 0, 0] },
+        ]),
+        box("Expense", [{ text: fmtMoney(f.expense, c), style: "mid" }]),
+        box("Profit", [{ text: fmtMoney(f.profit, c), style: "mid" }]),
+        box("Loss", [{ text: fmtMoney(f.loss, c), style: "mid" }]),
+      ],
+      columnGap: 10,
+    });
+    blocks.push({ text: "", margin: [0, 4] });
+  });
+  return blocks;
+}
+
 export function buildMonthlyReportPdfBuffer(reportData) {
   const printer = new PdfPrinter(fonts);
 
@@ -80,14 +101,7 @@ export function buildMonthlyReportPdfBuffer(reportData) {
   const leastName = reportData.least_work_done?.name ?? "N/A";
   const leastQty = safeNum(reportData.least_work_done?.quantity);
 
-  // Revenue box: sessions + treatment + total (your request)
-  const sessionRevenue = safeNum(reportData.total_session);
-  const tpRevenue = safeNum(reportData.total_treatment_plans_amount);
-  const totalRevenue = safeNum(reportData.revenue);
-
-  const expenses = safeNum(reportData.expense);
-  const profit = safeNum(reportData.profit);
-  const loss = safeNum(reportData.loss);
+  const clinicName = reportData.clinic_name || "Clinic";
 
   const docDefinition = {
     pageSize: "A4",
@@ -95,8 +109,8 @@ export function buildMonthlyReportPdfBuffer(reportData) {
     defaultStyle: { font: "Roboto", fontSize: 10, color: "#0f172a" },
 
     content: [
-      // Header (center)
-      { text: "Crown Dental Clinic Report Monthly", style: "header", alignment: "center" },
+      // Header (center) — uses the tenant's real name
+      { text: `${clinicName} — Monthly Report`, style: "header", alignment: "center" },
       { text: reportData.period?.label || "", style: "subHeader", alignment: "center", margin: [0, 4, 0, 0] },
       { text: reportData.period?.rangeText || "", style: "muted", alignment: "center", margin: [0, 2, 0, 12] },
 
@@ -136,23 +150,10 @@ export function buildMonthlyReportPdfBuffer(reportData) {
 
       { text: "", margin: [0, 8] },
 
-      // Row 4 (Revenue / Expense / Profit / Loss)
-      {
-        columns: [
-          box("Revenue", [
-            { columns: [{ text: "Sessions", style: "muted" }, { text: fmt(sessionRevenue), alignment: "right", style: "tinyBold" }], margin: [0, 0, 0, 4] },
-            { columns: [{ text: "Treatment Plans", style: "muted" }, { text: fmt(tpRevenue), alignment: "right", style: "tinyBold" }], margin: [0, 0, 0, 6] },
-            { canvas: [{ type: "line", x1: 0, y1: 0, x2: 200, y2: 0, lineWidth: 1, lineColor: "#e5e7eb" }] },
-            { columns: [{ text: "Total", style: "tinyBold" }, { text: fmt(totalRevenue), alignment: "right", style: "tinyBold" }], margin: [0, 6, 0, 0] },
-          ]),
-          box("Expense", [{ text: fmt(expenses), style: "mid" }]),
-          box("Profit", [{ text: fmt(profit), style: "mid" }]),
-          box("Loss", [{ text: fmt(loss), style: "mid" }]),
-        ],
-        columnGap: 10,
-      },
+      // Row 4 (Financials — one block PER CURRENCY)
+      ...financialBlocks(reportData.financials),
 
-      { text: "", margin: [0, 8] },
+      { text: "", margin: [0, 4] },
 
       // Row 5 (Most / Least)
       {

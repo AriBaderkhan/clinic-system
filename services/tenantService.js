@@ -125,6 +125,23 @@ function branchValue(rows, branchName, key = 'total') {
     return Number((rows || []).find((r) => r.branch_name === branchName)?.[key] || 0);
 }
 
+// Revenue as a per-currency list (never mixed). Sums session + plan payment rows
+// ([{branch_name, currency_code, total}]); pass a branchName to scope, or null
+// for the whole tenant. Returns [{ currency_code, total }].
+function revenueByCurrency(sessionRows, planRows, branchName = null) {
+    const map = new Map();
+    const add = (rows) => (rows || []).forEach((r) => {
+        if (branchName && r.branch_name !== branchName) return;
+        const c = r.currency_code || 'IQD';
+        map.set(c, (map.get(c) || 0) + Number(r.total || 0));
+    });
+    add(sessionRows);
+    add(planRows);
+    return [...map.entries()]
+        .map(([currency_code, total]) => ({ currency_code, total }))
+        .sort((a, b) => a.currency_code.localeCompare(b.currency_code));
+}
+
 // Appointment status tally for one branch (status=null → grand total).
 function branchStatus(rows, branchName, status = null) {
     return (rows || [])
@@ -144,8 +161,8 @@ async function getDashboard(tenant_id) {
         reportsModel.returningPatientsByBranch(todayStart, todayEnd, tenant_id),
         reportsModel.apptsDoneByStatusByBranch(todayStart, todayEnd, tenant_id),
         reportsModel.appointmentsListByBranch(todayStart, todayEnd, tenant_id),
-        reportsModel.sumOfSessionsAmountByBranch(monthStart, now, tenant_id),
-        reportsModel.sumOfTreatmentPlansAmountByBranch(monthStart, now, tenant_id),
+        reportsModel.sessionsRevByBranchCurrency(monthStart, now, tenant_id),
+        reportsModel.plansRevByBranchCurrency(monthStart, now, tenant_id),
         reportsModel.treatmentBreakdownByBranch(monthStart, now, tenant_id),
     ]);
 
@@ -161,7 +178,7 @@ async function getDashboard(tenant_id) {
             done: branchStatus(statusRows, b.name, 'completed'),
             scheduled: branchStatus(statusRows, b.name, 'scheduled'),
         },
-        revenue: branchValue(sessionRev, b.name, 'total_paid') + branchValue(planRev, b.name, 'total_paid'),
+        revenue: revenueByCurrency(sessionRev, planRev, b.name),
         treatments: aggregateTreatments(treatmentRows, b.name),
     }));
 
@@ -176,7 +193,7 @@ async function getDashboard(tenant_id) {
             scheduled: countStatus(statusRows, 'scheduled'),
             list: apptList,
         },
-        month_revenue: sumTotals(sessionRev, 'total_paid') + sumTotals(planRev, 'total_paid'),
+        month_revenue: revenueByCurrency(sessionRev, planRev, null),
         treatments_month: aggregateTreatments(treatmentRows),
     };
 }

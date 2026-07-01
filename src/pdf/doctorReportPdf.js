@@ -1,4 +1,5 @@
 import PdfPrinter from "pdfmake";
+import { fmtMoney } from "./money.js";
 
 // Same built-in-font setup as the general monthly report so the look matches.
 const fonts = {
@@ -13,14 +14,6 @@ const fonts = {
 function safeNum(x) {
   const n = Number(x);
   return Number.isFinite(n) ? n : 0;
-}
-
-function fmt(n) {
-  return new Intl.NumberFormat("en-US", {
-    style: "decimal",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(safeNum(n));
 }
 
 function box(title, contentStack, opts = {}) {
@@ -52,9 +45,19 @@ function box(title, contentStack, opts = {}) {
 export function buildDoctorReportPdfBuffer(reportData) {
   const printer = new PdfPrinter(fonts);
 
-  const sessions = safeNum(reportData.revenue?.sessions);
-  const tp = safeNum(reportData.revenue?.treatment_plans);
-  const totalRevenue = safeNum(reportData.revenue?.total);
+  // Revenue is a list, one entry per currency (never mixed).
+  const revList = Array.isArray(reportData.revenue) ? reportData.revenue : [];
+  const revenueContent = revList.length
+    ? revList.flatMap((r) => {
+        const c = r.currency_code;
+        return [
+          { columns: [{ text: `Sessions (${c})`, style: "muted" }, { text: fmtMoney(r.sessions, c), alignment: "right", style: "tinyBold" }], margin: [0, 0, 0, 4] },
+          { columns: [{ text: `Treatment Plans (${c})`, style: "muted" }, { text: fmtMoney(r.treatment_plans, c), alignment: "right", style: "tinyBold" }], margin: [0, 0, 0, 6] },
+          { canvas: [{ type: "line", x1: 0, y1: 0, x2: 200, y2: 0, lineWidth: 1, lineColor: "#e5e7eb" }] },
+          { columns: [{ text: `Total (${c})`, style: "tinyBold" }, { text: fmtMoney(r.total, c), alignment: "right", style: "tinyBold" }], margin: [0, 6, 0, 10] },
+        ];
+      })
+    : [{ text: "No revenue in this period", style: "muted" }];
 
   const completed = safeNum(reportData.appointments?.completed);
   const scheduled = safeNum(reportData.appointments?.scheduled);
@@ -77,8 +80,8 @@ export function buildDoctorReportPdfBuffer(reportData) {
     defaultStyle: { font: "Roboto", fontSize: 10, color: "#0f172a" },
 
     content: [
-      // Header (center)
-      { text: "Crown Dental Clinic Doctor Report", style: "header", alignment: "center" },
+      // Header (center) — uses the tenant's real name
+      { text: `${reportData.clinic_name || "Clinic"} — Doctor Report`, style: "header", alignment: "center" },
       {
         text: [
           reportData.doctor_name ? `Dr. ${reportData.doctor_name}` : "",
@@ -108,12 +111,7 @@ export function buildDoctorReportPdfBuffer(reportData) {
       // Row 2: Revenue + Works done
       {
         columns: [
-          box("Revenue", [
-            { columns: [{ text: "Sessions", style: "muted" }, { text: fmt(sessions), alignment: "right", style: "tinyBold" }], margin: [0, 0, 0, 4] },
-            { columns: [{ text: "Treatment Plans", style: "muted" }, { text: fmt(tp), alignment: "right", style: "tinyBold" }], margin: [0, 0, 0, 6] },
-            { canvas: [{ type: "line", x1: 0, y1: 0, x2: 200, y2: 0, lineWidth: 1, lineColor: "#e5e7eb" }] },
-            { columns: [{ text: "Total", style: "tinyBold" }, { text: fmt(totalRevenue), alignment: "right", style: "tinyBold" }], margin: [0, 6, 0, 0] },
-          ]),
+          box("Revenue", revenueContent),
           box("Works Done", [{ text: `${safeNum(reportData.works_count)}`, style: "big" }]),
         ],
         columnGap: 10,

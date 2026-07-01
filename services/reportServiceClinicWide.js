@@ -1,18 +1,13 @@
 import reportsModel from '../models/reportsModel.js'
 import resolveReportDateRange from '../utils/reportsDateRange.js'
 
-// Helper to sum up from a list of branches
-function sumList(list, key) {
-    if (!Array.isArray(list)) return 0;
-    return list.reduce((acc, item) => acc + Number(item[key] || 0), 0);
-}
-
 async function serviceDetailsReportPdf({ month, from, to }, tenant_id) {
 
     //Phase 1
     const period = await resolveReportDateRange({ month, from, to })
     const queryFrom = period.from;
     const queryTo = period.to;
+    const clinic_name = await reportsModel.getTenantName(tenant_id)
 
     //Phase 2
     const registeredpatientsBranch = await reportsModel.registeredPatientByBranch(queryFrom, queryTo, tenant_id)
@@ -21,82 +16,68 @@ async function serviceDetailsReportPdf({ month, from, to }, tenant_id) {
     const apptForEachDoctorBranch = await reportsModel.apptForEachDoctorByBranch(queryFrom, queryTo, tenant_id)
     const apptsDoneByStatusBranch = await reportsModel.apptsDoneByStatusByBranch(queryFrom, queryTo, tenant_id)
 
-    //Phase 3
-    const sessions = await reportsModel.sumOfSessionsAmountByBranch(queryFrom, queryTo, tenant_id)
-    const plans = await reportsModel.sumOfTreatmentPlansAmountByBranch(queryFrom, queryTo, tenant_id)
-    const expenses = await reportsModel.monthlyExpensesByBranch(queryFrom, queryTo, tenant_id)
+    //Phase 3 — money per branch AND per currency (never mixed)
+    const sessions = await reportsModel.sessionsRevByBranchCurrency(queryFrom, queryTo, tenant_id)
+    const plans = await reportsModel.plansRevByBranchCurrency(queryFrom, queryTo, tenant_id)
+    const expenses = await reportsModel.expensesByBranchCurrency(queryFrom, queryTo, tenant_id)
 
-    // Merge lists to calculate totals PER BRANCH (like your audio requested)
-    // We collect all unique branch names first
-    const branchNames = new Set([
-        ...sessions.map(i => i.branch_name),
-        ...plans.map(i => i.branch_name),
-        ...expenses.map(i => i.branch_name)
-    ]);
+    // Bucket by branch + currency.
+    const map = new Map();
+    const ensure = (branch, cur) => {
+        const c = cur || 'IQD';
+        const key = `${branch}|${c}`;
+        if (!map.has(key)) map.set(key, { branch_name: branch, currency_code: c, total_session: 0, total_treatment_plans: 0, total_expense: 0 });
+        return map.get(key);
+    };
+    sessions.forEach((r) => { ensure(r.branch_name, r.currency_code).total_session += Number(r.total || 0); });
+    plans.forEach((r) => { ensure(r.branch_name, r.currency_code).total_treatment_plans += Number(r.total || 0); });
+    expenses.forEach((r) => { ensure(r.branch_name, r.currency_code).total_expense += Number(r.total || 0); });
 
-    // Loop through each branch and calculate specific totals
-    const financialsByBranch = Array.from(branchNames).map(branchName => {
-        const s = Number(sessions.find(i => i.branch_name === branchName)?.total_paid || 0);
-        const p = Number(plans.find(i => i.branch_name === branchName)?.total_paid || 0);
-        const e = Number(expenses.find(i => i.branch_name === branchName)?.total_expenses || 0);
+    const financialsByBranch = [...map.values()]
+        .map((f) => {
+            const total_revenue = f.total_session + f.total_treatment_plans;
+            const profit = total_revenue > f.total_expense ? total_revenue - f.total_expense : 0;
+            const loss = total_revenue < f.total_expense ? f.total_expense - total_revenue : 0;
+            return { ...f, total_revenue, profit, loss };
+        })
+        .sort((a, b) => a.branch_name.localeCompare(b.branch_name) || a.currency_code.localeCompare(b.currency_code));
 
-        const total_revenue = s + p;
-
-        // Calculate profit/loss per branch
-        let profit = 0;
-        let loss = 0;
-        if (total_revenue > e) {
-            profit = total_revenue - e;
-        } else {
-            loss = e - total_revenue;
+    // Grand totals PER CURRENCY (across all branches).
+    const gmap = new Map();
+    financialsByBranch.forEach((f) => {
+        if (!gmap.has(f.currency_code)) {
+            gmap.set(f.currency_code, { currency_code: f.currency_code, total_session: 0, total_treatment_plans: 0, total_revenue: 0, total_expense: 0, profit: 0, loss: 0 });
         }
-
-        return {
-            branch_name: branchName,
-            total_session: s,
-            total_treatment_plans: p,
-            total_revenue,
-            total_expense: e,
-            profit,
-            loss
-        };
+        const g = gmap.get(f.currency_code);
+        g.total_session += f.total_session;
+        g.total_treatment_plans += f.total_treatment_plans;
+        g.total_revenue += f.total_revenue;
+        g.total_expense += f.total_expense;
+        g.profit += f.profit;
+        g.loss += f.loss;
     });
+    const grandTotals = [...gmap.values()].sort((a, b) => a.currency_code.localeCompare(b.currency_code));
 
-    // Also calculate Grand Totals for the whole report
-    const total_revenue = sumList(financialsByBranch, 'total_revenue');
-    const total_expense = sumList(financialsByBranch, 'total_expense');
-    const total_profit = sumList(financialsByBranch, 'profit');
-    const total_loss = sumList(financialsByBranch, 'loss');
-
-    //Phase 4
+    //Phase 4 — top/bottom work per branch (arrays of {branch_name, work_code, total_qty})
     const theMostWorkDoneBranch = await reportsModel.theMostWorkDoneByBranch(queryFrom, queryTo, tenant_id)
     const theLeastWorkDoneBranch = await reportsModel.theLeastWorkDoneByBranch(queryFrom, queryTo, tenant_id)
 
     return {
         period,
+        clinic_name,
         patientsBranch: registeredpatientsBranch,
         all_appointmentsBranch: allApptsBranch,
         patientsHasApptBranch: patientsHasApptBranch,
         apptForEachDoctorBranch: apptForEachDoctorBranch,
         apptsDoneByStatusBranch: apptsDoneByStatusBranch,
 
-        // Financials
-        financialsByBranch, // List of { branch_name, total_session, total_revenue, profit ... }
+        // Financials: one row per branch+currency, plus grand totals per currency.
+        financialsByBranch,
+        grandTotals,
 
-        // Grand Totals
-        revenue: total_revenue,
-        expense: total_expense,
-        profit: total_profit,
-        loss: total_loss,
-
-        most_work_doneBranch: {
-            name: theMostWorkDoneBranch?.work_code || '-',
-            quantity: theMostWorkDoneBranch?.total_qty || 0
-        },
-        least_work_doneBranch: {
-            name: theLeastWorkDoneBranch?.work_code || '-',
-            quantity: theLeastWorkDoneBranch?.total_qty || 0
-        }
+        // Raw per-branch work rows (rendered as a list in the PDF).
+        most_work_doneBranch: theMostWorkDoneBranch,
+        least_work_doneBranch: theLeastWorkDoneBranch,
     };
 }
 

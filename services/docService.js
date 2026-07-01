@@ -87,8 +87,15 @@ async function getMyReport({ month, from, to }, doc_id, tenant_id, branch_id) {
         docModel.doctorWorksBreakdown(period.from, period.to, tenant_id, branch_id, doc_id),
     ]);
 
-    const sessions = Number(rev.session_total || 0);
-    const treatment_plans = Number(rev.tp_total || 0);
+    // Revenue per currency (never mixed): [{ currency_code, sessions, treatment_plans, total }]
+    const revenue = (rev || [])
+        .map((r) => {
+            const sessions = Number(r.session_total || 0);
+            const treatment_plans = Number(r.tp_total || 0);
+            return { currency_code: r.currency_code || 'IQD', sessions, treatment_plans, total: sessions + treatment_plans };
+        })
+        .sort((a, b) => a.currency_code.localeCompare(b.currency_code));
+
     const worksList = (works || []).map((w) => ({
         name: w.label,
         code: w.code,
@@ -97,9 +104,10 @@ async function getMyReport({ month, from, to }, doc_id, tenant_id, branch_id) {
 
     return {
         period,
+        clinic_name: header?.clinic_name || null,
         doctor_name: header?.doctor_name || null,
         branch_name: header?.branch_name || null,
-        revenue: { sessions, treatment_plans, total: sessions + treatment_plans },
+        revenue,
         appointments: {
             completed: statusTotal(statusRows, 'completed'),
             scheduled: statusTotal(statusRows, 'scheduled'),

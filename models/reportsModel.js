@@ -1,5 +1,98 @@
 import pool from '../db_connection.js'
 
+// ─────────────────────────────────────────────────────────────────────────────
+// CURRENCY-AWARE MONEY QUERIES
+// Every transaction row is stamped with the currency it was created in
+// (currency_code, frozen at creation). Money of different currencies must NEVER
+// be summed together, so these group by currency_code and return one row PER
+// currency. Callers present each currency separately.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// The clinic (tenant) name — for the report title (per-tenant, not hard-coded).
+async function getTenantName(tenant_id) {
+  const { rows } = await pool.query('SELECT name FROM tenants WHERE id = $1', [tenant_id]);
+  return rows[0]?.name || '';
+}
+
+// Single branch — session-payment revenue per currency.
+async function sessionsRevByCurrency(from, to, tenant_id, branch_id) {
+  const query = `
+    SELECT currency_code, COALESCE(SUM(amount), 0) AS total
+    FROM session_payments
+    WHERE created_at >= $1 AND created_at < $2 AND tenant_id = $3 AND branch_id = $4
+    GROUP BY currency_code`;
+  const { rows } = await pool.query(query, [from, to, tenant_id, branch_id]);
+  return rows;
+}
+
+// Single branch — treatment-plan-payment revenue per currency.
+async function plansRevByCurrency(from, to, tenant_id, branch_id) {
+  const query = `
+    SELECT currency_code, COALESCE(SUM(amount), 0) AS total
+    FROM treatment_payments
+    WHERE created_at >= $1 AND created_at < $2 AND tenant_id = $3 AND branch_id = $4
+    GROUP BY currency_code`;
+  const { rows } = await pool.query(query, [from, to, tenant_id, branch_id]);
+  return rows;
+}
+
+// Single branch — expenses per currency.
+// Attributed by expense_date (WHEN it happened), not created_at (when it was
+// typed in). expense_date is a calendar DATE → interpret it as clinic-local
+// midnight so it lines up with the revenue window (and today's expenses still
+// count in the current-month report). Falls back to created_at if a row has no
+// expense_date, so no expense is ever dropped.
+async function expensesByCurrency(from, to, tenant_id, branch_id) {
+  const query = `
+    SELECT currency_code, COALESCE(SUM(amount), 0) AS total
+    FROM monthly_expenses
+    WHERE (COALESCE(expense_date, created_at::date)::timestamp AT TIME ZONE 'Asia/Baghdad') >= $1
+      AND (COALESCE(expense_date, created_at::date)::timestamp AT TIME ZONE 'Asia/Baghdad') < $2
+      AND tenant_id = $3 AND branch_id = $4
+    GROUP BY currency_code`;
+  const { rows } = await pool.query(query, [from, to, tenant_id, branch_id]);
+  return rows;
+}
+
+// Clinic-wide — session revenue per branch per currency.
+async function sessionsRevByBranchCurrency(from, to, tenant_id) {
+  const query = `
+    SELECT b.name AS branch_name, sp.currency_code, COALESCE(SUM(sp.amount), 0) AS total
+    FROM session_payments sp
+    JOIN branches b ON b.id = sp.branch_id
+    WHERE sp.created_at >= $1 AND sp.created_at < $2 AND sp.tenant_id = $3
+    GROUP BY b.name, sp.currency_code`;
+  const { rows } = await pool.query(query, [from, to, tenant_id]);
+  return rows;
+}
+
+// Clinic-wide — treatment-plan revenue per branch per currency.
+async function plansRevByBranchCurrency(from, to, tenant_id) {
+  const query = `
+    SELECT b.name AS branch_name, tp.currency_code, COALESCE(SUM(tp.amount), 0) AS total
+    FROM treatment_payments tp
+    JOIN branches b ON b.id = tp.branch_id
+    WHERE tp.created_at >= $1 AND tp.created_at < $2 AND tp.tenant_id = $3
+    GROUP BY b.name, tp.currency_code`;
+  const { rows } = await pool.query(query, [from, to, tenant_id]);
+  return rows;
+}
+
+// Clinic-wide — expenses per branch per currency. Attributed by expense_date
+// (see expensesByCurrency), falling back to created_at when unset.
+async function expensesByBranchCurrency(from, to, tenant_id) {
+  const query = `
+    SELECT b.name AS branch_name, me.currency_code, COALESCE(SUM(me.amount), 0) AS total
+    FROM monthly_expenses me
+    JOIN branches b ON b.id = me.branch_id
+    WHERE (COALESCE(me.expense_date, me.created_at::date)::timestamp AT TIME ZONE 'Asia/Baghdad') >= $1
+      AND (COALESCE(me.expense_date, me.created_at::date)::timestamp AT TIME ZONE 'Asia/Baghdad') < $2
+      AND me.tenant_id = $3
+    GROUP BY b.name, me.currency_code`;
+  const { rows } = await pool.query(query, [from, to, tenant_id]);
+  return rows;
+}
+
 
 async function registeredPatient(from, to, tenant_id, branch_id) {
   const query = `SELECT * FROM patients WHERE created_at >= $1 AND created_at < $2 AND tenant_id = $3 AND branch_id = $4`
@@ -516,6 +609,11 @@ async function appointmentsListByBranch(from, to, tenant_id) {
 }
 
 export default {
+  // Currency-aware money (per currency) + tenant name
+  getTenantName,
+  sessionsRevByCurrency, plansRevByCurrency, expensesByCurrency,
+  sessionsRevByBranchCurrency, plansRevByBranchCurrency, expensesByBranchCurrency,
+
   registeredPatient, getAppts, patientsHasAppt, apptForEachDoctor, apptsDoneByStatus,
   sumOfSessionsAmount, sumOfTreatmentPlansAmount, monthlyExpenses, theMostWorkDone,
   theLeastWorkDone,
