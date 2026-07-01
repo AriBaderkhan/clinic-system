@@ -80,6 +80,8 @@ import adminPlatformRoute from './routes/adminPlatformRoute.js';
 import worksRoute from './routes/worksRoute.js';
 import labRoute from './routes/labRoute.js';
 import reminderRoute from './routes/reminderRoute.js';
+import feedbackRoute from './routes/feedbackRoute.js';
+import publicFeedbackRoute from './routes/publicFeedbackRoute.js';
 import prescriptionRoute from './routes/prescriptionRoute.js';
 import auditRoute from './routes/auditRoute.js';
 import registrationRoute from './routes/registrationRoute.js';
@@ -109,6 +111,8 @@ app.use('/api/admin-platform', adminPlatformRoute)
 app.use('/api/works', worksRoute)
 app.use('/api/labs', labRoute)
 app.use('/api/reminders', reminderRoute)
+app.use('/api/feedbacks', feedbackRoute)
+app.use('/api/public/feedback', publicFeedbackRoute)
 app.use('/api/prescriptions', prescriptionRoute)
 app.use('/api/audit', auditRoute)
 app.use('/api/register', registrationRoute)

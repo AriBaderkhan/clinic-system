@@ -53,11 +53,13 @@ async function existsForAppointment(tenant_id, branch_id, appointment_id, client
 }
 
 // The branch's editable standard template (one row per branch).
+// reminder_templates now holds both 'reminder' and 'feedback' rows, so scope to
+// the reminder one explicitly.
 async function getTemplate(tenant_id, branch_id, client = pool) {
   const query = `
     SELECT kur_msg, arb_msg, eng_msg
     FROM reminder_templates
-    WHERE tenant_id = $1 AND branch_id = $2`;
+    WHERE tenant_id = $1 AND branch_id = $2 AND type = 'reminder'`;
   const { rows } = await client.query(query, [tenant_id, branch_id]);
   return rows[0] || null;
 }
@@ -65,9 +67,9 @@ async function getTemplate(tenant_id, branch_id, client = pool) {
 // Save edits to the branch template (create the row if it doesn't exist yet).
 async function upsertTemplate(tenant_id, branch_id, body, updated_by, client = pool) {
   const query = `
-    INSERT INTO reminder_templates (tenant_id, branch_id, kur_msg, arb_msg, eng_msg, updated_by)
-    VALUES ($1, $2, $3, $4, $5, $6)
-    ON CONFLICT (tenant_id, branch_id)
+    INSERT INTO reminder_templates (tenant_id, branch_id, type, kur_msg, arb_msg, eng_msg, updated_by)
+    VALUES ($1, $2, 'reminder', $3, $4, $5, $6)
+    ON CONFLICT (tenant_id, branch_id, type)
     DO UPDATE SET
       kur_msg = EXCLUDED.kur_msg,
       arb_msg = EXCLUDED.arb_msg,
