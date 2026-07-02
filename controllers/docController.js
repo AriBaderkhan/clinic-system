@@ -16,6 +16,14 @@ const getActiveToday = asyncWrap(async (req, res) => {
     res.status(200).json({ ok: true, data: result });
 })
 
+const getOpenAppts = asyncWrap(async (req, res) => {
+    const doc_id = req.user.id;
+    const { tenant_id, branch_id } = req.user;
+
+    const result = await docService.getOpenAppts(doc_id, tenant_id, branch_id);
+    res.status(200).json({ ok: true, data: result });
+})
+
 const getAppointments = asyncWrap(async (req, res) => {
     const { day, type, q } = req.query;
     const doc_id = req.user.id
@@ -61,4 +69,4 @@ const downloadMyReportPdf = asyncWrap(async (req, res) => {
     res.status(200).send(pdfBuffer);
 });
 
-export default { getAll, getActiveToday, getAppointments, getSession, getMyReport, downloadMyReportPdf }
+export default { getAll, getActiveToday, getOpenAppts, getAppointments, getSession, getMyReport, downloadMyReportPdf }

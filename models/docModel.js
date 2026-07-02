@@ -77,6 +77,40 @@ async function activeTodayAppt({ from, to, doc_id}, tenant_id, branch_id ) {
   return rows;
 }
 
+// All of this doctor's UNFINISHED (in_progress) appointments, ANY date — so a
+// visit started but never closed on a past day is never lost. Same fields as
+// activeTodayAppt so the same complete modal works. Oldest first.
+async function openApptsPerDoctor(doc_id, tenant_id, branch_id) {
+  const query = `
+    SELECT
+      a.id,
+      a.patient_id,
+      a.doctor_id,
+      a.status,
+      a.appointment_type,
+      a.complaint,
+      a.scheduled_start,
+      p.name  AS patient_name,
+      p.phone AS patient_phone,
+      p.allergies        AS patient_allergies,
+      p.blood_type       AS patient_blood_type,
+      p.chronic_diseases AS patient_chronic_diseases,
+      pr.full_name AS doctor_name
+    FROM appointments a
+    JOIN patients p ON p.id = a.patient_id AND a.tenant_id = p.tenant_id
+    JOIN doctors   d  ON a.doctor_id = d.id AND a.tenant_id = d.tenant_id AND a.branch_id = d.branch_id
+    JOIN profiles  pr ON d.id = pr.user_id
+    WHERE a.status = 'in_progress'
+      AND a.doctor_id = $1
+      AND a.tenant_id = $2
+      AND a.branch_id = $3
+    ORDER BY a.scheduled_start ASC
+  `;
+  const values = [doc_id, tenant_id, branch_id];
+  const { rows } = await pool.query(query, values);
+  return rows;
+}
+
 async function findApptsPerDoctorWithFilters({ from, to, type, search, doc_id }, tenant_id, branch_id) {
   const baseQuery = `
     SELECT
@@ -241,7 +275,7 @@ async function doctorWorksBreakdown(from, to, tenant_id, branch_id, doc_id) {
 }
 
 export default {
-  addDoc, getDoctorById, getAllDocs, activeTodayAppt, getDoc,
+  addDoc, getDoctorById, getAllDocs, activeTodayAppt, openApptsPerDoctor, getDoc,
   findApptsPerDoctorWithFilters, getSessionByApptIdPerDoc,
   getReportHeader, doctorRevenue, doctorApptCountsByStatus, doctorWorksBreakdown
 }

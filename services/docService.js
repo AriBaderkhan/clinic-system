@@ -27,6 +27,14 @@ async function getActiveToday(doc_id, tenant_id, branch_id) {
     return appointments;
 }
 
+// All of the doctor's unfinished (in_progress) appointments, any date. Powers the
+// dashboard "unfinished visits" button so a visit started on a past day and never
+// closed is never lost.
+async function getOpenAppts(doc_id, tenant_id, branch_id) {
+    const appointments = await docModel.openApptsPerDoctor(doc_id, tenant_id, branch_id);
+    return appointments;
+}
+
 const VALID_DAY_FILTERS = ['today', 'yesterday', 'last_week', 'last_month'];
 const VALID_TYPE_FILTERS = ['normal', 'urgent', 'walk_in'];
 
@@ -119,4 +127,4 @@ async function getMyReport({ month, from, to }, doc_id, tenant_id, branch_id) {
     };
 }
 
-export default { getAll, getActiveToday, getAppointments, getSession, getMyReport }
+export default { getAll, getActiveToday, getOpenAppts, getAppointments, getSession, getMyReport }

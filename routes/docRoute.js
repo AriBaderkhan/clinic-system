@@ -24,6 +24,7 @@ const gateCustomRange = (req, res, next) => {
 router.get('/', permissionMiddleware('view_doctor'), docController.getAll)
 router.get("/appointments/per-doctor", permissionMiddleware('view_appointment'), docController.getAppointments);
 router.get("/active/appointments/today", permissionMiddleware('view_appointment'), docController.getActiveToday);
+router.get("/active/appointments/open", permissionMiddleware('view_appointment'), docController.getOpenAppts);
 
 // The doctor's own report (current branch) — on-screen JSON + downloadable PDF.
 router.get('/report', permissionMiddleware('view_session'), gateCustomRange, reportsValidate.monthly, docController.getMyReport);
