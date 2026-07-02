@@ -95,28 +95,28 @@ async function expensesByBranchCurrency(from, to, tenant_id) {
 
 
 async function registeredPatient(from, to, tenant_id, branch_id) {
-  const query = `SELECT * FROM patients WHERE created_at >= $1 AND created_at < $2 AND tenant_id = $3 AND branch_id = $4`
+  const query = `SELECT COUNT(*)::int AS total FROM patients WHERE created_at >= $1 AND created_at < $2 AND tenant_id = $3 AND branch_id = $4`
   const values = [from, to, tenant_id, branch_id]
   const { rows } = await pool.query(query, values);
-  return rows.length;
+  return rows[0].total;
 
 }
 
 
 async function getAppts(from, to, tenant_id, branch_id) {
-  const query = `SELECT * FROM appointments WHERE scheduled_start >= $1 AND scheduled_start < $2 AND tenant_id = $3 AND branch_id = $4`
+  const query = `SELECT COUNT(*)::int AS total FROM appointments WHERE scheduled_start >= $1 AND scheduled_start < $2 AND tenant_id = $3 AND branch_id = $4`
   const values = [from, to, tenant_id, branch_id]
   const { rows } = await pool.query(query, values);
-  return rows.length;
+  return rows[0].total;
 
 }
 
 
 async function patientsHasAppt(from, to, tenant_id, branch_id) {
-  const query = `SELECT DISTINCT patient_id FROM appointments WHERE scheduled_start >= $1 AND scheduled_start < $2 AND tenant_id = $3 AND branch_id = $4`
+  const query = `SELECT COUNT(DISTINCT patient_id)::int AS total FROM appointments WHERE scheduled_start >= $1 AND scheduled_start < $2 AND tenant_id = $3 AND branch_id = $4`
   const values = [from, to, tenant_id, branch_id]
   const { rows } = await pool.query(query, values);
-  return rows.length;
+  return rows[0].total;
 
 }
 
@@ -149,85 +149,38 @@ async function apptsDoneByStatus(from, to, tenant_id, branch_id) {
   return rows;
 }
 
-async function sumOfSessionsAmount(from, to, tenant_id, branch_id) {
+// NOTE: the old currency-blind single-branch money helpers (sumOfSessionsAmount,
+// sumOfTreatmentPlansAmount, monthlyExpenses) were removed — they were unused.
+// Reports use the per-currency functions above (sessionsRevByCurrency /
+// plansRevByCurrency / expensesByCurrency), which never mix currencies.
+
+// Single-branch: the most (DESC) or least (ASC) performed work in the period.
+// `direction` is an internal literal ('DESC' | 'ASC'), never user input.
+async function workByQtySingle(from, to, tenant_id, branch_id, direction) {
   const query = `
-    SELECT COALESCE(SUM(amount), 0) AS total_paid
-    FROM session_payments
-    WHERE created_at >= $1 AND created_at < $2 AND tenant_id = $3 AND branch_id = $4
+    SELECT
+        sw.work_id,
+        wc.code AS work_code,
+        SUM(COALESCE(sw.quantity, 1)) AS total_qty
+    FROM session_works sw
+    JOIN work_catalog wc ON wc.id = sw.work_id AND wc.tenant_id = sw.tenant_id AND wc.branch_id = sw.branch_id
+    JOIN sessions s ON s.id = sw.session_id AND s.tenant_id = sw.tenant_id AND s.branch_id = sw.branch_id
+    WHERE s.created_at >= $1 AND s.created_at < $2 AND s.tenant_id = $3 AND s.branch_id = $4
+    GROUP BY sw.work_id, wc.code
+    ORDER BY total_qty ${direction}
+    LIMIT 1;
   `;
-  const values = [from, to, tenant_id, branch_id]
-  const { rows: sumRows } = await pool.query(query, values);
-  const totalPaid = Number(sumRows[0].total_paid);
-  return totalPaid
-
-}
-
-async function sumOfTreatmentPlansAmount(from, to, tenant_id, branch_id) {
-  const query = `
-    SELECT COALESCE(SUM(amount), 0) AS total_paid
-    FROM treatment_payments
-    WHERE created_at >= $1 AND created_at < $2 AND tenant_id = $3 AND branch_id = $4
-  `;
-  const values = [from, to, tenant_id, branch_id]
-  const { rows: sumRows } = await pool.query(query, values);
-  const totalPaid = Number(sumRows[0].total_paid);
-  return totalPaid
-
-}
-
-async function monthlyExpenses(from, to, tenant_id, branch_id) {
-  const query = `
-    SELECT 
-      COALESCE(SUM(amount),0) AS total_expenses
-    FROM monthly_expenses
-    WHERE (created_at >= $1 AND created_at < $2) AND tenant_id = $3 AND branch_id = $4;
-  `;
-  const value = [from, to, tenant_id, branch_id]
-  const { rows: sumRows } = await pool.query(query, value);
-  const total_monthly_expense = Number(sumRows[0]?.total_expenses || 0);
-  return total_monthly_expense
-
+  const values = [from, to, tenant_id, branch_id];
+  const { rows } = await pool.query(query, values);
+  return rows[0];
 }
 
 async function theMostWorkDone(from, to, tenant_id, branch_id) {
-  const query = `
-    SELECT
-        sw.work_id,
-        wc.code AS work_code,
-        SUM(COALESCE(sw.quantity, 1)) AS total_qty
-    FROM session_works sw
-    JOIN work_catalog wc ON wc.id = sw.work_id AND wc.tenant_id = sw.tenant_id AND wc.branch_id = sw.branch_id
-    JOIN sessions s ON s.id = sw.session_id AND s.tenant_id = sw.tenant_id AND s.branch_id = sw.branch_id
-    WHERE s.created_at >= $1 AND s.created_at < $2 AND s.tenant_id = $3 AND s.branch_id = $4
-    GROUP BY sw.work_id, wc.code
-    ORDER BY total_qty DESC
-    LIMIT 1;
-  `;
-  const values = [from, to, tenant_id, branch_id];
-  const { rows } = await pool.query(query, values);
-  const the_most_work_done = rows[0];
-  return the_most_work_done;
+  return workByQtySingle(from, to, tenant_id, branch_id, 'DESC');
 }
 
 async function theLeastWorkDone(from, to, tenant_id, branch_id) {
-  const query = `
-    SELECT
-        sw.work_id,
-        wc.code AS work_code,
-        SUM(COALESCE(sw.quantity, 1)) AS total_qty
-    FROM session_works sw
-    JOIN work_catalog wc ON wc.id = sw.work_id AND wc.tenant_id = sw.tenant_id AND wc.branch_id = sw.branch_id
-    JOIN sessions s ON s.id = sw.session_id AND s.tenant_id = sw.tenant_id AND s.branch_id = sw.branch_id
-    WHERE s.created_at >= $1 AND s.created_at < $2 AND s.tenant_id = $3 AND s.branch_id = $4
-    GROUP BY sw.work_id, wc.code
-    ORDER BY total_qty ASC
-    LIMIT 1;
-  `;
-  const values = [from, to, tenant_id, branch_id];
-  const { rows } = await pool.query(query, values);
-  const the_least_work_done = rows[0];
-  return the_least_work_done
-
+  return workByQtySingle(from, to, tenant_id, branch_id, 'ASC');
 }
 
 
@@ -321,7 +274,7 @@ async function apptsDoneByStatusByBranch(from, to, tenant_id) {
 
 async function sumOfSessionsAmountByBranch(from, to, tenant_id) {
   const query = `
-    SELECT 
+    SELECT
       b.name AS branch_name,
       COALESCE(SUM(sp.amount), 0) AS total_paid
     FROM session_payments sp
@@ -336,7 +289,7 @@ async function sumOfSessionsAmountByBranch(from, to, tenant_id) {
 
 async function sumOfTreatmentPlansAmountByBranch(from, to, tenant_id) {
   const query = `
-    SELECT 
+    SELECT
       b.name AS branch_name,
       COALESCE(SUM(tp.amount), 0) AS total_paid
     FROM treatment_payments tp
@@ -349,15 +302,24 @@ async function sumOfTreatmentPlansAmountByBranch(from, to, tenant_id) {
   return rows;
 }
 
-async function monthlyExpensesByBranch(from, to, tenant_id) {
+// NOTE: monthlyExpensesByBranch (created_at-based, currency-blind) was removed —
+// unused; clinic-wide reports use expensesByBranchCurrency (per currency).
+
+// Clinic-wide: the top (DESC) or bottom (ASC) work per branch, via DISTINCT ON.
+// `direction` is an internal literal ('DESC' | 'ASC'), never user input.
+async function workByQtyByBranch(from, to, tenant_id, direction) {
   const query = `
-    SELECT 
-      b.name AS branch_name,
-      COALESCE(SUM(amount), 0) AS total_expenses
-    FROM monthly_expenses me
-    JOIN branches b ON b.id = me.branch_id
-    WHERE me.created_at >= $1 AND me.created_at < $2 AND me.tenant_id = $3
-    GROUP BY b.name;
+    SELECT DISTINCT ON (b.name)
+        b.name AS branch_name,
+        wc.code AS work_code,
+        SUM(COALESCE(sw.quantity, 1)) AS total_qty
+    FROM session_works sw
+    JOIN work_catalog wc ON wc.id = sw.work_id
+    JOIN sessions s ON s.id = sw.session_id
+    JOIN branches b ON b.id = s.branch_id
+    WHERE s.created_at >= $1 AND s.created_at < $2 AND s.tenant_id = $3
+    GROUP BY b.name, sw.work_id, wc.code
+    ORDER BY b.name, total_qty ${direction};
   `;
   const values = [from, to, tenant_id];
   const { rows } = await pool.query(query, values);
@@ -365,50 +327,11 @@ async function monthlyExpensesByBranch(from, to, tenant_id) {
 }
 
 async function theMostWorkDoneByBranch(from, to, tenant_id) {
-  // Get top work PER BRANCH? Or top work overall?
-  // Let's get top work per branch to show detail.
-  // Using DISTINCT ON (branch_id) or window function to get rank 1 per branch would be best,
-  // but let's keep it simple: just list all works grouped by branch and let frontend/service pick top one?
-  // Or simpler: Just get top 1 OVERALL?
-  // User wanted "branch shorsh ... empire ...".
-  // So probably top work for EACH branch.
-
-  // This query gets top work per branch using Postgres DISTINCT ON
-  const query = `
-    SELECT DISTINCT ON (b.name)
-        b.name AS branch_name,
-        wc.code AS work_code,
-        SUM(COALESCE(sw.quantity, 1)) AS total_qty
-    FROM session_works sw
-    JOIN work_catalog wc ON wc.id = sw.work_id
-    JOIN sessions s ON s.id = sw.session_id
-    JOIN branches b ON b.id = s.branch_id
-    WHERE s.created_at >= $1 AND s.created_at < $2 AND s.tenant_id = $3
-    GROUP BY b.name, sw.work_id, wc.code
-    ORDER BY b.name, total_qty DESC;
-  `;
-  const values = [from, to, tenant_id];
-  const { rows } = await pool.query(query, values);
-  return rows;
+  return workByQtyByBranch(from, to, tenant_id, 'DESC');
 }
 
 async function theLeastWorkDoneByBranch(from, to, tenant_id) {
-  const query = `
-    SELECT DISTINCT ON (b.name)
-        b.name AS branch_name,
-        wc.code AS work_code,
-        SUM(COALESCE(sw.quantity, 1)) AS total_qty
-    FROM session_works sw
-    JOIN work_catalog wc ON wc.id = sw.work_id
-    JOIN sessions s ON s.id = sw.session_id
-    JOIN branches b ON b.id = s.branch_id
-    WHERE s.created_at >= $1 AND s.created_at < $2 AND s.tenant_id = $3
-    GROUP BY b.name, sw.work_id, wc.code
-    ORDER BY b.name, total_qty ASC;
-  `;
-  const values = [from, to, tenant_id];
-  const { rows } = await pool.query(query, values);
-  return rows;
+  return workByQtyByBranch(from, to, tenant_id, 'ASC');
 }
 
 // ----------------------------------------------------------------------
@@ -615,7 +538,7 @@ export default {
   sessionsRevByBranchCurrency, plansRevByBranchCurrency, expensesByBranchCurrency,
 
   registeredPatient, getAppts, patientsHasAppt, apptForEachDoctor, apptsDoneByStatus,
-  sumOfSessionsAmount, sumOfTreatmentPlansAmount, monthlyExpenses, theMostWorkDone,
+  theMostWorkDone,
   theLeastWorkDone,
   // Clinic-Wide Exports
   registeredPatientByBranch,
@@ -625,7 +548,6 @@ export default {
   apptsDoneByStatusByBranch,
   sumOfSessionsAmountByBranch,
   sumOfTreatmentPlansAmountByBranch,
-  monthlyExpensesByBranch,
   theMostWorkDoneByBranch,
   theLeastWorkDoneByBranch,
   // Insights Assistant Exports

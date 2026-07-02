@@ -3,23 +3,38 @@ import resolveReportDateRange from '../utils/reportsDateRange.js'
 
 async function serviceDetailsReportPdf({ month, from, to }, tenant_id) {
 
-    //Phase 1
+    // Phase 1 — resolve the period first (every query below needs the window).
     const period = await resolveReportDateRange({ month, from, to })
     const queryFrom = period.from;
     const queryTo = period.to;
-    const clinic_name = await reportsModel.getTenantName(tenant_id)
 
-    //Phase 2
-    const registeredpatientsBranch = await reportsModel.registeredPatientByBranch(queryFrom, queryTo, tenant_id)
-    const allApptsBranch = await reportsModel.getApptsByBranch(queryFrom, queryTo, tenant_id)
-    const patientsHasApptBranch = await reportsModel.patientsHasApptByBranch(queryFrom, queryTo, tenant_id)
-    const apptForEachDoctorBranch = await reportsModel.apptForEachDoctorByBranch(queryFrom, queryTo, tenant_id)
-    const apptsDoneByStatusBranch = await reportsModel.apptsDoneByStatusByBranch(queryFrom, queryTo, tenant_id)
-
-    //Phase 3 — money per branch AND per currency (never mixed)
-    const sessions = await reportsModel.sessionsRevByBranchCurrency(queryFrom, queryTo, tenant_id)
-    const plans = await reportsModel.plansRevByBranchCurrency(queryFrom, queryTo, tenant_id)
-    const expenses = await reportsModel.expensesByBranchCurrency(queryFrom, queryTo, tenant_id)
+    // Phase 2 — independent reads run in parallel (one batch instead of ~10
+    // sequential round-trips). Money stays per branch AND per currency.
+    const [
+        clinic_name,
+        registeredpatientsBranch,
+        allApptsBranch,
+        patientsHasApptBranch,
+        apptForEachDoctorBranch,
+        apptsDoneByStatusBranch,
+        sessions,
+        plans,
+        expenses,
+        theMostWorkDoneBranch,
+        theLeastWorkDoneBranch,
+    ] = await Promise.all([
+        reportsModel.getTenantName(tenant_id),
+        reportsModel.registeredPatientByBranch(queryFrom, queryTo, tenant_id),
+        reportsModel.getApptsByBranch(queryFrom, queryTo, tenant_id),
+        reportsModel.patientsHasApptByBranch(queryFrom, queryTo, tenant_id),
+        reportsModel.apptForEachDoctorByBranch(queryFrom, queryTo, tenant_id),
+        reportsModel.apptsDoneByStatusByBranch(queryFrom, queryTo, tenant_id),
+        reportsModel.sessionsRevByBranchCurrency(queryFrom, queryTo, tenant_id),
+        reportsModel.plansRevByBranchCurrency(queryFrom, queryTo, tenant_id),
+        reportsModel.expensesByBranchCurrency(queryFrom, queryTo, tenant_id),
+        reportsModel.theMostWorkDoneByBranch(queryFrom, queryTo, tenant_id),
+        reportsModel.theLeastWorkDoneByBranch(queryFrom, queryTo, tenant_id),
+    ]);
 
     // Bucket by branch + currency.
     const map = new Map();
@@ -57,10 +72,6 @@ async function serviceDetailsReportPdf({ month, from, to }, tenant_id) {
         g.loss += f.loss;
     });
     const grandTotals = [...gmap.values()].sort((a, b) => a.currency_code.localeCompare(b.currency_code));
-
-    //Phase 4 — top/bottom work per branch (arrays of {branch_name, work_code, total_qty})
-    const theMostWorkDoneBranch = await reportsModel.theMostWorkDoneByBranch(queryFrom, queryTo, tenant_id)
-    const theLeastWorkDoneBranch = await reportsModel.theLeastWorkDoneByBranch(queryFrom, queryTo, tenant_id)
 
     return {
         period,

@@ -26,28 +26,40 @@ function buildFinancials(sessionRows, planRows, expenseRows) {
 
 async function serviceMonthlyReportPdf({ month, from, to }, tenant_id, branch_id) {
 
-    //Phase 1
+    // Phase 1 — resolve the period first (every query below needs the window).
     const period = await resolveReportDateRange({ month, from, to })
     const queryFrom = period.from;
     const queryTo = period.to;
-    const clinic_name = await reportsModel.getTenantName(tenant_id)
 
-    //Phase 2
-    const registeredpatients = await reportsModel.registeredPatient(queryFrom, queryTo, tenant_id, branch_id)
-    const allAppts = await reportsModel.getAppts(queryFrom, queryTo, tenant_id, branch_id)
-    const patientsHasAppt = await reportsModel.patientsHasAppt(queryFrom, queryTo, tenant_id, branch_id)
-    const apptForEachDoctor = await reportsModel.apptForEachDoctor(queryFrom, queryTo, tenant_id, branch_id)
-    const apptsDoneByStatus = await reportsModel.apptsDoneByStatus(queryFrom, queryTo, tenant_id, branch_id)
+    // Phase 2 — all reads below are independent, so run them in parallel
+    // (one batch instead of ~11 sequential round-trips). Money stays per-currency.
+    const [
+        clinic_name,
+        registeredpatients,
+        allAppts,
+        patientsHasAppt,
+        apptForEachDoctor,
+        apptsDoneByStatus,
+        sessionRows,
+        planRows,
+        expenseRows,
+        theMostWorkDone,
+        theLeastWorkDone,
+    ] = await Promise.all([
+        reportsModel.getTenantName(tenant_id),
+        reportsModel.registeredPatient(queryFrom, queryTo, tenant_id, branch_id),
+        reportsModel.getAppts(queryFrom, queryTo, tenant_id, branch_id),
+        reportsModel.patientsHasAppt(queryFrom, queryTo, tenant_id, branch_id),
+        reportsModel.apptForEachDoctor(queryFrom, queryTo, tenant_id, branch_id),
+        reportsModel.apptsDoneByStatus(queryFrom, queryTo, tenant_id, branch_id),
+        reportsModel.sessionsRevByCurrency(queryFrom, queryTo, tenant_id, branch_id),
+        reportsModel.plansRevByCurrency(queryFrom, queryTo, tenant_id, branch_id),
+        reportsModel.expensesByCurrency(queryFrom, queryTo, tenant_id, branch_id),
+        reportsModel.theMostWorkDone(queryFrom, queryTo, tenant_id, branch_id),
+        reportsModel.theLeastWorkDone(queryFrom, queryTo, tenant_id, branch_id),
+    ]);
 
-    //Phase 3 — money per currency (never mixed)
-    const sessionRows = await reportsModel.sessionsRevByCurrency(queryFrom, queryTo, tenant_id, branch_id)
-    const planRows = await reportsModel.plansRevByCurrency(queryFrom, queryTo, tenant_id, branch_id)
-    const expenseRows = await reportsModel.expensesByCurrency(queryFrom, queryTo, tenant_id, branch_id)
     const financials = buildFinancials(sessionRows, planRows, expenseRows)
-
-    //Phase 4
-    const theMostWorkDone = await reportsModel.theMostWorkDone(queryFrom, queryTo, tenant_id, branch_id)
-    const theLeastWorkDone = await reportsModel.theLeastWorkDone(queryFrom, queryTo, tenant_id, branch_id)
 
     return {
         period,
