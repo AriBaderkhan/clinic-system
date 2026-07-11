@@ -87,6 +87,7 @@ import auditRoute from './routes/auditRoute.js';
 import registrationRoute from './routes/registrationRoute.js';
 import profileRoute from './routes/profileRoute.js';
 import announcementRoute from './routes/announcementRoute.js';
+import notificationRoute from './routes/notificationRoute.js';
 const PORT = process.env.PORT || 1000;
 
 
@@ -118,6 +119,7 @@ app.use('/api/audit', auditRoute)
 app.use('/api/register', registrationRoute)
 app.use('/api/profile', profileRoute)
 app.use('/api/announcements', announcementRoute)
+app.use('/api/notifications', notificationRoute)
 
 app.use((req, res) => {
     res.status(404).json({ message: "Route not found", code: "ROUTE_NOT_FOUND", support_code: req.requestId || 'N/A' });

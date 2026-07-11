@@ -9,6 +9,7 @@ import settingModel from '../models/settingModel.js';
 import workCatalogModel from '../models/workCatalogModel.js';
 import treatmentPlanModel from '../models/treatmentPlanModel.js';
 import prescriptionModel from '../models/prescriptionModel.js';
+import notificationService from './notificationService.js';
 import pool from '../db_connection.js';
 
 
@@ -168,6 +169,20 @@ async function checkIn(appointmentId, userId, tenant_id, branch_id) {
 
     const updatedAppointmentStatus = await appointmentModel.setAppointmentCheckIn(appointmentId, userId, tenant_id, branch_id);
     if (!updatedAppointmentStatus) throw appError('APPOINTMENT_CHECKIN_FAILED', 'Check-in failed', 500);
+
+    // Tell the patient's doctor, live. Best-effort: a notification failure never
+    // fails the check-in itself (handled inside notify()).
+    const apptTime = new Date(appt.scheduled_start).toLocaleTimeString('en-GB', {
+        hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Baghdad',
+    });
+    await notificationService.notify({
+        recipientUserIds: [appt.doctor_id],
+        type: 'patient_checked_in',
+        message: `${appt.patient_name} checked in — appointment at ${apptTime}`,
+        appointmentId,
+        tenant_id, branch_id,
+    });
+
     return updatedAppointmentStatus;
 }
 

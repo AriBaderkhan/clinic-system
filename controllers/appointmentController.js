@@ -1,6 +1,6 @@
 import appointmentService from '../services/appointmentService.js';
 import asyncWrap from '../utils/asyncWrap.js';
-import { io } from '../main.js';
+import notificationService from '../services/notificationService.js';
 
 const create = asyncWrap(async (req, res) => {
     const { patient_id, doctor_id, scheduled_start, appointment_type, complaint } = req.body;
@@ -67,8 +67,14 @@ const complete = asyncWrap(async (req, res) => {
 
     const result = await appointmentService.complete({ appointmentId, doctorId: userId, next_plan, notes, works, completedPlanIds, prescription }, tenant_id, branch_id);
 
-    io.to('reception_room').emit('appointment_completed', {
-        message: ` Dr. ${result.details.doctor_name} has completed appointment for patient ${result.details.patient_name}`
+    // Notify the front desk (reception + branch/tenant managers), live + saved
+    // to their bell.
+    await notificationService.notifyRoles({
+        roles: ['reception', 'branch_manager', 'tenant_manager'],
+        type: 'appointment_completed',
+        message: `Dr. ${result.details.doctor_name} completed the appointment for ${result.details.patient_name}`,
+        appointmentId,
+        tenant_id, branch_id,
     });
 
     res.status(200).json({ ok: true, data: result });
