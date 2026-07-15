@@ -138,6 +138,8 @@ async function getNormal(session_id, tenant_id, branch_id) {
       },
 
       processed_by: base.processed_by || null,
+
+      payment_note: base.payment_note || "",
     },
 
     sw_id: base.sw,
@@ -150,7 +152,7 @@ async function getNormal(session_id, tenant_id, branch_id) {
 async function editNormal(session_id, fields, userId, tenant_id, branch_id) {
   const client = await pool.connect();
 
-  const { notes, next_plan, works, total_paid, prescription } = fields;
+  const { notes, next_plan, works, total_paid, prescription, payment_note } = fields;
 
   try {
     await client.query("BEGIN");
@@ -275,6 +277,7 @@ async function editNormal(session_id, fields, userId, tenant_id, branch_id) {
       const updatedPayment = await sessionPaymentModel.upsertSessionPaymentBySessionId({
         sessionId: session_id,
         amount: finalPaid,
+        note: payment_note !== undefined ? payment_note : null,
         createdBy: userId,
 
       }, tenant_id, branch_id, client

@@ -18,6 +18,7 @@ const schemaEditSession = Joi.object({
         .min(1)
         .optional(),
     total_paid: Joi.number().min(0).optional(),
+    payment_note: Joi.string().max(1000).allow('', null).optional(),
     // optional prescription edited alongside the works
     prescription: Joi.array().items(
         Joi.object({

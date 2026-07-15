@@ -130,13 +130,22 @@ async function getNormalSession(session_id, tenant_id, branch_id, client = pool)
 
       d.id         AS doctor_id,
       pr.full_name AS doctor_name,
-      pr2.full_name AS processed_by
+      pr2.full_name AS processed_by,
+
+      pay.payment_note
     FROM sessions s
     JOIN appointments a ON a.id = s.appointment_id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
-    JOIN patients p     ON p.id = a.patient_id AND p.tenant_id = a.tenant_id 
+    JOIN patients p     ON p.id = a.patient_id AND p.tenant_id = a.tenant_id
     JOIN doctors d      ON d.id = a.doctor_id AND d.tenant_id = a.tenant_id AND d.branch_id = a.branch_id
     JOIN profiles pr    ON pr.user_id = d.id
     JOIN profiles pr2   ON pr2.user_id = s.created_by
+    LEFT JOIN LATERAL (
+      SELECT string_agg(NULLIF(sp.note, ''), ' | ' ORDER BY sp.created_at) AS payment_note
+      FROM session_payments sp
+      WHERE sp.session_id = s.id
+        AND sp.tenant_id = s.tenant_id
+        AND sp.branch_id = s.branch_id
+    ) pay ON true
     WHERE s.id = $1
     AND s.tenant_id = $2
     AND s.branch_id = $3
