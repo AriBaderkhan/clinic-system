@@ -40,4 +40,8 @@ async function markRead(id, user_id, tenant_id, branch_id) {
     return notificationModel.markRead(id, user_id, tenant_id, branch_id);
 }
 
-export default { notify, notifyRoles, listMine, markRead };
+async function markAllRead(user_id, tenant_id, branch_id) { 
+    return notificationModel.markAllRead(user_id, tenant_id, branch_id);
+}
+
+export default { notify, notifyRoles, listMine, markRead, markAllRead };

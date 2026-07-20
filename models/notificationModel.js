@@ -56,4 +56,14 @@ async function getUserIdsByRoles(roles, tenant_id, branch_id, client = pool) {
     return rows.map((x) => x.user_id);
 }
 
-export default { createMany, listForUser, markRead, getUserIdsByRoles };
+
+async function markAllRead(user_id, tenant_id, branch_id, client = pool) {
+    const query = `
+        UPDATE notifications
+        SET is_read = true
+        WHERE user_id = $1 AND tenant_id = $2 AND branch_id = $3
+        RETURNING `;
+    const { rows } = await client.query(query, [user_id, tenant_id, branch_id]);
+    return rows;
+}
+export default { createMany, listForUser, markRead, getUserIdsByRoles, markAllRead };

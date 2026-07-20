@@ -16,4 +16,10 @@ const markRead = asyncWrap(async (req, res) => {
     res.status(200).json({ ok: true });
 });
 
-export default { getMine, markRead };
+const markAllRead = asyncWrap(async (req,res) =>{
+    const { id: userId, tenant_id, branch_id } = req.user;
+    await notificationService.markAllRead(userId, tenant_id, branch_id);
+    res.status(200).json({ ok: true });
+})
+
+export default { getMine, markRead, markAllRead };

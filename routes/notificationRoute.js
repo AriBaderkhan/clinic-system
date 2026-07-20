@@ -10,5 +10,6 @@ router.use(authMiddleware);
 // Every logged-in user reads / reads-off their OWN notifications.
 router.get('/', notificationController.getMine);
 router.post('/:id/read', validateIdParam('id'), notificationController.markRead);
+router.put('/read-all',notificationController.markAllRead);
 
 export default router;
