@@ -59,7 +59,7 @@ const schemaCompleteFillWork = Joi.object({
             Joi.object({
                 work_id: Joi.number().integer().positive().required(),
                 quantity: Joi.number().integer().positive().min(1).required(),
-                tooth_number: Joi.number().integer().min(11).max(48).allow(null),
+                tooth_number: Joi.number().integer().min(11).max(85).allow(null),
                 // For a treatment-plan work, the doctor either continues an
                 // existing plan (treatment_plan_id) OR starts a new one (agreed_total).
                 treatment_plan_id: Joi.number().integer().positive().allow(null),
@@ -113,6 +113,19 @@ function filters(req, res, next) {
     next();
 }
 
+// Visit draft — complaint + notes + next_plan saved mid-visit (all optional, can be empty)
+const schemaVisitDraft = Joi.object({
+    complaint: Joi.string().max(1000).allow('', null),
+    notes: Joi.string().max(1000).allow('', null),
+    next_plan: Joi.string().max(300).allow('', null),
+}).min(1);
+
+function visitDraft(req, res, next) {
+    const { error } = schemaVisitDraft.validate(req.body);
+    if (error) return res.status(400).json({ message: error.details[0].message })
+    next();
+}
+
 export default {
-    create, update, cancel, complete, filters
+    create, update, cancel, complete, filters, visitDraft
 }

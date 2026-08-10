@@ -61,8 +61,8 @@ async function markAllRead(user_id, tenant_id, branch_id, client = pool) {
     const query = `
         UPDATE notifications
         SET is_read = true
-        WHERE user_id = $1 AND tenant_id = $2 AND branch_id = $3
-        RETURNING `;
+        WHERE user_id = $1 AND tenant_id = $2 AND branch_id = $3 AND is_read = false
+        RETURNING id`;
     const { rows } = await client.query(query, [user_id, tenant_id, branch_id]);
     return rows;
 }

@@ -38,6 +38,7 @@ async function getAppointment(appointmentId, tenant_id, branch_id, client = pool
       p.allergies        AS patient_allergies,
       p.blood_type       AS patient_blood_type,
       p.chronic_diseases AS patient_chronic_diseases,
+      p.age              AS patient_age,
       pr.full_name AS doctor_name,
       a.scheduled_start,
       a.status,
@@ -46,7 +47,9 @@ async function getAppointment(appointmentId, tenant_id, branch_id, client = pool
       a.finished_at,
       a.cancel_reason,
       a.appointment_type,
-      a.complaint
+      a.complaint,
+      a.draft_notes,
+      a.draft_next_plan
     FROM appointments a
     JOIN patients  p  ON a.patient_id = p.id AND a.tenant_id = p.tenant_id
     JOIN doctors   d  ON a.doctor_id = d.id AND a.tenant_id = d.tenant_id AND a.branch_id = d.branch_id
@@ -205,7 +208,8 @@ async function setAppointmentStart(appointmentId, userId, tenant_id, branch_id) 
 async function setAppointmentComplete(appointmentId, doctorId, tenant_id, branch_id, client = pool) {
   const query = `
     UPDATE appointments
-       SET status='completed', finished_at=NOW(), updated_by=$2
+       SET status='completed', finished_at=NOW(), updated_by=$2,
+           draft_notes=NULL, draft_next_plan=NULL
      WHERE id=$1 AND status='in_progress' AND tenant_id = $3 AND branch_id = $4
      RETURNING *`;
   const values = [appointmentId, doctorId, tenant_id, branch_id];
@@ -368,6 +372,7 @@ async function activeTodayAppt({ from, to }, tenant_id, branch_id) {
       p.allergies        AS patient_allergies,
       p.blood_type       AS patient_blood_type,
       p.chronic_diseases AS patient_chronic_diseases,
+      p.age              AS patient_age,
       pr.full_name AS doctor_name
     FROM appointments a
     JOIN patients p ON p.id = a.patient_id AND a.tenant_id = p.tenant_id

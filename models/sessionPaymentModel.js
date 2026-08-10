@@ -23,11 +23,14 @@ async function recalcSessionTotals(sessionId, tenant_id, branch_id, client = poo
   const { rows: sumRows } = await client.query(sumQuery, [sessionId, tenant_id, branch_id]);
   const totalPaid = Number(sumRows[0]?.total_paid || 0);
 
+  // A session is paid when paid money + any applied discount reaches the total
+  // owed — NOT when any amount is received. A partial payment keeps is_paid =
+  // false. Including discount_amount is what lets a discounted balance close.
   const updateQuery = `
     UPDATE sessions
     SET
       total_paid = $2::numeric,
-      is_paid = ($2::numeric > 0),
+      is_paid = ($2::numeric + COALESCE(discount_amount, 0) >= COALESCE(total, 0)),
       updated_at = NOW()
     WHERE id = $1
     AND tenant_id = $3
@@ -91,4 +94,23 @@ async function upsertSessionPaymentBySessionId(
 
 
 
-export default { createSessionPayment, recalcSessionTotals, upsertSessionPaymentBySessionId }
+// Set the session's paid to an EXACT amount from the edit screen. Collapses the
+// ledger to a single row so re-editing a session can never multiply the paid
+// (the old upsert overwrote EVERY row with the full total, then recalc summed
+// them). Deleting first also lets the paid be lowered, not only raised.
+async function setSessionPaidExact({ sessionId, amount, note = null, createdBy = null }, tenant_id, branch_id, client = pool) {
+  await client.query(
+    `DELETE FROM session_payments WHERE session_id = $1 AND tenant_id = $2 AND branch_id = $3`,
+    [sessionId, tenant_id, branch_id]
+  );
+  // amount has a CHECK (> 0): a zero/unpaid session simply keeps no payment row.
+  if (Number(amount) <= 0) return null;
+  const { rows } = await client.query(
+    `INSERT INTO session_payments (session_id, amount, note, created_by, tenant_id, branch_id)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+    [sessionId, amount, note, createdBy, tenant_id, branch_id]
+  );
+  return rows[0] || null;
+}
+
+export default { createSessionPayment, recalcSessionTotals, upsertSessionPaymentBySessionId, setSessionPaidExact }

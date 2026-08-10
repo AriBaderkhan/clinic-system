@@ -241,12 +241,12 @@ async function complete({ appointmentId, doctorId, next_plan, notes, works, comp
 
 
 
-            // Treatment-plan works (ORTHO / IMPLANT / RCT / RE_RCT): the doctor
-            // either CONTINUES an existing active plan (w.treatment_plan_id) or
-            // starts a NEW one with its own agreement total (w.agreed_total).
-            // A patient can have several active plans of the same type at once.
+            // Treatment-plan works (is_plan): the doctor either CONTINUES an
+            // existing active plan (w.treatment_plan_id) or starts a NEW one with
+            // its own agreement total (w.agreed_total). A patient can have several
+            // active plans of the same type at once.
             let rawTreatmentPlanId = null;
-            if (['ortho', 'implant', 'rct', 're_rct'].includes(code)) {
+            if (catalog.is_plan) {
                 if (w.treatment_plan_id) {
                     // continue an existing active plan
                     const plan = await treatmentPlanModel.getTreatmentPlanByIdForUpdate(
@@ -454,8 +454,35 @@ async function getSession(appointmentId, tenant_id, branch_id) {
     if (!sessionForAppt) throw appError('SESSION_FOR_APPOINTMENT_NOT_FOUND', 'Session for appointment not found', 404);
     return sessionForAppt;
 }
+
+// Save the in-progress visit draft (complaint + notes + next plan) onto the
+// appointment so a page refresh never loses what the doctor typed. notes/next_plan
+// are staged in draft columns; on completion the session takes them from the form
+// and the drafts are cleared. Complaint keeps using appointments.complaint.
+// Allowed only while the visit is still open (not completed/cancelled/no_show).
+async function saveVisitDraft({ appointmentId, complaint, notes, next_plan, updatedBy }, tenant_id, branch_id) {
+    const appt = await appointmentModel.getAppointment(appointmentId, tenant_id, branch_id);
+    if (!appt) throw appError('APPOINTMENT_NOT_FOUND', 'Appointment not found', 404);
+    if (!['scheduled', 'checked_in', 'in_progress'].includes(appt.status)) {
+        throw appError('INVALID_APPOINTMENT_STATUS', 'Draft can only be saved before the visit is completed', 400);
+    }
+
+    const fields = {
+        ...(complaint !== undefined ? { complaint } : {}),
+        ...(notes !== undefined ? { draft_notes: notes } : {}),
+        ...(next_plan !== undefined ? { draft_next_plan: next_plan } : {}),
+    };
+    if (Object.keys(fields).length === 0) {
+        throw appError('NO_FIELDS_TO_UPDATE', 'No fields provided to save', 400);
+    }
+
+    const updated = await appointmentModel.updateAppointment(appointmentId, fields, updatedBy, tenant_id, branch_id);
+    if (!updated) throw appError('APPOINTMENT_UPDATE_FAILED', 'Saving visit draft failed', 500);
+    return updated;
+}
+
 export default {
     create, getById, delete: _delete, update,
     checkIn, start, complete, cancel, noShow, getAll,
-    getCalendar, getActiveToday, getSession
+    getCalendar, getActiveToday, getSession, saveVisitDraft
 }

@@ -22,6 +22,9 @@ router.delete('/:appointmentId', permissionMiddleware('delete_appointment'), val
 router.patch('/:appointmentId/checked-in', permissionMiddleware('update_appointment_status'), validateIdParam('appointmentId'), appointmentController.checkIn);
 router.patch('/:appointmentId/in_progress', permissionMiddleware('update_appointment_status'), validateIdParam('appointmentId'), appointmentController.start);
 router.post('/:appointmentId/completed', permissionMiddleware('finalize_session'), validateIdParam('appointmentId'), appointmentValidate.complete, appointmentController.complete);
+// Save the mid-visit draft (complaint + notes + next plan). Doctors (finalize_session)
+// and reception/branch (update_appointment_status) can both save — OR semantics.
+router.patch('/:appointmentId/visit-draft', permissionMiddleware('finalize_session', 'update_appointment_status'), validateIdParam('appointmentId'), appointmentValidate.visitDraft, appointmentController.saveVisitDraft);
 router.patch('/:appointmentId/cancelled', permissionMiddleware('update_appointment_status'), validateIdParam('appointmentId'), appointmentValidate.cancel, appointmentController.cancel);
 router.patch('/:appointmentId/no_show', permissionMiddleware('update_appointment_status'), validateIdParam('appointmentId'), appointmentValidate.cancel, appointmentController.noShow);
 

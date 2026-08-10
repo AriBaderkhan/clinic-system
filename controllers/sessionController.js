@@ -48,12 +48,12 @@ const getUnpaid = asyncWrap(async (req, res) => {
 
 const pay = asyncWrap(async (req, res) => {
     const sessionId = Number(req.params.sessionId);
-    const { normalAmount, planPayments, note } = req.body;
+    const { normalAmount, planPayments, note, settleNormal, discountId } = req.body;
     const userId = req.user?.user_id;
     const { tenant_id, branch_id } = req.user;
 
     const result = await sessionService.pay({
-        sessionId, normalAmount, planPayments, note, userId,
+        sessionId, normalAmount, planPayments, note, settleNormal, discountId, userId,
     }, tenant_id, branch_id);
 
     res.status(200).json({ ok: true, data: result });

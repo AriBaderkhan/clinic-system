@@ -10,6 +10,7 @@ import treatmentPlanPaymentModel from '../models/treatmentPlanPaymentModel.js';
 import prescriptionModel from '../models/prescriptionModel.js';
 import dateRange from '../utils/dateRange.js';
 import settingModel from '../models/settingModel.js';
+import discountModel from '../models/discountModel.js';
 
 function buildWorksSummary(worksRows) {
   if (!worksRows || worksRows.length === 0) {
@@ -130,6 +131,7 @@ async function getNormal(session_id, tenant_id, branch_id) {
         id: base.patient_id,
         full_name: base.patient_name,
         phone: base.patient_phone,
+        age: base.patient_age,
       },
 
       doctor: {
@@ -184,7 +186,6 @@ async function editNormal(session_id, fields, userId, tenant_id, branch_id) {
       const catalogRows = await workCatalogModel.getWorksByIds(workIds, tenant_id, branch_id, client);
       const catalogMap = Object.fromEntries(catalogRows.map(c => [c.id, c]));
 
-      const PLAN_CODES = ['ortho', 'implant', 'rct', 're_rct'];
       const workItems = [];
       for (const w of works) {
         const { work_id, quantity, tooth_number } = w;
@@ -202,7 +203,7 @@ async function editNormal(session_id, fields, userId, tenant_id, branch_id) {
         // Treatment-plan works added during an edit: CONTINUE an existing active
         // plan (treatment_plan_id) or start a NEW one with its agreement total.
         let treatmentPlanId = null;
-        if (PLAN_CODES.includes(code)) {
+        if (catalog.is_plan) {
           if (w.treatment_plan_id) {
             const plan = await treatmentPlanModel.getTreatmentPlanByIdForUpdate(Number(w.treatment_plan_id), tenant_id, branch_id, client);
             if (!plan) throw appError('PLAN_NOT_FOUND', `Treatment plan ${w.treatment_plan_id} not found`, 404);
@@ -271,49 +272,43 @@ async function editNormal(session_id, fields, userId, tenant_id, branch_id) {
     // if (!updatedTotals) throw appError("SESSION_UPDATE_FAILED", "session Update failed", 500);
 
     // âœ… update amount in session_payments (via model)
-    // session_payments.amount has a CHECK (amount > 0); only record a payment
-    // when money was actually paid. A zero/unpaid session keeps no payment row.
-    if (finalPaid > 0) {
-      const updatedPayment = await sessionPaymentModel.upsertSessionPaymentBySessionId({
+    // Record a payment ONLY when the user actually CHANGED the paid amount in the
+    // edit screen. A plain work edit must never touch the ledger — the old code
+    // overwrote every payment row with the full total and then summed them, which
+    // doubled the paid on each edit. Adding works now leaves paid untouched, so a
+    // bigger total simply makes the session unpaid.
+    const paidProvided = total_paid !== undefined && total_paid !== null && total_paid !== "";
+    if (paidProvided && finalPaid !== currentPaid) {
+      // Set the ledger to exactly the new amount (single row) → can never multiply.
+      await sessionPaymentModel.setSessionPaidExact({
         sessionId: session_id,
         amount: finalPaid,
         note: payment_note !== undefined ? payment_note : null,
         createdBy: userId,
-
-      }, tenant_id, branch_id, client
-      );
-      if (!updatedPayment) {
-        throw appError("PAYMENT_UPDATE_FAILED", "session payment not found for this session", 404);
-      }
+      }, tenant_id, branch_id, client);
     }
 
-    // âœ… recalc -> updates sessions.total_paid and sessions.is_paid correctly
-    sessionsAfterRecalc = await sessionPaymentModel.recalcSessionTotals(session_id, tenant_id, branch_id, client);
-    if (!sessionsAfterRecalc) {
-      throw appError("SESSION_RECALC_FAILED", "failed to recalc session totals", 500);
-    }
-
-
-    // 4) update session totals (min_total/total) + keep paid from recalc if it happened
-    const paidToSave =
-      sessionsAfterRecalc?.total_paid !== undefined
-        ? Number(sessionsAfterRecalc.total_paid || 0)
-        : Number(base.total_paid || 0);
-
-    const isPaidToSave =
-      sessionsAfterRecalc?.is_paid !== undefined ? sessionsAfterRecalc.is_paid : base.is_paid;
-
+    // 4) write the new session totals (min_total/total) FIRST, so the paid-check
+    // below compares the payment against the NEW total, not the pre-edit one.
+    // total_paid / is_paid here are provisional — recalc recomputes them next.
     const updatedTotals = await sessionModel.updateSessionTotal(
       {
         min_total: normalMinTotal,
         total: normalGrandTotal,
-        total_paid: paidToSave,
-        is_paid: isPaidToSave,
+        total_paid: Number(base.total_paid || 0),
+        is_paid: base.is_paid,
         sessionId: session_id,
       },
       tenant_id, branch_id, client
     );
     if (!updatedTotals) throw appError("SESSION_UPDATE_FAILED", "session Update failed", 500);
+
+    // recalc AFTER the new total is saved -> total_paid + is_paid come out correct
+    // against the NEW total (adding work to a paid session re-opens it as unpaid).
+    sessionsAfterRecalc = await sessionPaymentModel.recalcSessionTotals(session_id, tenant_id, branch_id, client);
+    if (!sessionsAfterRecalc) {
+      throw appError("SESSION_RECALC_FAILED", "failed to recalc session totals", 500);
+    }
 
     // 5) update notes / next_plan (only if provided)
     // (use your existing model method, or add one simple update query in model)
@@ -337,8 +332,8 @@ async function editNormal(session_id, fields, userId, tenant_id, branch_id) {
       ...base,
       min_total: updatedTotals.min_total,
       total: updatedTotals.total,
-      total_paid: updatedTotals.total_paid,
-      is_paid: updatedTotals.is_paid,
+      total_paid: sessionsAfterRecalc.total_paid,
+      is_paid: sessionsAfterRecalc.is_paid,
       notes: notes !== undefined ? notes : base.notes,
       next_plan: next_plan !== undefined ? next_plan : base.next_plan,
     };
@@ -490,7 +485,10 @@ async function getUnpaid(tenant_id, branch_id, { limit, q } = {}) {
         min_total: Number(s.min_total),
         total: Number(s.total),
         total_paid: Number(s.total_paid || 0),
-        remaining: Number(s.total) - Number(s.total_paid || 0),
+        discount_amount: Number(s.discount_amount || 0),
+        discount_name: s.discount_name || null,
+        remaining: Math.max(0, Number(s.total) - Number(s.total_paid || 0) - Number(s.discount_amount || 0)),
+        is_paid: !!s.is_paid, // normal balance settled/fully paid → frontend hides the normal section
       },
 
       plan: {
@@ -509,7 +507,7 @@ async function getUnpaid(tenant_id, branch_id, { limit, q } = {}) {
 
 
 // SERVICE: Pay session
-async function pay({ sessionId, normalAmount, planPayments, note, userId }, tenant_id, branch_id) {
+async function pay({ sessionId, normalAmount, planPayments, note, settleNormal, discountId, userId }, tenant_id, branch_id) {
   const client = await pool.connect();
 
 
@@ -540,7 +538,7 @@ async function pay({ sessionId, normalAmount, planPayments, note, userId }, tena
     const planDue = session.has_plan_due;
 
     // â— RULE: allow empty ONLY if nothing is due
-    if (!payNormal && !payPlans) {
+    if (!payNormal && !payPlans && !settleNormal && !discountId) {
       if (sessionDue || planDue) {
         throw appError(
           "NO_PAYMENT_PROVIDED",
@@ -585,6 +583,33 @@ async function pay({ sessionId, normalAmount, planPayments, note, userId }, tena
       const recalc = await sessionPaymentModel.recalcSessionTotals(sessionId, tenant_id, branch_id, client);
       session.total_paid = recalc.total_paid;
       session.is_paid = recalc.is_paid;
+    }
+
+    // Apply a named discount to the NORMAL balance (reception picks it at pay time).
+    // Does NOT touch any price/cost — it's recorded as discount_amount on the
+    // session and never exceeds what's still owed. Plan balances are untouched.
+    if (discountId && !session.is_paid) {
+      const discount = await discountModel.getDiscountById(Number(discountId), tenant_id, branch_id, client);
+      if (!discount || !discount.is_active) throw appError("DISCOUNT_NOT_FOUND", "Discount not found", 404);
+
+      const remainingBefore = Math.max(0, total - Number(session.total_paid || 0));
+      const raw = discount.type === "percent"
+        ? Math.round((total * Number(discount.value)) / 100)
+        : Number(discount.value);
+      const discountAmount = Math.min(raw, remainingBefore); // cap: never exceed what's owed
+
+      const applied = await sessionModel.applyDiscount(sessionId, discount.id, discountAmount, tenant_id, branch_id, client);
+      session.total_paid = applied.total_paid;
+      session.is_paid = applied.is_paid;
+    }
+
+    // Settle the normal balance (checkbox in the pay modal): close it as done even
+    // if paid less than the total — a discount. Treatment-plan balances are NOT
+    // touched here; they stay tracked separately.
+    if (settleNormal && !session.is_paid) {
+      const settled = await sessionModel.markSessionSettled(sessionId, tenant_id, branch_id, client);
+      session.total_paid = settled.total_paid;
+      session.is_paid = settled.is_paid;
     }
 
     // -------------------------
@@ -693,7 +718,6 @@ async function pay({ sessionId, normalAmount, planPayments, note, userId }, tena
     client.release();
   }
 }
-
 
 export default {
   getAll, getNormal, editNormal, delete: _delete, getUnpaid, pay, updatePlanWorkTeeth

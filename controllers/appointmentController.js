@@ -140,8 +140,20 @@ const getSession = asyncWrap(async (req, res) => {
     res.status(200).json({ ok: true, data: result });
 })
 
+const saveVisitDraft = asyncWrap(async (req, res) => {
+    const { complaint, notes, next_plan } = req.body;
+    const appointmentId = Number(req.params.appointmentId);
+    const updatedBy = req.user.id;
+    const { tenant_id, branch_id } = req.user;
+
+    const result = await appointmentService.saveVisitDraft(
+        { appointmentId, complaint, notes, next_plan, updatedBy }, tenant_id, branch_id
+    );
+    res.status(200).json({ ok: true, data: result });
+})
+
 export default {
     create, getById, update, delete: _delete,
     checkIn, start, complete, cancel, noShow,
-    getAll, getCalendar, getActiveToday, getSession
+    getAll, getCalendar, getActiveToday, getSession, saveVisitDraft
 };

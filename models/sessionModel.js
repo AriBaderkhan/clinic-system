@@ -277,6 +277,30 @@ async function updateSessionTotal({ min_total, total, total_paid, is_paid, sessi
   return rows[0] || null;
 }
 
+// Settle the normal balance: close the session as paid even if total_paid < total
+// (a discount / write-off decided by reception). Leaves total_paid untouched.
+// Apply a discount to the NORMAL balance: stamp discount_id + discount_amount and
+// recompute is_paid (paid + discount covers the total → settled). Plan balances
+// are untouched.
+async function applyDiscount(sessionId, discountId, discountAmount, tenant_id, branch_id, client = pool) {
+  const query = `
+    UPDATE sessions
+       SET discount_id = $1,
+           discount_amount = $2,
+           is_paid = (COALESCE(total_paid, 0) + $2 >= COALESCE(total, 0)),
+           updated_at = NOW()
+     WHERE id = $3 AND tenant_id = $4 AND branch_id = $5
+     RETURNING total_paid, is_paid, discount_amount`;
+  const { rows } = await client.query(query, [discountId, discountAmount, sessionId, tenant_id, branch_id]);
+  return rows[0] || null;
+}
+
+async function markSessionSettled(sessionId, tenant_id, branch_id, client = pool) {
+  const query = `UPDATE sessions SET is_paid = true, updated_at = NOW() WHERE id=$1 AND tenant_id=$2 AND branch_id=$3 RETURNING *`;
+  const { rows } = await client.query(query, [sessionId, tenant_id, branch_id]);
+  return rows[0] || null;
+}
+
 async function getAllUnPaidSessions(tenant_id, branch_id, { limit, q } = {}) {
   const values = [tenant_id, branch_id];
   let idx = 3;
@@ -324,6 +348,8 @@ async function getAllUnPaidSessions(tenant_id, branch_id, { limit, q } = {}) {
       s.total,
       s.total_paid,
       s.is_paid,
+      s.discount_amount,
+      dsc.name AS discount_name,
       s.currency_code,
       s.next_plan,
       s.notes,
@@ -335,6 +361,7 @@ async function getAllUnPaidSessions(tenant_id, branch_id, { limit, q } = {}) {
       p.id AS patient_id,
       p.name AS patient_name,
       p.phone AS patient_phone,
+      p.age AS patient_age,
 
       d.id AS doctor_id,
       pr.full_name AS doctor_name
@@ -343,11 +370,12 @@ async function getAllUnPaidSessions(tenant_id, branch_id, { limit, q } = {}) {
     JOIN patients p ON p.id = a.patient_id AND p.tenant_id = a.tenant_id
     JOIN doctors d ON d.id = a.doctor_id AND d.tenant_id = a.tenant_id AND d.branch_id = a.branch_id
     JOIN profiles pr ON d.id = pr.user_id
+    LEFT JOIN discounts dsc ON dsc.id = s.discount_id AND dsc.tenant_id = s.tenant_id AND dsc.branch_id = s.branch_id
     WHERE a.status = 'completed'
       AND s.tenant_id = $1
       AND s.branch_id = $2
       AND (
-        (COALESCE(s.total, 0) > 0 AND COALESCE(s.total_paid, 0) = 0)
+        (COALESCE(s.total, 0) > 0 AND s.is_paid = false)
         OR s.id IN (SELECT session_id FROM sessions_with_plan_due)
       )${whereExtra}
     ORDER BY a.started_at DESC${limitClause}
@@ -608,7 +636,7 @@ async function updateSessionNotesFields(session_id, notess, tenant_id, branch_id
 }
 
 export default {
-  createSession, getAllNormalSessions, getNormalSession, getSession, updateSession, deleteSession, deleteSessionWorksBySiD, createSessionWork, bulkCreateSessionWorks, updateSessionTotal, getAllUnPaidSessions, getWorksForNormalSession, getWorksForSessions, getAllWorksForSession,
+  createSession, getAllNormalSessions, getNormalSession, getSession, updateSession, deleteSession, deleteSessionWorksBySiD, createSessionWork, bulkCreateSessionWorks, updateSessionTotal, markSessionSettled, applyDiscount, getAllUnPaidSessions, getWorksForNormalSession, getWorksForSessions, getAllWorksForSession,
   getSessionWithAppointment, getTreatmentPlansForSession, getSessionPaymentContext, getSessionWithAppointmentForUpdate,
   getTreatmentPlansForSessions, hasPlanDue, updateSessionNotesFields, updatePlanWorkTooth
 }

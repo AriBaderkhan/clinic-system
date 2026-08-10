@@ -4,7 +4,7 @@ import pool from "../db_connection.js";
 
 const create = async (workData, tenant_id, branch_id) => {
     const client = await pool.connect();
-    let { code, name, min_price, allow_installments, min_installment_amount, is_active } = workData;
+    let { code, name, min_price, allow_installments, min_installment_amount, is_active, is_plan, is_whole_mouth } = workData;
     try {
 
         await client.query('BEGIN');
@@ -12,7 +12,7 @@ const create = async (workData, tenant_id, branch_id) => {
         const existingWork = await worksModel.getWorkByType(code, tenant_id, branch_id, client);
         if (existingWork) throw appError('WORK_ALREADY_EXISTS', 'Work with this code already exists', 400);
 
-        const work = await worksModel.createWork(code, name, min_price, allow_installments, min_installment_amount, tenant_id, branch_id, is_active, client);
+        const work = await worksModel.createWork(code, name, min_price, allow_installments, min_installment_amount, tenant_id, branch_id, is_active, !!is_plan, !!is_whole_mouth, client);
         if (!work) throw appError('WORK_CREATION_FAILED', 'Failed to create work', 500);
 
         await client.query('COMMIT');
@@ -39,13 +39,13 @@ const getById = async (workId, tenant_id, branch_id) => {
 
 const update = async (workId, workData, tenant_id, branch_id) => {
     const client = await pool.connect();
-    let { code, name, min_price, allow_installments, min_installment_amount, is_active } = workData;
+    let { code, name, min_price, allow_installments, min_installment_amount, is_active, is_plan, is_whole_mouth } = workData;
     try {
         await client.query('BEGIN');
         code = code.toUpperCase();
         const existing = await worksModel.getWorkByType(code, tenant_id, branch_id, client);
         if (existing && existing.id !== Number(workId)) throw appError('WORK_ALREADY_EXISTS', 'Work with this code already exists', 400);
-        const work = await worksModel.updateWork(workId, { code, name, min_price, allow_installments, min_installment_amount, is_active }, tenant_id, branch_id, client);
+        const work = await worksModel.updateWork(workId, { code, name, min_price, allow_installments, min_installment_amount, is_active, is_plan: !!is_plan, is_whole_mouth: !!is_whole_mouth }, tenant_id, branch_id, client);
         if (!work) throw appError('WORK_NOT_FOUND', 'Work not found', 404);
         await client.query('COMMIT');
         return work;
