@@ -20,7 +20,9 @@ router.put('/:appointmentId', permissionMiddleware('update_appointment'), valida
 router.delete('/:appointmentId', permissionMiddleware('delete_appointment'), validateIdParam('appointmentId'), appointmentController.delete);
 
 router.patch('/:appointmentId/checked-in', permissionMiddleware('update_appointment_status'), validateIdParam('appointmentId'), appointmentController.checkIn);
-router.patch('/:appointmentId/in_progress', permissionMiddleware('update_appointment_status'), validateIdParam('appointmentId'), appointmentController.start);
+// Doctors (finalize_session) OR reception/branch (update_appointment_status) can
+// start a visit. The service still only allows checked_in -> in_progress.
+router.patch('/:appointmentId/in_progress', permissionMiddleware('update_appointment_status', 'finalize_session'), validateIdParam('appointmentId'), appointmentController.start);
 router.post('/:appointmentId/completed', permissionMiddleware('finalize_session'), validateIdParam('appointmentId'), appointmentValidate.complete, appointmentController.complete);
 // Save the mid-visit draft (complaint + notes + next plan). Doctors (finalize_session)
 // and reception/branch (update_appointment_status) can both save — OR semantics.
