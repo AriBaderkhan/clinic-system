@@ -151,6 +151,11 @@ async function update(appointmentDataForUpdate, tenant_id, branch_id) {
 
 async function _delete(appointmentId, tenant_id, branch_id) {
 
+    // Bug 4 fix: block deleting an appointment that already has a visit/session,
+    // otherwise the session (works + money) is left behind as ghost data.
+    const hasSession = await appointmentModel.appointmentHasSession(appointmentId, tenant_id, branch_id);
+    if (hasSession) throw appError('APPOINTMENT_HAS_SESSION', 'Cannot delete: this appointment already has a visit. Delete the visit first.', 409);
+
     const deletedappointment = await appointmentModel.deleteAppointment(appointmentId, tenant_id, branch_id)
     if (!deletedappointment) throw appError('APPOINTMENT_NOT_FOUND', 'Appointment not found', 404);
 

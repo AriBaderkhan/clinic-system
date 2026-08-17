@@ -99,6 +99,14 @@ async function upsertSessionPaymentBySessionId(
 // (the old upsert overwrote EVERY row with the full total, then recalc summed
 // them). Deleting first also lets the paid be lowered, not only raised.
 async function setSessionPaidExact({ sessionId, amount, note = null, createdBy = null }, tenant_id, branch_id, client = pool) {
+  // Bug 3 fix: keep the session's original payment date so editing a paid session
+  // does not move the money to today (which would shift it to the wrong month in
+  // reports). Fall back to NOW() only when there was no payment before.
+  const { rows: prev } = await client.query(
+    `SELECT MIN(created_at) AS keep_date FROM session_payments WHERE session_id = $1 AND tenant_id = $2 AND branch_id = $3`,
+    [sessionId, tenant_id, branch_id]
+  );
+  const keepDate = prev[0]?.keep_date || null;
   await client.query(
     `DELETE FROM session_payments WHERE session_id = $1 AND tenant_id = $2 AND branch_id = $3`,
     [sessionId, tenant_id, branch_id]
@@ -106,9 +114,9 @@ async function setSessionPaidExact({ sessionId, amount, note = null, createdBy =
   // amount has a CHECK (> 0): a zero/unpaid session simply keeps no payment row.
   if (Number(amount) <= 0) return null;
   const { rows } = await client.query(
-    `INSERT INTO session_payments (session_id, amount, note, created_by, tenant_id, branch_id)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-    [sessionId, amount, note, createdBy, tenant_id, branch_id]
+    `INSERT INTO session_payments (session_id, amount, note, created_by, tenant_id, branch_id, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, NOW())) RETURNING *`,
+    [sessionId, amount, note, createdBy, tenant_id, branch_id, keepDate]
   );
   return rows[0] || null;
 }

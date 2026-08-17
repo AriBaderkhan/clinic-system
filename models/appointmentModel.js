@@ -90,6 +90,14 @@ async function updateAppointment(appointmentId, fields, updatedBy, tenant_id, br
   return rows[0] || null;
 }
 
+// Bug 4 fix: a completed appointment owns a session (works + money). Used to
+// block deleting it, which would otherwise orphan that session (ghost data).
+async function appointmentHasSession(appointmentId, tenant_id, branch_id) {
+  const query = `SELECT 1 FROM sessions WHERE appointment_id = $1 AND tenant_id = $2 AND branch_id = $3 LIMIT 1`;
+  const { rows } = await pool.query(query, [appointmentId, tenant_id, branch_id]);
+  return rows.length > 0;
+}
+
 async function deleteAppointment(appointmentId, tenant_id, branch_id) {
 
   const query = `DELETE FROM appointments WHERE id=$1 AND tenant_id = $2 AND branch_id = $3 RETURNING *`;
@@ -408,6 +416,7 @@ export default {
   getAllAppointments,
   getAppointment,
   deleteAppointment,
+  appointmentHasSession,
   updateAppointment,
   setAppointmentCheckIn,
   setAppointmentStart,

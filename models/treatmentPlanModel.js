@@ -1,4 +1,5 @@
 import pool from '../db_connection.js';
+import appError from '../utils/appError.js';
 
 
 
@@ -251,6 +252,10 @@ async function deleteTp(tpId, tenant_id, branch_id) {
 // }
 
 async function updatePaidForTpSession(tpId, sessionId, amount, tenant_id, branch_id) {
+  // Bug 2 fix: reject a zero/negative amount up front.
+  if (!Number.isFinite(Number(amount)) || Number(amount) <= 0) {
+    throw appError('INVALID_PLAN_AMOUNT', 'Amount must be greater than 0', 400);
+  }
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -291,6 +296,16 @@ async function updatePaidForTpSession(tpId, sessionId, amount, tenant_id, branch
     );
 
     const newTotalPaid = Number(sumRes.rows[0].total_paid || 0);
+
+    // Bug 2 fix: this payment must not push the plan above its agreed total.
+    const planRes = await client.query(
+      `SELECT agreed_total FROM treatment_plans WHERE id = $1 AND tenant_id = $2 AND branch_id = $3`,
+      [tpId, tenant_id, branch_id]
+    );
+    const agreedTotal = Number(planRes.rows[0]?.agreed_total || 0);
+    if (newTotalPaid > agreedTotal) {
+      throw appError('AMOUNT_EXCEEDS_REMAINING', `Amount exceeds the plan's agreed total of ${agreedTotal}`, 400);
+    }
 
     // 4) update treatment_plans.total_paid
     await client.query(
