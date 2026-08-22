@@ -59,6 +59,7 @@ async function getPatientsNeedingFeedback(tenant_id, branch_id, limit, offset, c
       JOIN patients p ON a.patient_id = p.id AND a.tenant_id = p.tenant_id
       WHERE a.tenant_id = $1
         AND a.branch_id = $2
+        AND a.is_deleted = false
         AND a.status = 'completed'
         AND NOT EXISTS (
           SELECT 1 FROM feedbacks f

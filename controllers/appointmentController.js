@@ -35,9 +35,9 @@ const update = asyncWrap(async (req, res) => {
 
 const _delete = asyncWrap(async (req, res) => {
     const appointmentId = Number(req.params.appointmentId)
-    const { tenant_id, branch_id } = req.user
+    const { id: deletedBy, tenant_id, branch_id } = req.user
 
-    await appointmentService.delete(appointmentId, tenant_id, branch_id)
+    await appointmentService.delete(appointmentId, deletedBy, tenant_id, branch_id)
     res.status(200).json({ ok: true });
 })
 

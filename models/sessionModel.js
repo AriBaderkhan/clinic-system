@@ -38,7 +38,17 @@ async function getAllNormalSessions({ from, to, search, page, limit }, tenant_id
           AND sw.tenant_id = s.tenant_id
           AND sw.branch_id = s.branch_id
           AND sw.treatment_plan_id IS NULL
+          AND sw.is_deleted = false
       ) AS has_normal_works,
+
+      EXISTS (
+        SELECT 1 FROM session_works sw
+        WHERE sw.session_id = s.id
+          AND sw.tenant_id = s.tenant_id
+          AND sw.branch_id = s.branch_id
+          AND sw.treatment_plan_id IS NOT NULL
+          AND sw.is_deleted = false
+      ) AS has_plan_works,
 
       COUNT(*) OVER() AS total_count
   FROM sessions s
@@ -54,7 +64,8 @@ async function getAllNormalSessions({ from, to, search, page, limit }, tenant_id
       AND sp.branch_id = s.branch_id
   ) pay ON true
   WHERE s.tenant_id = $1
-  AND s.branch_id = $2`;
+  AND s.branch_id = $2
+  AND s.is_deleted = false`;
 
   const where = [];
   const values = [tenant_id, branch_id];
@@ -149,6 +160,7 @@ async function getNormalSession(session_id, tenant_id, branch_id, client = pool)
     WHERE s.id = $1
     AND s.tenant_id = $2
     AND s.branch_id = $3
+    AND s.is_deleted = false
   `;
   const value = [session_id, tenant_id, branch_id];
   const { rows } = await client.query(query, value);
@@ -184,11 +196,30 @@ async function updateSession(sessionID, fields, updatedBy, tenant_id, branch_id)
 
 }
 
-async function deleteSession(sessionID, tenant_id, branch_id) {
-  const query = `DELETE FROM sessions WHERE id=$1 AND tenant_id=$2 AND branch_id=$3 RETURNING *`;
-  const value = [sessionID, tenant_id, branch_id];
-  const { rows } = await pool.query(query, value);
+// Void (soft-delete) a session: flag the row, keep it for history. Takes an
+// optional client so the appointment-void transaction can reuse it.
+async function voidSession(sessionID, deletedBy, tenant_id, branch_id, client = pool) {
+  const query = `UPDATE sessions
+                    SET is_deleted = true, deleted_at = NOW(), deleted_by = $1
+                  WHERE id = $2 AND tenant_id = $3 AND branch_id = $4 AND is_deleted = false
+                  RETURNING *`;
+  const { rows } = await client.query(query, [deletedBy, sessionID, tenant_id, branch_id]);
   return rows[0] || null;
+}
+
+// Count the session's LIVE children (voided ones don't count). The service uses
+// this to enforce the bottom-up rule: a session can be voided only when empty.
+async function sessionLiveChildCounts(sessionID, tenant_id, branch_id, client = pool) {
+  const query = `
+    SELECT
+      (SELECT COUNT(*) FROM session_works sw
+         WHERE sw.session_id = $1 AND sw.tenant_id = $2 AND sw.branch_id = $3 AND sw.is_deleted = false) AS works,
+      (SELECT COUNT(*) FROM session_payments sp
+         WHERE sp.session_id = $1 AND sp.tenant_id = $2 AND sp.branch_id = $3) AS session_payments,
+      (SELECT COUNT(*) FROM treatment_payments tp
+         WHERE tp.session_id = $1 AND tp.tenant_id = $2 AND tp.branch_id = $3 AND tp.is_deleted = false) AS plan_payments`;
+  const { rows } = await client.query(query, [sessionID, tenant_id, branch_id]);
+  return rows[0];
 }
 
 // Deletes ONLY the normal works of a session (treatment_plan_id IS NULL).
@@ -319,24 +350,25 @@ async function getAllUnPaidSessions(tenant_id, branch_id, { limit, q } = {}) {
     WITH plan_totals AS (
       SELECT treatment_plan_id, SUM(amount) AS paid
       FROM treatment_payments
-      WHERE tenant_id = $1 AND branch_id = $2
+      WHERE tenant_id = $1 AND branch_id = $2 AND is_deleted = false
       GROUP BY treatment_plan_id
     ),
     session_plan_totals AS (
       SELECT session_id, treatment_plan_id, SUM(amount) AS paid
       FROM treatment_payments
-      WHERE tenant_id = $1 AND branch_id = $2
+      WHERE tenant_id = $1 AND branch_id = $2 AND is_deleted = false
       GROUP BY session_id, treatment_plan_id
     ),
     sessions_with_plan_due AS (
       SELECT DISTINCT sw.session_id
       FROM session_works sw
-      JOIN treatment_plans tp ON tp.id = sw.treatment_plan_id AND tp.tenant_id = sw.tenant_id AND tp.branch_id = sw.branch_id
+      JOIN treatment_plans tp ON tp.id = sw.treatment_plan_id AND tp.tenant_id = sw.tenant_id AND tp.branch_id = sw.branch_id AND tp.is_deleted = false
       LEFT JOIN plan_totals pt ON pt.treatment_plan_id = tp.id
       LEFT JOIN session_plan_totals spt ON spt.session_id = sw.session_id AND spt.treatment_plan_id = tp.id
       WHERE sw.tenant_id = $1
         AND sw.branch_id = $2
         AND sw.treatment_plan_id IS NOT NULL
+        AND sw.is_deleted = false
         AND tp.agreed_total > COALESCE(pt.paid, 0)
         AND COALESCE(spt.paid, 0) = 0
     )
@@ -374,6 +406,7 @@ async function getAllUnPaidSessions(tenant_id, branch_id, { limit, q } = {}) {
     WHERE a.status = 'completed'
       AND s.tenant_id = $1
       AND s.branch_id = $2
+      AND s.is_deleted = false
       AND (
         (COALESCE(s.total, 0) > 0 AND s.is_paid = false)
         OR s.id IN (SELECT session_id FROM sessions_with_plan_due)
@@ -404,6 +437,7 @@ async function getWorksForSessions(session_ids, tenant_id, branch_id) {
       AND sw.tenant_id = $2
       AND sw.branch_id = $3
       AND sw.treatment_plan_id IS NULL
+      AND sw.is_deleted = false
     ORDER BY sw.session_id, wc.name, sw.tooth_number
   `;
 
@@ -426,13 +460,15 @@ async function getAllWorksForSession(session_id, tenant_id, branch_id) {
       sw.total_price,
       sw.treatment_plan_id,
       tp.type AS plan_type,
+      tp.is_completed AS plan_is_completed,
       wc.name AS work_name
     FROM session_works sw
     JOIN work_catalog wc ON wc.id = sw.work_id AND wc.tenant_id = sw.tenant_id AND wc.branch_id = sw.branch_id
-    LEFT JOIN treatment_plans tp ON tp.id = sw.treatment_plan_id AND tp.tenant_id = sw.tenant_id AND tp.branch_id = sw.branch_id
+    LEFT JOIN treatment_plans tp ON tp.id = sw.treatment_plan_id AND tp.tenant_id = sw.tenant_id AND tp.branch_id = sw.branch_id AND tp.is_deleted = false
     WHERE sw.session_id = $1
       AND sw.tenant_id = $2
       AND sw.branch_id = $3
+      AND sw.is_deleted = false
     ORDER BY wc.name, sw.tooth_number
   `;
   const { rows } = await pool.query(query, [session_id, tenant_id, branch_id]);
@@ -457,6 +493,7 @@ async function getWorksForNormalSession(session_id, tenant_id, branch_id) {
       AND sw.tenant_id = $2
       AND sw.branch_id = $3
       AND sw.treatment_plan_id IS NULL
+      AND sw.is_deleted = false
     ORDER BY wc.name, sw.tooth_number
   `;
 
@@ -498,10 +535,11 @@ async function getSessionWithAppointmentForUpdate(sessionId, tenant_id, branch_i
       EXISTS (
         SELECT 1
         FROM session_works sw
-        JOIN treatment_plans tp ON tp.id = sw.treatment_plan_id AND tp.tenant_id = sw.tenant_id AND tp.branch_id = sw.branch_id
+        JOIN treatment_plans tp ON tp.id = sw.treatment_plan_id AND tp.tenant_id = sw.tenant_id AND tp.branch_id = sw.branch_id AND tp.is_deleted = false
         WHERE sw.session_id = s.id
           AND sw.tenant_id = s.tenant_id
           AND sw.branch_id = s.branch_id
+          AND sw.is_deleted = false
           AND tp.agreed_total > COALESCE(tp.total_paid, 0)
       ) AS has_plan_due
     FROM sessions s
@@ -519,11 +557,12 @@ async function getTreatmentPlansForSession(sessionId, tenant_id, branch_id, clie
   const query = `
     SELECT DISTINCT tp.*
     FROM session_works sw
-    JOIN treatment_plans tp ON tp.id = sw.treatment_plan_id AND tp.tenant_id = sw.tenant_id AND tp.branch_id = sw.branch_id
+    JOIN treatment_plans tp ON tp.id = sw.treatment_plan_id AND tp.tenant_id = sw.tenant_id AND tp.branch_id = sw.branch_id AND tp.is_deleted = false
     WHERE sw.session_id = $1
       AND sw.treatment_plan_id IS NOT NULL
       AND sw.tenant_id = $2
       AND sw.branch_id = $3
+      AND sw.is_deleted = false
     ORDER BY tp.created_at DESC
   `;
   const { rows } = await client.query(query, [sessionId, tenant_id, branch_id]);
@@ -564,11 +603,12 @@ async function getTreatmentPlansForSessions(sessionIds, tenant_id, branch_id) {
       tp.is_completed,
       tp.status
     FROM session_works sw
-    JOIN treatment_plans tp ON tp.id = sw.treatment_plan_id AND tp.tenant_id = sw.tenant_id AND tp.branch_id = sw.branch_id
+    JOIN treatment_plans tp ON tp.id = sw.treatment_plan_id AND tp.tenant_id = sw.tenant_id AND tp.branch_id = sw.branch_id AND tp.is_deleted = false
     WHERE sw.session_id = ANY($1)
       AND sw.treatment_plan_id IS NOT NULL
       AND sw.tenant_id = $2
       AND sw.branch_id = $3
+      AND sw.is_deleted = false
   `;
 
   const { rows } = await pool.query(query, [sessionIds, tenant_id, branch_id]);
@@ -581,10 +621,11 @@ async function hasPlanDue(sessionId, tenant_id, branch_id, client = pool) {
     SELECT EXISTS (
       SELECT 1
       FROM session_works sw
-      JOIN treatment_plans tp ON tp.id = sw.treatment_plan_id AND tp.tenant_id = sw.tenant_id AND tp.branch_id = sw.branch_id
+      JOIN treatment_plans tp ON tp.id = sw.treatment_plan_id AND tp.tenant_id = sw.tenant_id AND tp.branch_id = sw.branch_id AND tp.is_deleted = false
       WHERE sw.session_id = $1
         AND sw.tenant_id = $2
         AND sw.branch_id = $3
+        AND sw.is_deleted = false
         AND tp.agreed_total > COALESCE(tp.total_paid, 0)
     ) AS has_plan_due;
   `;
@@ -636,7 +677,7 @@ async function updateSessionNotesFields(session_id, notess, tenant_id, branch_id
 }
 
 export default {
-  createSession, getAllNormalSessions, getNormalSession, getSession, updateSession, deleteSession, deleteSessionWorksBySiD, createSessionWork, bulkCreateSessionWorks, updateSessionTotal, markSessionSettled, applyDiscount, getAllUnPaidSessions, getWorksForNormalSession, getWorksForSessions, getAllWorksForSession,
+  createSession, getAllNormalSessions, getNormalSession, getSession, updateSession, voidSession, sessionLiveChildCounts, deleteSessionWorksBySiD, createSessionWork, bulkCreateSessionWorks, updateSessionTotal, markSessionSettled, applyDiscount, getAllUnPaidSessions, getWorksForNormalSession, getWorksForSessions, getAllWorksForSession,
   getSessionWithAppointment, getTreatmentPlansForSession, getSessionPaymentContext, getSessionWithAppointmentForUpdate,
   getTreatmentPlansForSessions, hasPlanDue, updateSessionNotesFields, updatePlanWorkTooth
 }

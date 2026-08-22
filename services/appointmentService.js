@@ -149,17 +149,24 @@ async function update(appointmentDataForUpdate, tenant_id, branch_id) {
     return updated;
 }
 
-async function _delete(appointmentId, tenant_id, branch_id) {
+async function _delete(appointmentId, deletedBy, tenant_id, branch_id) {
 
-    // Bug 4 fix: block deleting an appointment that already has a visit/session,
-    // otherwise the session (works + money) is left behind as ghost data.
-    const hasSession = await appointmentModel.appointmentHasSession(appointmentId, tenant_id, branch_id);
-    if (hasSession) throw appError('APPOINTMENT_HAS_SESSION', 'Cannot delete: this appointment already has a visit. Delete the visit first.', 409);
+    // Bottom-up rule: if the appointment has a LIVE visit that still holds works or
+    // payments, block it — those must be removed first. An empty (or already-voided)
+    // visit is fine and voids together with the appointment.
+    const liveSession = await appointmentModel.getAppointmentLiveSession(appointmentId, tenant_id, branch_id);
+    if (liveSession) {
+        const counts = await sessionModel.sessionLiveChildCounts(liveSession.id, tenant_id, branch_id);
+        const live = Number(counts.works) + Number(counts.session_payments) + Number(counts.plan_payments);
+        if (live > 0) {
+            throw appError('APPOINTMENT_HAS_RECORDS', 'Cannot delete: this appointment has a visit with works or payments. Remove them first.', 409);
+        }
+    }
 
-    const deletedappointment = await appointmentModel.deleteAppointment(appointmentId, tenant_id, branch_id)
-    if (!deletedappointment) throw appError('APPOINTMENT_NOT_FOUND', 'Appointment not found', 404);
+    const voidedappointment = await appointmentModel.voidAppointment(appointmentId, deletedBy, tenant_id, branch_id);
+    if (!voidedappointment) throw appError('APPOINTMENT_NOT_FOUND', 'Appointment not found or already deleted', 404);
 
-    return deletedappointment;
+    return voidedappointment;
 }
 // END OF CRUD
 

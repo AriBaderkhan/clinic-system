@@ -26,6 +26,9 @@ router.get('/monthly/pdf', permissionMiddleware('view_reports'), gateCustomRange
 // Paid feature: gated to plans that include 'insights_assistant' (Pro).
 // Catalog = the question menu; :metricId = run one question.
 router.get('/insights/catalog', permissionMiddleware('view_reports'), featureMiddleware.checkFeature('insights_assistant'), reportsController.getInsightsCatalog)
+// Static insight paths must come BEFORE '/:metricId' so they aren't read as a metric id.
+router.get('/insights/meta', permissionMiddleware('view_reports'), featureMiddleware.checkFeature('insights_assistant'), reportsController.getInsightsMeta)
+router.get('/insights/excel', permissionMiddleware('view_reports'), featureMiddleware.checkFeature('insights_assistant'), reportsController.downloadInsightsExcel)
 router.get('/insights/:metricId', permissionMiddleware('view_reports'), featureMiddleware.checkFeature('insights_assistant'), reportsValidate.insight, reportsController.getInsight)
 
 export default router

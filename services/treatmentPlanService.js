@@ -41,17 +41,12 @@ async function update(type, agreed_total, is_completed, tpId, tenant_id, branch_
   return result;
 }
 
-async function _delete(tpId, tenant_id, branch_id) {
-  try {
-    const deletedTp = await treatmentPlanModel.deleteTp(tpId, tenant_id, branch_id);
-    if (!deletedTp) throw appError('DELETE_TP_FAILED', 'tp failed to delete', 404);
-    return deletedTp;
-  } catch (err) {
-    if (err.code === '23503') {
-      throw appError('TP_HAS_RECORDS', 'Cannot delete this treatment plan. It has existing sessions or payments.', 409);
-    }
-    throw err;
-  }
+async function _delete(tpId, deletedBy, tenant_id, branch_id) {
+  // Void (soft-delete): flags the plan + its works + its payments as deleted.
+  // No FK block anymore — a plan WITH works/payments is exactly the case we void.
+  const voidedTp = await treatmentPlanModel.voidTp(tpId, deletedBy, tenant_id, branch_id);
+  if (!voidedTp) throw appError('PLAN_NOT_FOUND', 'Treatment plan not found or already deleted', 404);
+  return voidedTp;
 }
 
 async function updatePaidSession(tpId, sessionId, amount, tenant_id, branch_id) {

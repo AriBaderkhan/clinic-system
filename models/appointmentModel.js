@@ -22,7 +22,7 @@ async function getAllAppointments(tenant_id, branch_id) {
     JOIN patients  p  ON a.patient_id = p.id AND a.tenant_id = p.tenant_id
     JOIN doctors   d  ON a.doctor_id = d.id AND a.tenant_id = d.tenant_id AND a.branch_id = d.branch_id
     JOIN profiles  pr ON d.id = pr.user_id
-    WHERE a.tenant_id = $1 AND a.branch_id = $2;`;
+    WHERE a.tenant_id = $1 AND a.branch_id = $2 AND a.is_deleted = false;`;
   const { rows } = await pool.query(query, [tenant_id, branch_id])
   return rows;
 }
@@ -54,7 +54,7 @@ async function getAppointment(appointmentId, tenant_id, branch_id, client = pool
     JOIN patients  p  ON a.patient_id = p.id AND a.tenant_id = p.tenant_id
     JOIN doctors   d  ON a.doctor_id = d.id AND a.tenant_id = d.tenant_id AND a.branch_id = d.branch_id
     JOIN profiles  pr ON d.id = pr.user_id
-    WHERE a.id = $1 AND a.tenant_id = $2 AND a.branch_id = $3;
+    WHERE a.id = $1 AND a.tenant_id = $2 AND a.branch_id = $3 AND a.is_deleted = false;
   `;
   const values = [appointmentId, tenant_id, branch_id];
   const { rows } = await client.query(query, values);
@@ -90,20 +90,48 @@ async function updateAppointment(appointmentId, fields, updatedBy, tenant_id, br
   return rows[0] || null;
 }
 
-// Bug 4 fix: a completed appointment owns a session (works + money). Used to
-// block deleting it, which would otherwise orphan that session (ghost data).
-async function appointmentHasSession(appointmentId, tenant_id, branch_id) {
-  const query = `SELECT 1 FROM sessions WHERE appointment_id = $1 AND tenant_id = $2 AND branch_id = $3 LIMIT 1`;
+// The appointment's LIVE (non-voided) session, if any. The service uses it to
+// decide whether the appointment can be voided (and to check the visit is empty).
+async function getAppointmentLiveSession(appointmentId, tenant_id, branch_id) {
+  const query = `SELECT id FROM sessions
+                  WHERE appointment_id = $1 AND tenant_id = $2 AND branch_id = $3 AND is_deleted = false
+                  LIMIT 1`;
   const { rows } = await pool.query(query, [appointmentId, tenant_id, branch_id]);
-  return rows.length > 0;
+  return rows[0] || null;
 }
 
-async function deleteAppointment(appointmentId, tenant_id, branch_id) {
+// Void (soft-delete) an appointment together with its (empty) session. The
+// service guarantees the session has no LIVE works/payments before calling.
+// Both rows flip in one transaction.
+async function voidAppointment(appointmentId, deletedBy, tenant_id, branch_id) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
 
-  const query = `DELETE FROM appointments WHERE id=$1 AND tenant_id = $2 AND branch_id = $3 RETURNING *`;
-  const values = [appointmentId, tenant_id, branch_id]
-  const { rows } = await pool.query(query, values);
-  return rows[0];
+    const apptRes = await client.query(
+      `UPDATE appointments
+          SET is_deleted = true, deleted_at = NOW(), deleted_by = $1
+        WHERE id = $2 AND tenant_id = $3 AND branch_id = $4 AND is_deleted = false
+        RETURNING *`,
+      [deletedBy, appointmentId, tenant_id, branch_id]
+    );
+
+    // Its (empty) session voids with it.
+    await client.query(
+      `UPDATE sessions
+          SET is_deleted = true, deleted_at = NOW(), deleted_by = $1
+        WHERE appointment_id = $2 AND tenant_id = $3 AND branch_id = $4 AND is_deleted = false`,
+      [deletedBy, appointmentId, tenant_id, branch_id]
+    );
+
+    await client.query("COMMIT");
+    return apptRes.rows[0] || null;
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 // END OF CRUD 
 
@@ -114,6 +142,7 @@ async function isDoctorSlotTakenExact(doctor_id, scheduled_start, tenant_id, bra
     FROM appointments
     WHERE doctor_id = $1
       AND status NOT IN ('cancelled', 'no_show','completed')
+      AND is_deleted = false
       AND scheduled_start = $2
       AND tenant_id = $3
       AND branch_id = $4
@@ -134,6 +163,7 @@ async function isDoctorAvailableInOneHourWindow(doctor_id, scheduled_start, tena
         FROM appointments
         WHERE doctor_id = $1
           AND status NOT IN ('cancelled', 'no_show','completed')
+          AND is_deleted = false
           AND ABS(EXTRACT(EPOCH FROM (scheduled_start - $2))) < 3600
           AND tenant_id = $3
           AND branch_id = $4
@@ -153,6 +183,7 @@ async function isDoctorSlotTakenExactForUpdate(doctor_id, scheduled_start, appoi
      WHERE doctor_id = $1
        AND id <> $3
        AND status NOT IN ('cancelled', 'no_show','completed')
+       AND is_deleted = false
        AND scheduled_start = $2
        AND tenant_id = $4
        AND branch_id = $5
@@ -176,6 +207,7 @@ async function isDoctorAvailableInOneHourWindowForUpdate(
      WHERE doctor_id = $1
        AND id <> $3
        AND status NOT IN ('cancelled', 'no_show','completed')
+       AND is_deleted = false
        AND ABS(EXTRACT(EPOCH FROM (scheduled_start - $2))) < 3600
        AND tenant_id = $4
        AND branch_id = $5
@@ -267,7 +299,7 @@ async function findAppointmentsWithFilters({ from, to, type, search, page, limit
     JOIN patients  p  ON a.patient_id = p.id AND a.tenant_id = p.tenant_id
     JOIN doctors   d  ON a.doctor_id = d.id AND a.tenant_id = d.tenant_id AND a.branch_id = d.branch_id
     JOIN profiles  pr ON d.id = pr.user_id
-    WHERE a.tenant_id = $1 AND a.branch_id = $2 `;
+    WHERE a.tenant_id = $1 AND a.branch_id = $2 AND a.is_deleted = false `;
 
   const where = [];
   const values = [tenant_id, branch_id];
@@ -347,6 +379,7 @@ async function findAppointmentsForCalendar({ from, to, doctor_id }, tenant_id, b
     JOIN doctors   d  ON a.doctor_id = d.id AND a.tenant_id = d.tenant_id AND a.branch_id = d.branch_id
     JOIN profiles  pr ON d.id = pr.user_id
     WHERE a.tenant_id = $1 AND a.branch_id = $2
+      AND a.is_deleted = false
       AND a.scheduled_start >= $3
       AND a.scheduled_start <  $4 `;
 
@@ -388,6 +421,7 @@ async function activeTodayAppt({ from, to }, tenant_id, branch_id) {
     JOIN profiles  pr ON d.id = pr.user_id
     WHERE a.scheduled_start >= $1
       AND a.scheduled_start <  $2
+      AND a.is_deleted = false
       AND a.status IN ('scheduled','checked_in','in_progress')
       AND a.tenant_id = $3 AND a.branch_id = $4
      ORDER BY
@@ -415,8 +449,8 @@ export default {
   createAppointment,
   getAllAppointments,
   getAppointment,
-  deleteAppointment,
-  appointmentHasSession,
+  voidAppointment,
+  getAppointmentLiveSession,
   updateAppointment,
   setAppointmentCheckIn,
   setAppointmentStart,

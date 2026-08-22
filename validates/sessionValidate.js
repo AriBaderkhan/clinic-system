@@ -19,6 +19,8 @@ const schemaEditSession = Joi.object({
         .optional(),
     total_paid: Joi.number().min(0).optional(),
     payment_note: Joi.string().max(1000).allow('', null).optional(),
+    // treatment plans the doctor ticked "Done" for (mark completed)
+    completedPlanIds: Joi.array().items(Joi.number().integer().positive()).optional(),
     // optional prescription edited alongside the works
     prescription: Joi.array().items(
         Joi.object({

@@ -32,9 +32,9 @@ const editNormal = asyncWrap(async (req, res) => {
 
 const _delete = asyncWrap(async (req, res) => {
     const sessionID = Number(req.params.sessionId);
-    const { tenant_id, branch_id } = req.user;
+    const { id: deletedBy, tenant_id, branch_id } = req.user;
 
-    await sessionService.delete(sessionID, tenant_id, branch_id)
+    await sessionService.delete(sessionID, deletedBy, tenant_id, branch_id)
     res.status(200).json({ ok: true });
 })
 

@@ -5,14 +5,15 @@ import appError from '../utils/appError.js';
 
 
 async function getActivePlan(patientId, type, tenant_id, branch_id, client = pool) {
-  const query = ` SELECT * 
+  const query = ` SELECT *
                     FROM treatment_plans
                     WHERE patient_id = $1
                         AND type = $2
                         AND tenant_id = $3
                         AND branch_id = $4
                         AND status = 'active'
-                    ORDER BY created_at DESC 
+                        AND is_deleted = false
+                    ORDER BY created_at DESC
                     LIMIT 1`;
   const values = [patientId, type, tenant_id, branch_id];
   const { rows } = await client.query(query, values);
@@ -31,6 +32,7 @@ async function getActivePlans(patientId, type, tenant_id, branch_id, client = po
          WHERE sw.treatment_plan_id = tp.id
            AND sw.tenant_id = tp.tenant_id
            AND sw.branch_id = tp.branch_id
+           AND sw.is_deleted = false
            AND sw.tooth_number IS NOT NULL) AS teeth
     FROM treatment_plans tp
     WHERE tp.patient_id = $1
@@ -38,6 +40,7 @@ async function getActivePlans(patientId, type, tenant_id, branch_id, client = po
       AND tp.tenant_id = $3
       AND tp.branch_id = $4
       AND tp.status = 'active'
+      AND tp.is_deleted = false
     ORDER BY tp.created_at ASC`;
   const { rows } = await client.query(query, [patientId, type, tenant_id, branch_id]);
   return rows;
@@ -61,6 +64,7 @@ async function getTreatmentPlanByIdForUpdate(planId, tenant_id, branch_id, clien
     WHERE id = $1
     AND tenant_id = $2
     AND branch_id = $3
+    AND is_deleted = false
     FOR UPDATE
   `;
   const { rows } = await client.query(query, [planId, tenant_id, branch_id]);
@@ -107,6 +111,7 @@ JOIN (
   WHERE treatment_plan_id = $1
   AND tenant_id = $2
   AND branch_id = $3
+  AND is_deleted = false
 ) rel
   ON rel.session_id = s.id
 
@@ -116,6 +121,7 @@ LEFT JOIN treatment_payments tpp
  AND tpp.treatment_plan_id = $1
  AND tpp.tenant_id = $2
  AND tpp.branch_id = $3
+ AND tpp.is_deleted = false
 GROUP BY
   s.id, s.next_plan, s.notes, a.finished_at
 ORDER BY a.finished_at DESC NULLS LAST;`;
@@ -144,7 +150,8 @@ async function getAllTreatmentPlansForSection({ isPaid, isCompleted, search, pag
     FROM treatment_plans tp
     JOIN patients p ON p.id = tp.patient_id  AND p.tenant_id = tp.tenant_id
     WHERE tp.tenant_id = $1
-    AND tp.branch_id = $2`;
+    AND tp.branch_id = $2
+    AND tp.is_deleted = false`;
 
   const where = [];
   const values = [tenant_id, branch_id];
@@ -232,11 +239,50 @@ async function editTp(tpId, fields, tenant_id, branch_id) {
   return rows[0] || null;
 }
 
-async function deleteTp(tpId, tenant_id, branch_id) {
-  const query = `DELETE FROM treatment_plans WHERE id=$1 AND tenant_id = $2 AND branch_id = $3 RETURNING *;`;
-  const value = [tpId, tenant_id, branch_id];
-  const { rows } = await pool.query(query, value);
-  return rows[0] || null;
+// Void (soft-delete) a treatment plan. Instead of DELETE, we flag the plan and
+// everything hanging off it — its session_works and its treatment_payments — as
+// is_deleted=true, stamped with who/when. Nothing leaves the database, so history
+// is kept and the action is reversible; but every normal read hides these rows,
+// so the plan disappears from the screens and its money drops out of the reports.
+// All three tables flip together in one transaction (all-or-nothing).
+async function voidTp(tpId, deletedBy, tenant_id, branch_id) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // 1) the plan itself — RETURNING tells the service if a live plan was hit
+    const planRes = await client.query(
+      `UPDATE treatment_plans
+          SET is_deleted = true, deleted_at = NOW(), deleted_by = $1
+        WHERE id = $2 AND tenant_id = $3 AND branch_id = $4 AND is_deleted = false
+        RETURNING *`,
+      [deletedBy, tpId, tenant_id, branch_id]
+    );
+
+    // 2) its work rows inside sessions
+    await client.query(
+      `UPDATE session_works
+          SET is_deleted = true, deleted_at = NOW(), deleted_by = $1
+        WHERE treatment_plan_id = $2 AND tenant_id = $3 AND branch_id = $4 AND is_deleted = false`,
+      [deletedBy, tpId, tenant_id, branch_id]
+    );
+
+    // 3) its money ledger
+    await client.query(
+      `UPDATE treatment_payments
+          SET is_deleted = true, deleted_at = NOW(), deleted_by = $1
+        WHERE treatment_plan_id = $2 AND tenant_id = $3 AND branch_id = $4 AND is_deleted = false`,
+      [deletedBy, tpId, tenant_id, branch_id]
+    );
+
+    await client.query("COMMIT");
+    return planRes.rows[0] || null;
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 // async function updatePaidForTpSession(tpId, sessionId, amount,tenant_id,branch_id) {
@@ -338,7 +384,7 @@ WHERE id = $2 AND tenant_id = $3 AND branch_id = $4;
 
 export default {
   getActivePlan, getActivePlans, createPlan, getTreatmentPlanByIdForUpdate, markCompleted, getSessionsForTp, getAllTreatmentPlansForSection,
-  editTp, deleteTp, updatePaidForTpSession
+  editTp, voidTp, updatePaidForTpSession
 }
 
 

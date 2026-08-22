@@ -14,6 +14,13 @@ async function getTenantName(tenant_id) {
   return rows[0]?.name || '';
 }
 
+// When the clinic joined the system — used to bound the Insights month picker so
+// no month before the clinic existed can be selected.
+async function getTenantCreatedAt(tenant_id) {
+  const { rows } = await pool.query('SELECT created_at FROM tenants WHERE id = $1', [tenant_id]);
+  return rows[0]?.created_at || null;
+}
+
 // Single branch — session-payment revenue per currency.
 async function sessionsRevByCurrency(from, to, tenant_id, branch_id) {
   const query = `
@@ -30,7 +37,7 @@ async function plansRevByCurrency(from, to, tenant_id, branch_id) {
   const query = `
     SELECT currency_code, COALESCE(SUM(amount), 0) AS total
     FROM treatment_payments
-    WHERE created_at >= $1 AND created_at < $2 AND tenant_id = $3 AND branch_id = $4
+    WHERE created_at >= $1 AND created_at < $2 AND tenant_id = $3 AND branch_id = $4 AND is_deleted = false
     GROUP BY currency_code`;
   const { rows } = await pool.query(query, [from, to, tenant_id, branch_id]);
   return rows;
@@ -72,7 +79,7 @@ async function plansRevByBranchCurrency(from, to, tenant_id) {
     SELECT b.name AS branch_name, tp.currency_code, COALESCE(SUM(tp.amount), 0) AS total
     FROM treatment_payments tp
     JOIN branches b ON b.id = tp.branch_id
-    WHERE tp.created_at >= $1 AND tp.created_at < $2 AND tp.tenant_id = $3
+    WHERE tp.created_at >= $1 AND tp.created_at < $2 AND tp.tenant_id = $3 AND tp.is_deleted = false
     GROUP BY b.name, tp.currency_code`;
   const { rows } = await pool.query(query, [from, to, tenant_id]);
   return rows;
@@ -104,7 +111,7 @@ async function registeredPatient(from, to, tenant_id, branch_id) {
 
 
 async function getAppts(from, to, tenant_id, branch_id) {
-  const query = `SELECT COUNT(*)::int AS total FROM appointments WHERE scheduled_start >= $1 AND scheduled_start < $2 AND tenant_id = $3 AND branch_id = $4`
+  const query = `SELECT COUNT(*)::int AS total FROM appointments WHERE scheduled_start >= $1 AND scheduled_start < $2 AND tenant_id = $3 AND branch_id = $4 AND is_deleted = false`
   const values = [from, to, tenant_id, branch_id]
   const { rows } = await pool.query(query, values);
   return rows[0].total;
@@ -113,7 +120,7 @@ async function getAppts(from, to, tenant_id, branch_id) {
 
 
 async function patientsHasAppt(from, to, tenant_id, branch_id) {
-  const query = `SELECT COUNT(DISTINCT patient_id)::int AS total FROM appointments WHERE scheduled_start >= $1 AND scheduled_start < $2 AND tenant_id = $3 AND branch_id = $4`
+  const query = `SELECT COUNT(DISTINCT patient_id)::int AS total FROM appointments WHERE scheduled_start >= $1 AND scheduled_start < $2 AND tenant_id = $3 AND branch_id = $4 AND is_deleted = false`
   const values = [from, to, tenant_id, branch_id]
   const { rows } = await pool.query(query, values);
   return rows[0].total;
@@ -127,7 +134,7 @@ async function apptForEachDoctor(from, to, tenant_id, branch_id) {
         COUNT(*) AS total_appointments
     FROM appointments 
     JOIN profiles pr ON pr.user_id=doctor_id
-    WHERE scheduled_start >= $1 AND scheduled_start < $2 AND tenant_id = $3 AND branch_id = $4
+    WHERE scheduled_start >= $1 AND scheduled_start < $2 AND tenant_id = $3 AND branch_id = $4 AND is_deleted = false
     GROUP BY pr.full_name
     ORDER BY total_appointments DESC;`
   const values = [from, to, tenant_id, branch_id]
@@ -142,7 +149,7 @@ async function apptsDoneByStatus(from, to, tenant_id, branch_id) {
         status,
         COUNT(*) AS status_total
     FROM appointments 
-    WHERE scheduled_start >= $1 AND scheduled_start < $2 AND tenant_id = $3 AND branch_id = $4
+    WHERE scheduled_start >= $1 AND scheduled_start < $2 AND tenant_id = $3 AND branch_id = $4 AND is_deleted = false
     GROUP BY status;`
   const values = [from, to, tenant_id, branch_id]
   const { rows } = await pool.query(query, values);
@@ -165,7 +172,7 @@ async function workByQtySingle(from, to, tenant_id, branch_id, direction) {
     FROM session_works sw
     JOIN work_catalog wc ON wc.id = sw.work_id AND wc.tenant_id = sw.tenant_id AND wc.branch_id = sw.branch_id
     JOIN sessions s ON s.id = sw.session_id AND s.tenant_id = sw.tenant_id AND s.branch_id = sw.branch_id
-    WHERE s.created_at >= $1 AND s.created_at < $2 AND s.tenant_id = $3 AND s.branch_id = $4
+    WHERE s.created_at >= $1 AND s.created_at < $2 AND s.tenant_id = $3 AND s.branch_id = $4 AND sw.is_deleted = false
     GROUP BY sw.work_id, wc.code
     ORDER BY total_qty ${direction}
     LIMIT 1;
@@ -211,7 +218,7 @@ async function getApptsByBranch(from, to, tenant_id) {
       COUNT(*) AS total
     FROM appointments a
     JOIN branches b ON b.id = a.branch_id
-    WHERE a.scheduled_start >= $1 AND a.scheduled_start < $2 AND a.tenant_id = $3
+    WHERE a.scheduled_start >= $1 AND a.scheduled_start < $2 AND a.tenant_id = $3 AND a.is_deleted = false
     GROUP BY b.name
     ORDER BY total DESC;
   `;
@@ -227,7 +234,7 @@ async function patientsHasApptByBranch(from, to, tenant_id) {
       COUNT(DISTINCT a.patient_id) AS total
     FROM appointments a
     JOIN branches b ON b.id = a.branch_id
-    WHERE a.scheduled_start >= $1 AND a.scheduled_start < $2 AND a.tenant_id = $3
+    WHERE a.scheduled_start >= $1 AND a.scheduled_start < $2 AND a.tenant_id = $3 AND a.is_deleted = false
     GROUP BY b.name
     ORDER BY total DESC;
   `;
@@ -246,7 +253,7 @@ async function apptForEachDoctorByBranch(from, to, tenant_id) {
     FROM appointments a
     JOIN profiles pr ON pr.user_id = a.doctor_id
     JOIN branches b ON b.id = a.branch_id
-    WHERE a.scheduled_start >= $1 AND a.scheduled_start < $2 AND a.tenant_id = $3
+    WHERE a.scheduled_start >= $1 AND a.scheduled_start < $2 AND a.tenant_id = $3 AND a.is_deleted = false
     GROUP BY b.name, pr.full_name
     ORDER BY b.name, total_appointments DESC;
   `;
@@ -263,7 +270,7 @@ async function apptsDoneByStatusByBranch(from, to, tenant_id) {
         COUNT(*) AS status_total
     FROM appointments a
     JOIN branches b ON b.id = a.branch_id
-    WHERE a.scheduled_start >= $1 AND a.scheduled_start < $2 AND a.tenant_id = $3
+    WHERE a.scheduled_start >= $1 AND a.scheduled_start < $2 AND a.tenant_id = $3 AND a.is_deleted = false
     GROUP BY b.name, a.status
     ORDER BY b.name, status_total DESC;
   `;
@@ -294,7 +301,7 @@ async function sumOfTreatmentPlansAmountByBranch(from, to, tenant_id) {
       COALESCE(SUM(tp.amount), 0) AS total_paid
     FROM treatment_payments tp
     JOIN branches b ON b.id = tp.branch_id
-    WHERE tp.created_at >= $1 AND tp.created_at < $2 AND tp.tenant_id = $3
+    WHERE tp.created_at >= $1 AND tp.created_at < $2 AND tp.tenant_id = $3 AND tp.is_deleted = false
     GROUP BY b.name;
   `;
   const values = [from, to, tenant_id];
@@ -317,7 +324,7 @@ async function workByQtyByBranch(from, to, tenant_id, direction) {
     JOIN work_catalog wc ON wc.id = sw.work_id
     JOIN sessions s ON s.id = sw.session_id
     JOIN branches b ON b.id = s.branch_id
-    WHERE s.created_at >= $1 AND s.created_at < $2 AND s.tenant_id = $3
+    WHERE s.created_at >= $1 AND s.created_at < $2 AND s.tenant_id = $3 AND sw.is_deleted = false
     GROUP BY b.name, sw.work_id, wc.code
     ORDER BY b.name, total_qty ${direction};
   `;
@@ -356,6 +363,7 @@ async function returningPatientsByBranch(from, to, tenant_id) {
     JOIN patients p ON p.id = a.patient_id AND p.tenant_id = a.tenant_id
     JOIN branches b ON b.id = a.branch_id
     WHERE a.tenant_id = $3 AND a.scheduled_start >= $1 AND a.scheduled_start < $2
+      AND a.is_deleted = false
       AND p.created_at < $1
     GROUP BY b.name
     ORDER BY total DESC;`;
@@ -413,6 +421,7 @@ async function cancellationReasonsByBranch(from, to, tenant_id) {
     FROM appointments a
     JOIN branches b ON b.id = a.branch_id
     WHERE a.tenant_id = $3 AND a.scheduled_start >= $1 AND a.scheduled_start < $2
+      AND a.is_deleted = false
       AND a.status = 'cancelled'
     GROUP BY b.name, label
     ORDER BY b.name, total DESC;`;
@@ -430,6 +439,7 @@ async function followUpPatientsByBranch(from, to, tenant_id) {
     JOIN appointments a ON a.id = s.appointment_id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
     JOIN branches b ON b.id = s.branch_id
     WHERE s.tenant_id = $3 AND s.created_at >= $1 AND s.created_at < $2
+      AND sw.is_deleted = false
       AND wc.code = 'follow_up'
     GROUP BY b.name
     ORDER BY total DESC;`;
@@ -448,7 +458,7 @@ async function treatmentBreakdownByBranch(from, to, tenant_id) {
     JOIN work_catalog wc ON wc.id = sw.work_id AND wc.tenant_id = sw.tenant_id AND wc.branch_id = sw.branch_id
     JOIN sessions s ON s.id = sw.session_id AND s.tenant_id = sw.tenant_id AND s.branch_id = sw.branch_id
     JOIN branches b ON b.id = s.branch_id
-    WHERE s.tenant_id = $3 AND s.created_at >= $1 AND s.created_at < $2
+    WHERE s.tenant_id = $3 AND s.created_at >= $1 AND s.created_at < $2 AND sw.is_deleted = false
     GROUP BY b.name, wc.name
     ORDER BY b.name, total DESC;`;
   const { rows } = await pool.query(query, [from, to, tenant_id]);
@@ -471,11 +481,11 @@ async function revenuePerDoctorByBranch(from, to, tenant_id) {
       FROM treatment_payments tp
       JOIN sessions s ON s.id = tp.session_id AND s.tenant_id = tp.tenant_id AND s.branch_id = tp.branch_id
       JOIN appointments a ON a.id = s.appointment_id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
-      WHERE tp.tenant_id = $3 AND tp.created_at >= $1 AND tp.created_at < $2 AND tp.session_id IS NOT NULL
+      WHERE tp.tenant_id = $3 AND tp.created_at >= $1 AND tp.created_at < $2 AND tp.session_id IS NOT NULL AND tp.is_deleted = false
       UNION ALL
       SELECT tp.branch_id, NULL AS doctor_id, tp.amount
       FROM treatment_payments tp
-      WHERE tp.tenant_id = $3 AND tp.created_at >= $1 AND tp.created_at < $2 AND tp.session_id IS NULL
+      WHERE tp.tenant_id = $3 AND tp.created_at >= $1 AND tp.created_at < $2 AND tp.session_id IS NULL AND tp.is_deleted = false
     )
     SELECT
       b.name AS branch_name,
@@ -503,7 +513,7 @@ async function revenuePerTreatmentByBranch(from, to, tenant_id) {
     JOIN work_catalog wc ON wc.id = sw.work_id AND wc.tenant_id = sw.tenant_id AND wc.branch_id = sw.branch_id
     JOIN sessions s ON s.id = sw.session_id AND s.tenant_id = sw.tenant_id AND s.branch_id = sw.branch_id
     JOIN branches b ON b.id = s.branch_id
-    WHERE s.tenant_id = $3 AND s.created_at >= $1 AND s.created_at < $2
+    WHERE s.tenant_id = $3 AND s.created_at >= $1 AND s.created_at < $2 AND sw.is_deleted = false
     GROUP BY b.name, wc.name
     ORDER BY b.name, total DESC;`;
   const { rows } = await pool.query(query, [from, to, tenant_id]);
@@ -526,6 +536,7 @@ async function appointmentsListByBranch(from, to, tenant_id) {
     JOIN branches b  ON b.id = a.branch_id
     LEFT JOIN profiles pr ON pr.user_id = a.doctor_id
     WHERE a.tenant_id = $3 AND a.scheduled_start >= $1 AND a.scheduled_start < $2
+      AND a.is_deleted = false
     ORDER BY a.scheduled_start ASC;`;
   const { rows } = await pool.query(query, [from, to, tenant_id]);
   return rows;
@@ -534,6 +545,7 @@ async function appointmentsListByBranch(from, to, tenant_id) {
 export default {
   // Currency-aware money (per currency) + tenant name
   getTenantName,
+  getTenantCreatedAt,
   sessionsRevByCurrency, plansRevByCurrency, expensesByCurrency,
   sessionsRevByBranchCurrency, plansRevByBranchCurrency, expensesByBranchCurrency,
 

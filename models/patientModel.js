@@ -184,6 +184,7 @@ async function getAllApptsPatient(patientId, tenant_id, branch_id) {
     WHERE a.patient_id = $1
       AND a.tenant_id = $2
       AND a.branch_id = $3
+      AND a.is_deleted = false
 ORDER BY a.scheduled_start DESC;
 `;
   const value = [patientId, tenant_id, branch_id];
@@ -273,7 +274,7 @@ async function getAllTreatmentPlansPatient(patientId, tenant_id, branch_id) {
         currency_code,
         created_at
     FROM treatment_plans
-    WHERE patient_id = $1 AND tenant_id = $2 AND branch_id = $3
+    WHERE patient_id = $1 AND tenant_id = $2 AND branch_id = $3 AND is_deleted = false
     ORDER BY created_at DESC`;
   const value = [patientId, tenant_id, branch_id];
   const { rows } = await pool.query(query, value);

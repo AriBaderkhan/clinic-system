@@ -55,9 +55,9 @@ const update = asyncWrap(async (req, res) => {
 
 const _delete = asyncWrap(async (req, res) => {
     const tpId = Number(req.params.treatmentPlanId)
-    const { tenant_id, branch_id } = req.user;
+    const { id: deletedBy, tenant_id, branch_id } = req.user;
 
-    await treatmentPlanService.delete(tpId, tenant_id, branch_id)
+    await treatmentPlanService.delete(tpId, deletedBy, tenant_id, branch_id)
     res.status(200).json({ ok: true });
 })
 

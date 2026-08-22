@@ -62,6 +62,7 @@ function buildPlanWorks(rows) {
     work_name: row.work_name,
     plan_type: row.plan_type || null,
     treatment_plan_id: row.treatment_plan_id,
+    is_completed: !!row.plan_is_completed,
     tooth_number: row.tooth_number,
     quantity: row.quantity,
   }));
@@ -154,7 +155,7 @@ async function getNormal(session_id, tenant_id, branch_id) {
 async function editNormal(session_id, fields, userId, tenant_id, branch_id) {
   const client = await pool.connect();
 
-  const { notes, next_plan, works, total_paid, prescription, payment_note } = fields;
+  const { notes, next_plan, works, total_paid, prescription, payment_note, completedPlanIds } = fields;
 
   try {
     await client.query("BEGIN");
@@ -326,6 +327,17 @@ async function editNormal(session_id, fields, userId, tenant_id, branch_id) {
       );
     }
 
+    // Mark treatment plans "Done" (doctor ticked them in the editor). Each plan
+    // must belong to THIS patient — same guard the completion flow uses.
+    if (Array.isArray(completedPlanIds) && completedPlanIds.length > 0) {
+      for (const pid of completedPlanIds) {
+        const plan = await treatmentPlanModel.getTreatmentPlanByIdForUpdate(Number(pid), tenant_id, branch_id, client);
+        if (plan && Number(plan.patient_id) === Number(base.patient_id)) {
+          await treatmentPlanModel.markCompleted(Number(pid), tenant_id, branch_id, client);
+        }
+      }
+    }
+
     await client.query("COMMIT");
 
     return {
@@ -379,17 +391,18 @@ async function updatePlanWorkTeeth(session_id, updates, tenant_id, branch_id) {
   }
 }
 
-async function _delete(sessionID, tenant_id, branch_id) {
-  try {
-    const deletedsession = await sessionModel.deleteSession(sessionID, tenant_id, branch_id);
-    if (!deletedsession) throw appError('DELETE_SESSION_FAILED', 'session failed to delete', 500);
-    return deletedsession;
-  } catch (err) {
-    if (err.code === '23503') {
-      throw appError('SESSION_HAS_RECORDS', 'Cannot delete this session. It has existing payments.', 409);
-    }
-    throw err;
+async function _delete(sessionID, deletedBy, tenant_id, branch_id) {
+  // Bottom-up rule: a visit can be voided only when it has no LIVE works/payments.
+  // (Voided children — e.g. from a voided plan — don't count.)
+  const counts = await sessionModel.sessionLiveChildCounts(sessionID, tenant_id, branch_id);
+  const live = Number(counts.works) + Number(counts.session_payments) + Number(counts.plan_payments);
+  if (live > 0) {
+    throw appError('SESSION_NOT_EMPTY', 'Cannot delete: this visit still has works or payments. Remove them first.', 409);
   }
+
+  const voided = await sessionModel.voidSession(sessionID, deletedBy, tenant_id, branch_id);
+  if (!voided) throw appError('SESSION_NOT_FOUND', 'Session not found or already deleted', 404);
+  return voided;
 }
 
 async function getUnpaid(tenant_id, branch_id, { limit, q } = {}) {

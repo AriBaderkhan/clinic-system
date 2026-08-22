@@ -59,6 +59,7 @@ async function activeTodayAppt({ from, to, doc_id}, tenant_id, branch_id ) {
     JOIN profiles  pr ON d.id = pr.user_id
     WHERE a.scheduled_start >= $1
       AND a.scheduled_start <  $2
+      AND a.is_deleted = false
       AND a.status IN ('scheduled','checked_in','in_progress')
       AND a.doctor_id=$3
       AND a.tenant_id = $4
@@ -101,6 +102,7 @@ async function openApptsPerDoctor(doc_id, tenant_id, branch_id) {
     JOIN doctors   d  ON a.doctor_id = d.id AND a.tenant_id = d.tenant_id AND a.branch_id = d.branch_id
     JOIN profiles  pr ON d.id = pr.user_id
     WHERE a.status = 'in_progress'
+      AND a.is_deleted = false
       AND a.doctor_id = $1
       AND a.tenant_id = $2
       AND a.branch_id = $3
@@ -127,7 +129,7 @@ async function findApptsPerDoctorWithFilters({ from, to, type, search, doc_id },
     JOIN patients  p  ON a.patient_id = p.id AND a.tenant_id = p.tenant_id
     JOIN doctors   d  ON a.doctor_id = d.id AND a.tenant_id = d.tenant_id AND a.branch_id = d.branch_id
     JOIN profiles  pr ON a.doctor_id = pr.user_id
-    WHERE a.tenant_id = $1 AND a.branch_id = $2
+    WHERE a.tenant_id = $1 AND a.branch_id = $2 AND a.is_deleted = false
     `;
 
   const where = [];
@@ -238,7 +240,7 @@ async function doctorRevenue(from, to, tenant_id, branch_id, doc_id) {
       JOIN sessions s     ON s.id = tp.session_id AND s.tenant_id = tp.tenant_id AND s.branch_id = tp.branch_id
       JOIN appointments a ON a.id = s.appointment_id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
       WHERE tp.tenant_id = $1 AND tp.branch_id = $2 AND tp.created_at >= $3 AND tp.created_at < $4
-        AND tp.session_id IS NOT NULL AND a.doctor_id = $5
+        AND tp.session_id IS NOT NULL AND a.doctor_id = $5 AND tp.is_deleted = false
     ) x
     GROUP BY currency_code;`;
   const { rows } = await pool.query(query, [tenant_id, branch_id, from, to, doc_id]);
@@ -252,6 +254,7 @@ async function doctorApptCountsByStatus(from, to, tenant_id, branch_id, doc_id) 
     SELECT a.status, COUNT(*) AS total
     FROM appointments a
     WHERE a.tenant_id = $1 AND a.branch_id = $2
+      AND a.is_deleted = false
       AND a.scheduled_start >= $3 AND a.scheduled_start < $4
       AND a.doctor_id = $5
     GROUP BY a.status;`;
@@ -267,7 +270,7 @@ async function doctorWorksBreakdown(from, to, tenant_id, branch_id, doc_id) {
     JOIN work_catalog wc ON wc.id = sw.work_id AND wc.tenant_id = sw.tenant_id AND wc.branch_id = sw.branch_id
     JOIN sessions s      ON s.id = sw.session_id AND s.tenant_id = sw.tenant_id AND s.branch_id = sw.branch_id
     JOIN appointments a  ON a.id = s.appointment_id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
-    WHERE s.tenant_id = $1 AND s.branch_id = $2 AND s.created_at >= $3 AND s.created_at < $4 AND a.doctor_id = $5
+    WHERE s.tenant_id = $1 AND s.branch_id = $2 AND s.created_at >= $3 AND s.created_at < $4 AND a.doctor_id = $5 AND sw.is_deleted = false
     GROUP BY wc.name, wc.code
     ORDER BY qty DESC;`;
   const { rows } = await pool.query(query, [tenant_id, branch_id, from, to, doc_id]);

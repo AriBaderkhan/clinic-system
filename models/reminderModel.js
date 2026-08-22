@@ -17,6 +17,7 @@ async function getUpcoming(tenant_id, branch_id, client = pool) {
     JOIN patients p ON a.patient_id = p.id AND a.tenant_id = p.tenant_id
     WHERE a.tenant_id = $1
       AND a.branch_id = $2
+      AND a.is_deleted = false
       AND a.status = 'scheduled'
       AND a.scheduled_start BETWEEN NOW() AND NOW() + INTERVAL '48 hours'
       AND NOT EXISTS (
