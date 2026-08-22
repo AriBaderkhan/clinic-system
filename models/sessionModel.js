@@ -241,7 +241,8 @@ async function createSessionWork({
   unitPrice,
   totalMinPrice,
   totalPrice,
-  treatmentPlanId
+  treatmentPlanId,
+  arch
 }, tenant_id, branch_id, client = pool) {
   const query = `
     INSERT INTO session_works (
@@ -255,9 +256,10 @@ async function createSessionWork({
       total_price,
       treatment_plan_id,
       tenant_id,
-      branch_id
+      branch_id,
+      arch
     )
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
     RETURNING *;
   `;
 
@@ -272,7 +274,8 @@ async function createSessionWork({
     totalPrice,
     treatmentPlanId,
     tenant_id,
-    branch_id
+    branch_id,
+    arch ?? null
   ];
 
   const { rows } = await client.query(query, values);
@@ -282,16 +285,16 @@ async function createSessionWork({
 async function bulkCreateSessionWorks(works, tenant_id, branch_id, client = pool) {
   const values = [];
   const placeholders = works.map((w, i) => {
-    const b = i * 11;
-    values.push(w.sessionId, w.workId, w.quantity, w.toothNumber, w.minUnitPrice, w.unitPrice, w.totalMinPrice, w.totalPrice, w.treatmentPlanId, tenant_id, branch_id);
-    return `($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8},$${b+9},$${b+10},$${b+11})`;
+    const b = i * 12;
+    values.push(w.sessionId, w.workId, w.quantity, w.toothNumber, w.minUnitPrice, w.unitPrice, w.totalMinPrice, w.totalPrice, w.treatmentPlanId, tenant_id, branch_id, w.arch ?? null);
+    return `($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8},$${b+9},$${b+10},$${b+11},$${b+12})`;
   });
 
   const query = `
     INSERT INTO session_works (
       session_id, work_id, quantity, tooth_number,
       min_unit_price, unit_price, total_min_price, total_price,
-      treatment_plan_id, tenant_id, branch_id
+      treatment_plan_id, tenant_id, branch_id, arch
     )
     VALUES ${placeholders.join(', ')}
     RETURNING *
@@ -459,9 +462,11 @@ async function getAllWorksForSession(session_id, tenant_id, branch_id) {
       sw.unit_price,
       sw.total_price,
       sw.treatment_plan_id,
+      sw.arch,
       tp.type AS plan_type,
       tp.is_completed AS plan_is_completed,
-      wc.name AS work_name
+      wc.name AS work_name,
+      wc.is_whole_mouth AS is_whole_mouth
     FROM session_works sw
     JOIN work_catalog wc ON wc.id = sw.work_id AND wc.tenant_id = sw.tenant_id AND wc.branch_id = sw.branch_id
     LEFT JOIN treatment_plans tp ON tp.id = sw.treatment_plan_id AND tp.tenant_id = sw.tenant_id AND tp.branch_id = sw.branch_id AND tp.is_deleted = false

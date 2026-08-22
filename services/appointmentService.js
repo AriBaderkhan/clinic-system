@@ -309,7 +309,9 @@ async function complete({ appointmentId, doctorId, next_plan, notes, works, comp
                 unitPrice: unit,
                 totalMinPrice: rowMin,
                 totalPrice: rowTotal,
-                treatmentPlanId: rawTreatmentPlanId
+                treatmentPlanId: rawTreatmentPlanId,
+                // whole-mouth region (only whole-mouth works carry it)
+                arch: catalog.is_whole_mouth ? (w.arch ?? null) : null
             }, tenant_id, branch_id, client
             );
 

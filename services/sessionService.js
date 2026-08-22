@@ -23,7 +23,8 @@ function buildWorksSummary(worksRows) {
   const groups = {}; // key: work_id-unit_price
 
   for (const row of worksRows) {
-    const key = `${row.work_id}-${row.unit_price}`;
+    // include arch in the key so an Upper and a Lower of the same work stay separate
+    const key = `${row.work_id}-${row.unit_price}-${row.arch || ''}`;
 
     if (!groups[key]) {
       groups[key] = {
@@ -32,6 +33,7 @@ function buildWorksSummary(worksRows) {
         quantity: 0,
         total_price: 0,
         teeth: [],
+        arch: row.arch || null,                    // whole-mouth region: null | 'upper' | 'lower'
       };
     }
 
@@ -236,6 +238,8 @@ async function editNormal(session_id, fields, userId, tenant_id, branch_id) {
           totalMinPrice: rowMin,
           totalPrice: rowTotal,
           treatmentPlanId,
+          // whole-mouth region (only whole-mouth works carry it; per-tooth works use teeth)
+          arch: catalog.is_whole_mouth ? (w.arch ?? null) : null,
         });
 
         // plan works don't count toward the session (normal) total

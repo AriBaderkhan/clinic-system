@@ -13,6 +13,8 @@ const schemaEditSession = Joi.object({
                 // for adding treatment-plan works during an edit:
                 treatment_plan_id: Joi.number().integer().positive().allow(null).optional(),
                 agreed_total: Joi.number().positive().allow(null).optional(),
+                // whole-mouth region: 'upper' | 'lower' (absent/null = whole mouth)
+                arch: Joi.string().valid('upper', 'lower').allow(null).optional(),
             })
         )
         .min(1)

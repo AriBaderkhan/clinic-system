@@ -27,7 +27,8 @@ function buildWorksSummary(worksRows) {
 
   for (const row of worksRows) {
     const isPlan = !!row.treatment_plan_id;
-    const key = `${row.work_id}-${row.unit_price}-${row.treatment_plan_id || 'normal'}`;
+    // include arch so Upper / Lower / Whole of the same work stay on separate lines
+    const key = `${row.work_id}-${row.unit_price}-${row.treatment_plan_id || 'normal'}-${row.arch || ''}`;
 
     if (!groups[key]) {
       groups[key] = {
@@ -37,6 +38,8 @@ function buildWorksSummary(worksRows) {
         teeth: [],
         is_plan: isPlan,                           // treatment-plan work vs normal
         plan_type: row.plan_type || null,
+        arch: row.arch || null,                    // whole-mouth region: null | 'upper' | 'lower'
+        is_whole_mouth: !!row.is_whole_mouth,      // so the view can label the region
       };
     }
 
