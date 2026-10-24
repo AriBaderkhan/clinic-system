@@ -8,6 +8,12 @@ const schemaPatientAdd = Joi.object({
     phone: Joi.string().pattern(/^[0-9]{10,15}$/).required().messages({
         'string.pattern.base': 'Phone must contain only numbers (10–15 digits)'
     }),
+    // Up to 3 optional extra phones (4 in total with the main one)
+    extra_phones: Joi.array().items(
+        Joi.string().pattern(/^[0-9]{10,15}$/).messages({
+            'string.pattern.base': 'Phone must contain only numbers (10–15 digits)'
+        })
+    ).max(3).optional(),
     age: Joi.number().min(3).required().messages({
         'number.min': 'Age must be at least 3'
     }),

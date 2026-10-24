@@ -160,7 +160,7 @@ async function findApptsPerDoctorWithFilters({ from, to, type, search, doc_id },
   }
   if (search) {
     where.push(
-      `(p.name ILIKE $${idx} OR p.phone ILIKE $${idx} )`
+      `(p.name ILIKE $${idx} OR p.phone ILIKE $${idx} OR array_to_string(p.extra_phones, ' ') ILIKE $${idx} )`
     );
     values.push(`%${search}%`);
     idx++;

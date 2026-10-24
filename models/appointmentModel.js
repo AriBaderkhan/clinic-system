@@ -325,7 +325,7 @@ async function findAppointmentsWithFilters({ from, to, type, search, page, limit
 
   if (search) {
     where.push(
-      `(p.name ILIKE $${idx} OR p.phone ILIKE $${idx} OR pr.full_name ILIKE $${idx})`
+      `(p.name ILIKE $${idx} OR p.phone ILIKE $${idx} OR array_to_string(p.extra_phones, ' ') ILIKE $${idx} OR pr.full_name ILIKE $${idx})`
     );
     values.push(`%${search}%`);
     idx++;

@@ -2,11 +2,11 @@ import patientService from '../services/patientService.js';
 import asyncWrap from '../utils/asyncWrap.js';
 
 const create = asyncWrap(async (req, res) => {
-    const { name, phone, age, gender, address, allergies, blood_type, chronic_diseases, referral_source } = req.body;
+    const { name, phone, extra_phones, age, gender, address, allergies, blood_type, chronic_diseases, referral_source } = req.body;
     const created_by = req.user.id;
     const { tenant_id, branch_id } = req.user;
 
-    const patientData = { name, phone, age, gender, address, allergies, blood_type, chronic_diseases, referral_source, created_by }
+    const patientData = { name, phone, extra_phones, age, gender, address, allergies, blood_type, chronic_diseases, referral_source, created_by }
 
     const result = await patientService.create(patientData, tenant_id, branch_id);
     res.status(201).json({ ok: true, data: result });

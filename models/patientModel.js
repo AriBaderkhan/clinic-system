@@ -1,9 +1,9 @@
 import pool from '../db_connection.js';
 
 
-async function createPatient(name, phone, age, gender, address, allergies, blood_type, chronic_diseases, referral_source, created_by, tenant_id, branch_id) {
-  const query = `INSERT INTO patients (name,phone,age,gender,address,allergies,blood_type,chronic_diseases,referral_source,created_by,tenant_id,branch_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *;`;
-  const values = [name, phone, age, gender, address, allergies, blood_type, chronic_diseases, referral_source, created_by, tenant_id, branch_id];
+async function createPatient(name, phone, extra_phones, age, gender, address, allergies, blood_type, chronic_diseases, referral_source, created_by, tenant_id, branch_id) {
+  const query = `INSERT INTO patients (name,phone,extra_phones,age,gender,address,allergies,blood_type,chronic_diseases,referral_source,created_by,tenant_id,branch_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *;`;
+  const values = [name, phone, extra_phones, age, gender, address, allergies, blood_type, chronic_diseases, referral_source, created_by, tenant_id, branch_id];
   const { rows } = await pool.query(query, values);
   return rows[0] || null;
 }
@@ -50,7 +50,7 @@ WHERE p.tenant_id = $1
   let idx = 3;
 
   if (q) {
-    query += ` AND (p.name ILIKE $${idx} OR p.phone ILIKE $${idx})`;
+    query += ` AND (p.name ILIKE $${idx} OR p.phone ILIKE $${idx} OR array_to_string(p.extra_phones, ' ') ILIKE $${idx})`;
     values.push(`%${q}%`);
     idx++;
   }
@@ -70,7 +70,7 @@ WHERE p.tenant_id = $1
 
 async function getPatient(patientId, tenant_id, branch_id) {
   const query = `
-  SELECT p.id, p.name, p.phone, p.age, p.gender, p.address,
+  SELECT p.id, p.name, p.phone, p.extra_phones, p.age, p.gender, p.address,
          p.allergies, p.blood_type, p.chronic_diseases, p.referral_source,
          p.created_by, p.updated_by
 FROM patients p
@@ -152,7 +152,7 @@ async function searchPatientsModel(q, tenant_id, branch_id) {
             AND pba.branch_id = $3
         )
       ) AND
-      (p.name ILIKE $1 OR p.phone ILIKE $1)
+      (p.name ILIKE $1 OR p.phone ILIKE $1 OR array_to_string(p.extra_phones, ' ') ILIKE $1)
       ORDER BY p.name ASC
       LIMIT 20;
     `;
