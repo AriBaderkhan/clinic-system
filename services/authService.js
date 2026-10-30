@@ -187,7 +187,7 @@ async function getLiveContext(user_id, tenant_id, branch_id) {
     if (assignment && assignment.is_active) {
         const permissionsRow = await permissionsModel.findPermissionsByRole(assignment.role_id);
         const permissions = permissionsRow.map(row => row.permission_key);
-        return { role: assignment.role_name, permissions, is_active: true };
+        return { role: assignment.role_name, permissions, is_active: true, clinic_name: assignment.tenant_name };
     }
 
     // No assignment on THIS branch. A tenant_manager owns every branch in their
@@ -202,7 +202,7 @@ async function getLiveContext(user_id, tenant_id, branch_id) {
     if (managerRow) {
         const permissionsRow = await permissionsModel.findPermissionsByRole(managerRow.role_id);
         const permissions = permissionsRow.map(row => row.permission_key);
-        return { role: managerRow.role_name, permissions, is_active: true };
+        return { role: managerRow.role_name, permissions, is_active: true, clinic_name: managerRow.tenant_name };
     }
 
     return { role: null, permissions: [], is_active: false };

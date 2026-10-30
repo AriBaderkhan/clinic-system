@@ -12,10 +12,12 @@ async function findUserById(user_id, tenant_id) {
     ubr.is_active,
     ubr.role_id,
     b.name AS branch_name,
-    r.name AS role_name
+    r.name AS role_name,
+    t.name AS tenant_name
     FROM user_branch_roles ubr
     JOIN roles r ON ubr.role_id = r.id
     JOIN branches b ON ubr.branch_id = b.id
+    JOIN tenants t ON ubr.tenant_id = t.id
     WHERE ubr.user_id = $1 AND ubr.tenant_id = $2 AND ubr.is_active = true`;
     const values = [user_id, tenant_id];
     const { rows } = await pool.query(query, values);
@@ -61,10 +63,12 @@ async function findUserByAll(user_id, tenant_id, branch_id) {
     ubr.is_active,
     ubr.role_id,
     b.name AS branch_name,
-    r.name AS role_name
+    r.name AS role_name,
+    t.name AS tenant_name
     FROM user_branch_roles ubr
     JOIN roles r ON ubr.role_id = r.id
     JOIN branches b ON ubr.branch_id = b.id
+    JOIN tenants t ON ubr.tenant_id = t.id
     WHERE ubr.user_id = $1 AND ubr.tenant_id = $2 AND ubr.branch_id = $3`;
     const values = [user_id, tenant_id, branch_id];
     const { rows } = await pool.query(query, values);

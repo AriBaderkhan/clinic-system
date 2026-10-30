@@ -94,6 +94,7 @@ const me = asyncWrap(async (req, res) => {
             role: req.user.role,
             name: req.user.name,
             permissions: req.user.permissions,
+            clinic_name: req.user.clinic_name,
         },
     });
 });
