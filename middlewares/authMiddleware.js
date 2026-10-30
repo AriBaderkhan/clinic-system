@@ -31,6 +31,7 @@ async function authMiddleware(req, res, next) {
             ...decoded,
             role: live.role ?? decoded.role,
             permissions: live.permissions,
+            clinic_name: live.clinic_name,
         };
         next();
     } catch (err) {
