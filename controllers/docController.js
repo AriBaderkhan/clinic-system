@@ -69,4 +69,16 @@ const downloadMyReportPdf = asyncWrap(async (req, res) => {
     res.status(200).send(pdfBuffer);
 });
 
-export default { getAll, getActiveToday, getOpenAppts, getAppointments, getSession, getMyReport, downloadMyReportPdf }
+const getSettings = asyncWrap(async (req, res) => {
+    const { tenant_id, branch_id } = req.user;
+    const result = await docService.getSettings(req.params.doctorId, tenant_id, branch_id);
+    res.status(200).json({ ok: true, data: result });
+});
+
+const saveSettings = asyncWrap(async (req, res) => {
+    const { tenant_id, branch_id } = req.user;
+    const result = await docService.saveSettings(req.params.doctorId, req.body, tenant_id, branch_id);
+    res.status(200).json({ ok: true, data: result });
+});
+
+export default { getAll, getActiveToday, getOpenAppts, getAppointments, getSession, getMyReport, downloadMyReportPdf, getSettings, saveSettings }

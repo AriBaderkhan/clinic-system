@@ -133,7 +133,19 @@ async function voidAppointment(appointmentId, deletedBy, tenant_id, branch_id) {
     client.release();
   }
 }
-// END OF CRUD 
+// Void just the appointment row, inside the caller's transaction (used when a
+// whole visit is deleted from the session editor).
+async function voidAppointmentRow(appointmentId, deletedBy, tenant_id, branch_id, client) {
+  const { rows } = await client.query(
+    `UPDATE appointments
+        SET is_deleted = true, deleted_at = NOW(), deleted_by = $1
+      WHERE id = $2 AND tenant_id = $3 AND branch_id = $4 AND is_deleted = false
+      RETURNING *`,
+    [deletedBy, appointmentId, tenant_id, branch_id]
+  );
+  return rows[0] || null;
+}
+// END OF CRUD
 
 // Checking availability for doctor
 async function isDoctorSlotTakenExact(doctor_id, scheduled_start, tenant_id, branch_id) {
@@ -282,7 +294,14 @@ async function setAppointmentNoShow(appointmentId, userId, cancel_reason, tenant
 
 
 // for filtters and searches by type and p.name, p.phone and d.name DYNAMIC
-async function findAppointmentsWithFilters({ from, to, type, search, page, limit }, tenant_id, branch_id) {
+// Floor filter: an appointment is on the floor of its doctor's CURRENT home floor
+// (it follows the doctor). A doctor with no home floor shows on every floor.
+// (also used by the unpaid sessions list — same rule everywhere)
+export const onDoctorFloor = (idx) => `
+  (NOT EXISTS (SELECT 1 FROM staff_floors sf WHERE sf.user_id = a.doctor_id AND sf.tenant_id = a.tenant_id AND sf.branch_id = a.branch_id)
+   OR EXISTS (SELECT 1 FROM staff_floors sf WHERE sf.user_id = a.doctor_id AND sf.tenant_id = a.tenant_id AND sf.branch_id = a.branch_id AND sf.floor_id = $${idx}))`;
+
+async function findAppointmentsWithFilters({ from, to, type, search, floor_id, page, limit }, tenant_id, branch_id) {
   const baseQuery = `
     SELECT
       a.id,
@@ -331,6 +350,12 @@ async function findAppointmentsWithFilters({ from, to, type, search, page, limit
     idx++;
   }
 
+  if (floor_id) {
+    where.push(onDoctorFloor(idx));
+    values.push(floor_id);
+    idx++;
+  }
+
   let query = baseQuery;
   if (where.length > 0) {
     query += ` AND ` + where.join(" AND ");
@@ -362,7 +387,7 @@ async function findAppointmentsWithFilters({ from, to, type, search, page, limit
 }
 
 // for calendar view (month/week range, optional doctor filter for doctor role)
-async function findAppointmentsForCalendar({ from, to, doctor_id }, tenant_id, branch_id) {
+async function findAppointmentsForCalendar({ from, to, doctor_id, floor_id }, tenant_id, branch_id) {
   const baseQuery = `
     SELECT
       a.id,
@@ -387,8 +412,12 @@ async function findAppointmentsForCalendar({ from, to, doctor_id }, tenant_id, b
 
   let query = baseQuery;
   if (doctor_id) {
-    query += ` AND a.doctor_id = $5`;
     values.push(doctor_id);
+    query += ` AND a.doctor_id = $${values.length}`;
+  }
+  if (floor_id) {
+    values.push(floor_id);
+    query += ` AND ${onDoctorFloor(values.length)}`;
   }
 
   query += ` ORDER BY a.scheduled_start ASC`;
@@ -398,7 +427,7 @@ async function findAppointmentsForCalendar({ from, to, doctor_id }, tenant_id, b
 }
 
 // for dashboard
-async function activeTodayAppt({ from, to }, tenant_id, branch_id) {
+async function activeTodayAppt({ from, to, floor_id }, tenant_id, branch_id) {
   const query = `
     SELECT 
       a.id,
@@ -424,6 +453,7 @@ async function activeTodayAppt({ from, to }, tenant_id, branch_id) {
       AND a.is_deleted = false
       AND a.status IN ('scheduled','checked_in','in_progress')
       AND a.tenant_id = $3 AND a.branch_id = $4
+      ${floor_id ? `AND ${onDoctorFloor(5)}` : ''}
      ORDER BY
     CASE a.status
       WHEN 'in_progress' THEN 1
@@ -433,7 +463,7 @@ async function activeTodayAppt({ from, to }, tenant_id, branch_id) {
     END,
     a.scheduled_start DESC
   `;
-  const values = [from, to, tenant_id, branch_id];
+  const values = floor_id ? [from, to, tenant_id, branch_id, floor_id] : [from, to, tenant_id, branch_id];
   const { rows } = await pool.query(query, values);
   return rows;
 }
@@ -450,6 +480,7 @@ export default {
   getAllAppointments,
   getAppointment,
   voidAppointment,
+  voidAppointmentRow,
   getAppointmentLiveSession,
   updateAppointment,
   setAppointmentCheckIn,

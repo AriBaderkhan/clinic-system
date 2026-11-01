@@ -3,6 +3,9 @@ import dateRange from '../utils/dateRange.js';
 import settingModel from '../models/settingModel.js';
 import resolveReportDateRange from '../utils/reportsDateRange.js';
 import appError from '../utils/appError.js';
+import specialtyModel from '../models/specialtyModel.js';
+import workCatalogModel from '../models/workCatalogModel.js';
+import withTransaction from '../utils/withTransaction.js';
 
 async function getAll(tenant_id, branch_id) {
     const docs = await docModel.getAllDocs(tenant_id, branch_id);
@@ -127,4 +130,38 @@ async function getMyReport({ month, from, to }, doc_id, tenant_id, branch_id) {
     };
 }
 
-export default { getAll, getActiveToday, getOpenAppts, getAppointments, getSession, getMyReport }
+// a doctor's specialty + the extra treatments the manager ticked for them
+async function getSettings(doctor_id, tenant_id, branch_id) {
+    const doctor = await docModel.getDoctorSpecialty(doctor_id, tenant_id, branch_id);
+    if (!doctor) throw appError('DOCTOR_NOT_FOUND', 'Doctor not found', 404);
+    const extra_work_ids = await docModel.getExtraWorkIds(doctor_id, tenant_id, branch_id);
+    return { specialty_id: doctor.specialty_id, extra_work_ids };
+}
+
+// Saves the specialty and REPLACES the extra treatments list in one transaction.
+// Old visits are not touched: their saved treatments stay as they are.
+async function saveSettings(doctor_id, { specialty_id, extra_work_ids }, tenant_id, branch_id) {
+    return withTransaction(async (client) => {
+        const doctor = await docModel.lockDoctor(doctor_id, tenant_id, branch_id, client);
+        if (!doctor) throw appError('DOCTOR_NOT_FOUND', 'Doctor not found', 404);
+
+        if (specialty_id != null) {
+            const specialty = await specialtyModel.getById(specialty_id, tenant_id, branch_id, client);
+            if (!specialty) throw appError('SPECIALTY_NOT_FOUND', 'Specialty not found', 404);
+        }
+
+        const ids = [...new Set(extra_work_ids.map(Number))];
+        if (ids.length > 0) {
+            const works = await workCatalogModel.getWorksByIds(ids, tenant_id, branch_id, client);
+            if (works.filter(w => w.is_active).length !== ids.length) throw appError('WORK_NOT_FOUND', 'Work not found', 404);
+        }
+
+        await docModel.setSpecialty(doctor_id, specialty_id ?? null, tenant_id, branch_id, client);
+        await docModel.deleteExtraWorks(doctor_id, tenant_id, branch_id, client);
+        if (ids.length > 0) await docModel.addExtraWorks(doctor_id, ids, tenant_id, branch_id, client);
+
+        return { specialty_id: specialty_id ?? null, extra_work_ids: ids.sort((a, b) => a - b) };
+    });
+}
+
+export default { getAll, getActiveToday, getOpenAppts, getAppointments, getSession, getMyReport, getSettings, saveSettings }

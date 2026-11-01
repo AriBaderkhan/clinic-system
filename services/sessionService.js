@@ -1,4 +1,4 @@
-﻿import appError from '../utils/appError.js';
+import appError from '../utils/appError.js';
 
 import pool from '../db_connection.js';
 import sessionModel from '../models/sessionModel.js';
@@ -11,6 +11,15 @@ import prescriptionModel from '../models/prescriptionModel.js';
 import dateRange from '../utils/dateRange.js';
 import settingModel from '../models/settingModel.js';
 import discountModel from '../models/discountModel.js';
+import withTransaction from '../utils/withTransaction.js';
+import cents from '../utils/money.js';
+import worksService from './worksService.js';
+
+// lock plan rows always in id order, so two requests can never deadlock
+async function lockPlansInOrder(planIds, tenant_id, branch_id, client) {
+  const ids = [...new Set(planIds.map(Number).filter(Boolean))].sort((a, b) => a - b);
+  for (const id of ids) await treatmentPlanModel.getTreatmentPlanByIdForUpdate(id, tenant_id, branch_id, client);
+}
 
 function buildWorksSummary(worksRows) {
   if (!worksRows || worksRows.length === 0) {
@@ -85,9 +94,11 @@ async function getAll({ day, search, page, limit }, tenant_id, branch_id) {
 
 async function getNormal(session_id, tenant_id, branch_id) {
 
-  const [base, allWorks] = await Promise.all([
+  const [base, allWorks, payments, planPayments] = await Promise.all([
     sessionModel.getNormalSession(session_id, tenant_id, branch_id),
     sessionModel.getAllWorksForSession(session_id, tenant_id, branch_id), // normal + plan, with work_id
+    sessionPaymentModel.listForSession(session_id, tenant_id, branch_id),
+    treatmentPlanPaymentModel.listForSession(session_id, tenant_id, branch_id),
   ]);
   if (!base) throw appError("SESSION_NOT_FOUND", "session not found", 404);
 
@@ -112,7 +123,10 @@ async function getNormal(session_id, tenant_id, branch_id) {
         min_total: Number(base.min_total),
         total: Number(base.total),
         total_paid: Number(base.total_paid || 0),
+        discount_amount: Number(base.discount_amount || 0),
+        remaining: Math.max(0, Number(base.total) - Number(base.total_paid || 0) - Number(base.discount_amount || 0)),
         is_paid: base.is_paid,
+        is_settled: !!base.is_settled,
       },
 
       plan: {
@@ -150,43 +164,51 @@ async function getNormal(session_id, tenant_id, branch_id) {
     sw_id: base.sw,
     works_summary: worksSummary, // <-- Filling 3x, Scaling 2x, etc. (editable normal works)
     plan_works: planWorks,       // <-- treatment-plan works, read-only display
+    // every normal work row exactly as stored (price per row) — the editor edits these
+    normal_works: normalRows.map((r) => ({
+      session_work_id: r.session_work_id,
+      work_id: r.work_id,
+      work_name: r.work_name,
+      tooth_number: r.tooth_number,
+      quantity: r.quantity,
+      unit_price: Number(r.unit_price),
+      min_unit_price: Number(r.min_unit_price),
+      total_price: Number(r.total_price),
+      arch: r.arch || null,
+      is_whole_mouth: !!r.is_whole_mouth,
+    })),
+    payments: payments.map((p) => ({ ...p, amount: Number(p.amount) })),
+    plan_payments: planPayments.map((p) => ({ ...p, amount: Number(p.amount) })),
 
   };
 }
 
 async function editNormal(session_id, fields, userId, tenant_id, branch_id) {
-  const client = await pool.connect();
+  const { notes, next_plan, works, prescription, completedPlanIds } = fields;
 
-  const { notes, next_plan, works, total_paid, prescription, payment_note, completedPlanIds } = fields;
-
-  try {
-    await client.query("BEGIN");
-
-    // 1) base session
-    const base = await sessionModel.getNormalSession(session_id, tenant_id, branch_id, client);
+  return withTransaction(async (client) => {
+    // 1) lock the live session — no payment/edit can run on it at the same time
+    const base = await sessionModel.lockLiveSession(session_id, tenant_id, branch_id, client);
     if (!base) throw appError("SESSION_NOT_FOUND", "session not found", 404);
 
-    // Keep current paid if user didn't send total_paid
     const currentPaid = Number(base.total_paid) || 0;
 
-    // 2) update works (ONLY normal works)
+    // 2) normal works: the list sent is the full new list (it may be empty)
     let normalMinTotal = Number(base.min_total) || 0;
     let normalGrandTotal = Number(base.total) || 0;
 
     if (works) {
-      if (!Array.isArray(works) || works.length === 0) {
-        throw appError("WORKS_REQUIRED", "works must be a non-empty array", 400);
-      }
+      // prices this visit was saved with — an old work may keep its own price
+      const saved = await sessionModel.getNormalWorkPrices(session_id, tenant_id, branch_id, client);
+      const savedMap = Object.fromEntries(saved.map(r => [Number(r.work_id), r]));
+      await lockPlansInOrder(works.map(w => w.treatment_plan_id), tenant_id, branch_id, client);
 
-      // delete old normal works
       await sessionModel.deleteSessionWorksBySiD(session_id, tenant_id, branch_id, client);
-
-      // recalc from scratch
       normalMinTotal = 0;
       normalGrandTotal = 0;
 
       const workIds = works.map(w => w.work_id);
-      const catalogRows = await workCatalogModel.getWorksByIds(workIds, tenant_id, branch_id, client);
+      const catalogRows = workIds.length ? await workCatalogModel.getWorksByIds(workIds, tenant_id, branch_id, client) : [];
       const catalogMap = Object.fromEntries(catalogRows.map(c => [c.id, c]));
 
       const workItems = [];
@@ -198,10 +220,16 @@ async function editNormal(session_id, fields, userId, tenant_id, branch_id) {
 
         const code = String(catalog.code || "").toLowerCase();
         const minUnit = Number(catalog.min_price) || 0;
-        const unit = minUnit;
+        // the catalog price is the MINIMUM; reception may charge more. A work already
+        // saved in this visit may keep its old price (catalog raised later).
+        const old = catalog.is_plan ? null : savedMap[Number(work_id)];
+        const floor = old ? Math.min(minUnit, Number(old.low_unit)) : minUnit;
+        const normalMin = old ? Math.min(minUnit, Number(old.low_min)) : minUnit;
+        const unit = w.unit_price !== undefined && w.unit_price !== null ? Number(w.unit_price) : minUnit;
+        if (!catalog.is_plan && cents(unit) < cents(floor)) {
+          throw appError("WORK_PRICE_BELOW_MIN", `Price of ${catalog.name} cannot be less than ${floor}`, 400);
+        }
         const qty = Number(quantity) || 1;
-        const rowMin = minUnit * qty;
-        const rowTotal = unit * qty;
 
         // Treatment-plan works added during an edit: CONTINUE an existing active
         // plan (treatment_plan_id) or start a NEW one with its agreement total.
@@ -228,15 +256,18 @@ async function editNormal(session_id, fields, userId, tenant_id, branch_id) {
           }
         }
 
+        // plan works are priced by their plan agreement, not here
+        const rowUnit = treatmentPlanId === null ? unit : minUnit;
+        const rowMin = treatmentPlanId === null ? normalMin : minUnit;
         workItems.push({
           sessionId: session_id,
           workId: work_id,
           quantity: qty,
           toothNumber: tooth_number ?? null,
-          minUnitPrice: minUnit,
-          unitPrice: unit,
-          totalMinPrice: rowMin,
-          totalPrice: rowTotal,
+          minUnitPrice: rowMin,
+          unitPrice: rowUnit,
+          totalMinPrice: rowMin * qty,
+          totalPrice: rowUnit * qty,
           treatmentPlanId,
           // whole-mouth region (only whole-mouth works carry it; per-tooth works use teeth)
           arch: catalog.is_whole_mouth ? (w.arch ?? null) : null,
@@ -244,81 +275,43 @@ async function editNormal(session_id, fields, userId, tenant_id, branch_id) {
 
         // plan works don't count toward the session (normal) total
         if (treatmentPlanId === null) {
-          normalMinTotal += rowMin;
-          normalGrandTotal += rowTotal;
+          normalMinTotal += normalMin * qty;
+          normalGrandTotal += unit * qty;
         }
       }
-      await sessionModel.bulkCreateSessionWorks(workItems, tenant_id, branch_id, client);
-    }
+      // new treatments must be allowed for the visit's doctor; ones already saved
+      // in this visit stay editable even if the manager unticked them later
+      await worksService.assertAllowedForDoctor(base.doctor_id, workIds, Object.keys(savedMap), tenant_id, branch_id, client);
 
-    let sessionsAfterRecalc = null;
-    // 3) decide paid
-    let finalPaid = currentPaid;
-    if (total_paid !== undefined && total_paid !== null && total_paid !== "") {
-      finalPaid = Number(total_paid);
-      if (Number.isNaN(finalPaid) || finalPaid < 0) {
-        throw appError("INVALID_TOTAL_PAID", "total_paid must be number >= 0", 400);
+      if (workItems.length) await sessionModel.bulkCreateSessionWorks(workItems, tenant_id, branch_id, client);
+
+      // never let the bill drop below money already taken (that is how "overpaid" happened)
+      if (cents(normalGrandTotal) < cents(currentPaid)) {
+        throw appError("TOTAL_BELOW_PAID",
+          `The new total (${normalGrandTotal}) is less than what was already paid (${currentPaid}). Edit or delete the payments first.`, 400);
       }
     }
 
-    // const is_paid = finalPaid >= 0;
-
-    // // 4) update session totals + paid + paid flag
-    // const updatedTotals = await sessionModel.updateSessionTotal(
-    //   {
-    //     min_total: normalMinTotal,
-    //     total: normalGrandTotal,
-    //     total_paid: finalPaid,
-    //     is_paid,
-    //     sessionId: session_id,
-    //   },
-    //   client
-    // );
-    // if (!updatedTotals) throw appError("SESSION_UPDATE_FAILED", "session Update failed", 500);
-
-    // âœ… update amount in session_payments (via model)
-    // Record a payment ONLY when the user actually CHANGED the paid amount in the
-    // edit screen. A plain work edit must never touch the ledger — the old code
-    // overwrote every payment row with the full total and then summed them, which
-    // doubled the paid on each edit. Adding works now leaves paid untouched, so a
-    // bigger total simply makes the session unpaid.
-    const paidProvided = total_paid !== undefined && total_paid !== null && total_paid !== "";
-    if (paidProvided && finalPaid !== currentPaid) {
-      // Set the ledger to exactly the new amount (single row) → can never multiply.
-      await sessionPaymentModel.setSessionPaidExact({
-        sessionId: session_id,
-        amount: finalPaid,
-        note: payment_note !== undefined ? payment_note : null,
-        createdBy: userId,
-      }, tenant_id, branch_id, client);
-    }
-
-    // 4) write the new session totals (min_total/total) FIRST, so the paid-check
-    // below compares the payment against the NEW total, not the pre-edit one.
-    // total_paid / is_paid here are provisional — recalc recomputes them next.
+    // 3) totals, then discount cap, then paid/is_paid from the real payment rows
     const updatedTotals = await sessionModel.updateSessionTotal(
       {
         min_total: normalMinTotal,
         total: normalGrandTotal,
-        total_paid: Number(base.total_paid || 0),
+        total_paid: currentPaid,
         is_paid: base.is_paid,
         sessionId: session_id,
       },
       tenant_id, branch_id, client
     );
     if (!updatedTotals) throw appError("SESSION_UPDATE_FAILED", "session Update failed", 500);
+    await sessionModel.capDiscount(session_id, tenant_id, branch_id, client);
+    const recalc = await sessionPaymentModel.recalcSessionTotals(session_id, tenant_id, branch_id, client);
 
-    // recalc AFTER the new total is saved -> total_paid + is_paid come out correct
-    // against the NEW total (adding work to a paid session re-opens it as unpaid).
-    sessionsAfterRecalc = await sessionPaymentModel.recalcSessionTotals(session_id, tenant_id, branch_id, client);
-    if (!sessionsAfterRecalc) {
-      throw appError("SESSION_RECALC_FAILED", "failed to recalc session totals", 500);
-    }
-
-    // 5) update notes / next_plan (only if provided)
-    // (use your existing model method, or add one simple update query in model)
+    // 4) notes / next_plan (only if provided)
     if (notes !== undefined || next_plan !== undefined) {
-      const notess = { notes, next_plan }
+      const notess = {};
+      if (notes !== undefined) notess.notes = notes;
+      if (next_plan !== undefined) notess.next_plan = next_plan;
       const updatedPlan = await sessionModel.updateSessionNotesFields(session_id, notess, tenant_id, branch_id, client);
       if (!updatedPlan) throw appError("SESSION_UPDATE_FAILED", "session Update failed", 500);
     }
@@ -334,6 +327,7 @@ async function editNormal(session_id, fields, userId, tenant_id, branch_id) {
     // Mark treatment plans "Done" (doctor ticked them in the editor). Each plan
     // must belong to THIS patient — same guard the completion flow uses.
     if (Array.isArray(completedPlanIds) && completedPlanIds.length > 0) {
+      await lockPlansInOrder(completedPlanIds, tenant_id, branch_id, client);
       for (const pid of completedPlanIds) {
         const plan = await treatmentPlanModel.getTreatmentPlanByIdForUpdate(Number(pid), tenant_id, branch_id, client);
         if (plan && Number(plan.patient_id) === Number(base.patient_id)) {
@@ -342,23 +336,14 @@ async function editNormal(session_id, fields, userId, tenant_id, branch_id) {
       }
     }
 
-    await client.query("COMMIT");
-
     return {
-      ...base,
-      min_total: updatedTotals.min_total,
-      total: updatedTotals.total,
-      total_paid: sessionsAfterRecalc.total_paid,
-      is_paid: sessionsAfterRecalc.is_paid,
-      notes: notes !== undefined ? notes : base.notes,
-      next_plan: next_plan !== undefined ? next_plan : base.next_plan,
+      session_id,
+      min_total: Number(recalc.min_total),
+      total: Number(recalc.total),
+      total_paid: Number(recalc.total_paid),
+      is_paid: recalc.is_paid,
     };
-  } catch (err) {
-    await client.query("ROLLBACK");
-    throw err;
-  } finally {
-    client.release();
-  }
+  });
 }
 
 
@@ -367,9 +352,7 @@ async function editNormal(session_id, fields, userId, tenant_id, branch_id) {
 async function updatePlanWorkTeeth(session_id, updates, tenant_id, branch_id) {
   if (!Array.isArray(updates) || updates.length === 0) return [];
 
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
+  return withTransaction(async (client) => {
     const out = [];
     for (const u of updates) {
       const id = Number(u.session_work_id ?? u.id);
@@ -385,33 +368,190 @@ async function updatePlanWorkTeeth(session_id, updates, tenant_id, branch_id) {
       if (!row) throw appError("PLAN_WORK_NOT_FOUND", `Plan work ${id} not found for this session`, 404);
       out.push(row);
     }
-    await client.query("COMMIT");
     return out;
-  } catch (err) {
-    await client.query("ROLLBACK");
-    throw err;
-  } finally {
-    client.release();
-  }
+  });
 }
 
+// ── Normal payments of a session (one row = one payment) ─────────────────────
+// Editing keeps the payment's date, so the money stays in the month it was received.
+async function editPayment(session_id, payment_id, { amount, note }, tenant_id, branch_id) {
+  return withTransaction(async (client) => {
+    const session = await sessionModel.lockLiveSession(session_id, tenant_id, branch_id, client);
+    if (!session) throw appError("SESSION_NOT_FOUND", "Session not found", 404);
+
+    const payment = await sessionPaymentModel.getByIdForUpdate(payment_id, session_id, tenant_id, branch_id, client);
+    if (!payment) throw appError("PAYMENT_NOT_FOUND", "Payment not found", 404);
+
+    const oldAmount = Number(payment.amount);
+    const newAmount = Number(amount);
+    const newPaid = Number(session.total_paid) - oldAmount + newAmount;
+    const limit = Number(session.total) - Number(session.discount_amount || 0);
+    // raising a payment may never make the visit paid more than its bill
+    if (newAmount > oldAmount && cents(newPaid) > cents(limit)) {
+      throw appError("PAYMENT_EXCEEDS_TOTAL", `Payments (${newPaid}) cannot be more than the session total (${limit})`, 400);
+    }
+
+    const updated = await sessionPaymentModel.updatePayment(
+      payment_id, newAmount, note !== undefined ? note : payment.note, tenant_id, branch_id, client);
+    await sessionModel.capDiscount(session_id, tenant_id, branch_id, client);
+    const totals = await sessionPaymentModel.recalcSessionTotals(session_id, tenant_id, branch_id, client);
+    return { payment: updated, totals: { total: Number(totals.total), total_paid: Number(totals.total_paid), is_paid: totals.is_paid } };
+  });
+}
+
+async function deletePayment(session_id, payment_id, tenant_id, branch_id) {
+  return withTransaction(async (client) => {
+    const session = await sessionModel.lockLiveSession(session_id, tenant_id, branch_id, client);
+    if (!session) throw appError("SESSION_NOT_FOUND", "Session not found", 404);
+
+    const payment = await sessionPaymentModel.getByIdForUpdate(payment_id, session_id, tenant_id, branch_id, client);
+    if (!payment) throw appError("PAYMENT_NOT_FOUND", "Payment not found", 404);
+
+    const deleted = await sessionPaymentModel.deletePayment(payment_id, tenant_id, branch_id, client);
+    const totals = await sessionPaymentModel.recalcSessionTotals(session_id, tenant_id, branch_id, client);
+    return { payment: deleted, totals: { total: Number(totals.total), total_paid: Number(totals.total_paid), is_paid: totals.is_paid } };
+  });
+}
+
+// ── Treatment-plan payments taken in this session ───────────────────────────
+async function editPlanPayment(session_id, payment_id, { amount, note }, tenant_id, branch_id) {
+  return withTransaction(async (client) => {
+    const session = await sessionModel.lockLiveSession(session_id, tenant_id, branch_id, client);
+    if (!session) throw appError("SESSION_NOT_FOUND", "Session not found", 404);
+
+    const payment = await treatmentPlanPaymentModel.getByIdForUpdate(payment_id, session_id, tenant_id, branch_id, client);
+    if (!payment) throw appError("PAYMENT_NOT_FOUND", "Payment not found", 404);
+
+    const plan = await treatmentPlanModel.getTreatmentPlanByIdForUpdate(payment.treatment_plan_id, tenant_id, branch_id, client);
+    if (!plan) throw appError("PLAN_NOT_FOUND", "Treatment plan not found", 404);
+
+    const raising = Number(amount) > Number(payment.amount);
+    const updated = await treatmentPlanPaymentModel.updatePayment(
+      payment_id, Number(amount), note !== undefined ? note : payment.note, tenant_id, branch_id, client);
+    const updatedPlan = await treatmentPlanPaymentModel.recalcTreatmentPlanTotals(plan.id, tenant_id, branch_id, client);
+    if (raising && cents(updatedPlan.total_paid) > cents(updatedPlan.agreed_total)) {
+      throw appError("AMOUNT_EXCEEDS_REMAINING", `Plan payments cannot be more than the agreed total (${Number(updatedPlan.agreed_total)})`, 400);
+    }
+    return { payment: updated, plan: updatedPlan };
+  });
+}
+
+async function deletePlanPayment(session_id, payment_id, userId, tenant_id, branch_id) {
+  return withTransaction(async (client) => {
+    const session = await sessionModel.lockLiveSession(session_id, tenant_id, branch_id, client);
+    if (!session) throw appError("SESSION_NOT_FOUND", "Session not found", 404);
+
+    const payment = await treatmentPlanPaymentModel.getByIdForUpdate(payment_id, session_id, tenant_id, branch_id, client);
+    if (!payment) throw appError("PAYMENT_NOT_FOUND", "Payment not found", 404);
+
+    await treatmentPlanModel.getTreatmentPlanByIdForUpdate(payment.treatment_plan_id, tenant_id, branch_id, client);
+    const deleted = await treatmentPlanPaymentModel.voidPayment(payment_id, userId, tenant_id, branch_id, client);
+    const updatedPlan = await treatmentPlanPaymentModel.recalcTreatmentPlanTotals(payment.treatment_plan_id, tenant_id, branch_id, client);
+    return { payment: deleted, plan: updatedPlan };
+  });
+}
+
+// ── Treatment-plan works in this session ────────────────────────────────────
+// Remove one plan work. If it was the plan's last work in this visit and the visit
+// still has payments for that plan, those must be removed first (no orphan money).
+async function deletePlanWork(session_id, session_work_id, userId, tenant_id, branch_id) {
+  return withTransaction(async (client) => {
+    const session = await sessionModel.lockLiveSession(session_id, tenant_id, branch_id, client);
+    if (!session) throw appError("SESSION_NOT_FOUND", "Session not found", 404);
+
+    const work = await sessionModel.getPlanWorkForUpdate(session_work_id, session_id, tenant_id, branch_id, client);
+    if (!work) throw appError("PLAN_WORK_NOT_FOUND", "Plan work not found in this session", 404);
+    const planId = work.treatment_plan_id;
+    await treatmentPlanModel.getTreatmentPlanByIdForUpdate(planId, tenant_id, branch_id, client);
+
+    const worksLeft = await sessionModel.countLivePlanWorksInSession(session_id, planId, tenant_id, branch_id, client) - 1;
+    const paymentsHere = await treatmentPlanPaymentModel.countLiveForPlanInSession(session_id, planId, tenant_id, branch_id, client);
+    if (worksLeft === 0 && paymentsHere > 0) {
+      throw appError("PLAN_WORK_HAS_PAYMENTS", "This visit has payments for this plan. Delete those payments first.", 409);
+    }
+
+    await sessionModel.voidSessionWork(session_work_id, userId, tenant_id, branch_id, client);
+    const removedPlan = await treatmentPlanModel.voidPlanIfEmpty(planId, userId, tenant_id, branch_id, client);
+    return { removed_plan_id: removedPlan ? Number(removedPlan.id) : null };
+  });
+}
+
+// Move one plan work to another plan of the SAME patient and type (wrong plan picked).
+// If no work of the old plan is left in this visit, this visit's payments for the
+// old plan move with it, and both plans' paid totals are recalculated.
+async function movePlanWork(session_id, session_work_id, toPlanId, userId, tenant_id, branch_id) {
+  return withTransaction(async (client) => {
+    const session = await sessionModel.lockLiveSession(session_id, tenant_id, branch_id, client);
+    if (!session) throw appError("SESSION_NOT_FOUND", "Session not found", 404);
+
+    const work = await sessionModel.getPlanWorkForUpdate(session_work_id, session_id, tenant_id, branch_id, client);
+    if (!work) throw appError("PLAN_WORK_NOT_FOUND", "Plan work not found in this session", 404);
+    const fromPlanId = Number(work.treatment_plan_id);
+    if (fromPlanId === Number(toPlanId)) throw appError("SAME_PLAN", "The work is already in this plan", 400);
+
+    // lock both plans in id order so two moves can never deadlock
+    const [firstId, secondId] = [fromPlanId, Number(toPlanId)].sort((a, b) => a - b);
+    await treatmentPlanModel.getTreatmentPlanByIdForUpdate(firstId, tenant_id, branch_id, client);
+    await treatmentPlanModel.getTreatmentPlanByIdForUpdate(secondId, tenant_id, branch_id, client);
+    const target = await treatmentPlanModel.getTreatmentPlanByIdForUpdate(Number(toPlanId), tenant_id, branch_id, client);
+    if (!target) throw appError("PLAN_NOT_FOUND", "Target treatment plan not found", 404);
+    if (Number(target.patient_id) !== Number(session.patient_id)) throw appError("PLAN_PATIENT_MISMATCH", "Treatment plan does not belong to this patient", 400);
+    if (String(target.type) !== String(work.plan_type)) throw appError("PLAN_TYPE_MISMATCH", `Target plan is not a ${work.plan_type} plan`, 400);
+
+    await sessionModel.movePlanWork(session_work_id, target.id, tenant_id, branch_id, client);
+
+    const oldWorksLeft = await sessionModel.countLivePlanWorksInSession(session_id, fromPlanId, tenant_id, branch_id, client);
+    if (oldWorksLeft === 0) {
+      await treatmentPlanPaymentModel.movePaymentsInSession(session_id, fromPlanId, target.id, tenant_id, branch_id, client);
+    }
+
+    await treatmentPlanPaymentModel.recalcTreatmentPlanTotals(fromPlanId, tenant_id, branch_id, client);
+    const updatedTarget = await treatmentPlanPaymentModel.recalcTreatmentPlanTotals(target.id, tenant_id, branch_id, client);
+    if (cents(updatedTarget.total_paid) > cents(updatedTarget.agreed_total)) {
+      throw appError("AMOUNT_EXCEEDS_REMAINING", `The payments would exceed the target plan's agreed total (${Number(updatedTarget.agreed_total)})`, 400);
+    }
+    const removedPlan = await treatmentPlanModel.voidPlanIfEmpty(fromPlanId, userId, tenant_id, branch_id, client);
+    return { moved_to_plan_id: Number(target.id), removed_plan_id: removedPlan ? Number(removedPlan.id) : null };
+  });
+}
+
+// Delete a whole visit: its normal payments, plan payments and works leave the
+// reports, the session + appointment are voided, and every touched plan's paid is
+// recalculated (a plan left with nothing is voided too). All or nothing.
 async function _delete(sessionID, deletedBy, tenant_id, branch_id) {
-  // Bottom-up rule: a visit can be voided only when it has no LIVE works/payments.
-  // (Voided children — e.g. from a voided plan — don't count.)
-  const counts = await sessionModel.sessionLiveChildCounts(sessionID, tenant_id, branch_id);
-  const live = Number(counts.works) + Number(counts.session_payments) + Number(counts.plan_payments);
-  if (live > 0) {
-    throw appError('SESSION_NOT_EMPTY', 'Cannot delete: this visit still has works or payments. Remove them first.', 409);
-  }
+  return withTransaction(async (client) => {
+    const session = await sessionModel.lockLiveSession(sessionID, tenant_id, branch_id, client);
+    if (!session) throw appError('SESSION_NOT_FOUND', 'Session not found or already deleted', 404);
 
-  const voided = await sessionModel.voidSession(sessionID, deletedBy, tenant_id, branch_id);
-  if (!voided) throw appError('SESSION_NOT_FOUND', 'Session not found or already deleted', 404);
-  return voided;
+    const sessionPayments = await sessionPaymentModel.deleteAllForSession(sessionID, tenant_id, branch_id, client);
+    const planPayments = await treatmentPlanPaymentModel.voidAllForSession(sessionID, deletedBy, tenant_id, branch_id, client);
+    const works = await sessionModel.voidAllWorksForSession(sessionID, deletedBy, tenant_id, branch_id, client);
+
+    await sessionModel.voidSession(sessionID, deletedBy, tenant_id, branch_id, client);
+    await appointmentModel.voidAppointmentRow(session.appointment_id, deletedBy, tenant_id, branch_id, client);
+
+    const planIds = [...new Set([...planPayments, ...works]
+      .map((r) => r.treatment_plan_id).filter((id) => id !== null && id !== undefined).map(Number))];
+    const removedPlans = [];
+    for (const planId of planIds) {
+      await treatmentPlanPaymentModel.recalcTreatmentPlanTotals(planId, tenant_id, branch_id, client);
+      const removed = await treatmentPlanModel.voidPlanIfEmpty(planId, deletedBy, tenant_id, branch_id, client);
+      if (removed) removedPlans.push(Number(removed.id));
+    }
+
+    return {
+      session_id: sessionID,
+      works_removed: works.length,
+      session_payments_removed: sessionPayments.reduce((sum, p) => sum + Number(p.amount), 0),
+      plan_payments_removed: planPayments.reduce((sum, p) => sum + Number(p.amount), 0),
+      removed_plan_ids: removedPlans,
+    };
+  });
 }
 
-async function getUnpaid(tenant_id, branch_id, { limit, q } = {}) {
-  // STEP 1: base unpaid sessions
-  const { rows: baseSessions, total } = await sessionModel.getAllUnPaidSessions(tenant_id, branch_id, { limit, q });
+async function getUnpaid(tenant_id, branch_id, { limit, q, floor_id } = {}) {
+  // STEP 1: base unpaid sessions (floor_id = the doctor's current floor, same as appointments)
+  const { rows: baseSessions, total } = await sessionModel.getAllUnPaidSessions(tenant_id, branch_id, { limit, q, floor_id });
   if (baseSessions.length === 0) return { sessions: [], total };
 
   const sessionIds = baseSessions.map(s => s.session_id);
@@ -453,8 +593,17 @@ async function getUnpaid(tenant_id, branch_id, { limit, q } = {}) {
     delete worksBySession[sid]._groups;
   }
 
+  // A plan's debt is shown on ONE row only (the visit that owns it), so the
+  // same 120,000 is never listed — or paid from — two visits. Fully paid
+  // plans carry no money and keep their "done" line.
+  const ownedBySession = {};
+  for (const s of baseSessions) ownedBySession[s.session_id] = new Set((s.owned_plan_ids || []).map(String));
+
   const plansBySession = {};
   for (const row of planRows) {
+    const owes = Number(row.agreed_total) > Number(row.total_paid || 0);
+    if (owes && !ownedBySession[row.session_id]?.has(String(row.id))) continue;
+
     if (!plansBySession[row.session_id]) {
       plansBySession[row.session_id] = [];
     }
@@ -464,6 +613,9 @@ async function getUnpaid(tenant_id, branch_id, { limit, q } = {}) {
       type: row.type,
       agreed_total: Number(row.agreed_total),
       total_paid: Number(row.total_paid || 0),
+      remaining: Math.max(0, Number(row.agreed_total) - Number(row.total_paid || 0)), // whole plan, not this visit
+      currency_code: row.currency_code,
+      works_count: row.works_count,   // this plan's works in THIS session
       is_paid: row.is_paid,
       is_completed: row.is_completed,
       status: row.status,
@@ -485,6 +637,7 @@ async function getUnpaid(tenant_id, branch_id, { limit, q } = {}) {
         id: s.patient_id,
         full_name: s.patient_name,
         phone: s.patient_phone,
+        extra_phones: s.patient_extra_phones,
       },
 
       doctor: {
@@ -581,6 +734,12 @@ async function pay({ sessionId, normalAmount, planPayments, note, settleNormal, 
         throw appError("INVALID_PAYMENT_AMOUNT", "Invalid amount", 400);
       }
 
+      // never take more than what is still owed on the session
+      const remaining = total - totalPaid - Number(session.discount_amount || 0);
+      if (cents(numericAmount) > cents(remaining)) {
+        throw appError("PAYMENT_EXCEEDS_REMAINING", `Amount is more than the remaining balance (${remaining})`, 400);
+      }
+
       // RULE: cannot pay below min_total (unchanged)
       // if (numericAmount < Number(session.min_total)) {
       //   throw appError("AMOUNT_BELOW_MIN", "Amount cannot be less than minimum total", 400);
@@ -637,6 +796,7 @@ async function pay({ sessionId, normalAmount, planPayments, note, settleNormal, 
     if (payPlans) {
       const plansInSession = await sessionModel.getTreatmentPlansForSession(sessionId, tenant_id, branch_id, client);
       const allowedPlanIds = new Set(plansInSession.map((tp) => Number(tp.id)));
+      await lockPlansInOrder(planPayments.map((d) => d.plan_id).filter((id) => allowedPlanIds.has(Number(id))), tenant_id, branch_id, client);
 
       for (const detail of planPayments) {
         const plan_id = Number(detail.plan_id);
@@ -679,7 +839,7 @@ async function pay({ sessionId, normalAmount, planPayments, note, settleNormal, 
 
         // RULE: cannot exceed remaining (unchanged from your latest)
         const remainingAmount = Number(plan.agreed_total) - Number(plan.total_paid);
-        if (amount > remainingAmount) {
+        if (cents(amount) > cents(remainingAmount)) {
           throw appError(
             "AMOUNT_EXCEEDS_REMAINING",
             `Amount for treatment plan ID ${plan_id} exceeds remaining balance of ${remainingAmount}`, 400
@@ -737,5 +897,6 @@ async function pay({ sessionId, normalAmount, planPayments, note, settleNormal, 
 }
 
 export default {
-  getAll, getNormal, editNormal, delete: _delete, getUnpaid, pay, updatePlanWorkTeeth
+  getAll, getNormal, editNormal, delete: _delete, getUnpaid, pay, updatePlanWorkTeeth,
+  editPayment, deletePayment, editPlanPayment, deletePlanPayment, deletePlanWork, movePlanWork,
 }

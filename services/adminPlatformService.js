@@ -2,6 +2,7 @@ import pool from '../db_connection.js';
 import adminPlatformModel from '../models/adminPlatformModel.js';
 import appError from '../utils/appError.js';
 import bcrypt from 'bcrypt';
+import { PERIOD_DAYS } from './subscriptionService.js';
 
 async function register(body) {
     const client = await pool.connect();
@@ -24,7 +25,7 @@ async function register(body) {
 
         await adminPlatformModel.assignRole(client, userId, role.id, tenant.id, null);
 
-        await adminPlatformModel.createSubscription(client, tenant.id, body.plan_id);
+        await adminPlatformModel.createSubscription(client, tenant.id, body.plan_id, PERIOD_DAYS[body.billing_period], body.billing_period);
 
         await client.query('COMMIT');
         return { tenant_id: tenant.id, message: "Tenant registered successfully" };

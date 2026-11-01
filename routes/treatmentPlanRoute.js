@@ -21,6 +21,7 @@ router.patch(
     permissionMiddleware('edit_payment'),
     validateIdParam("treatmentPlanId"),
     validateIdParam("sessionId"),
+    tPValidate.paid,
     treatmentController.updatePaidSession
 );
 

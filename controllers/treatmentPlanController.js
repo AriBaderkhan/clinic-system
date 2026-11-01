@@ -65,9 +65,9 @@ const updatePaidSession = asyncWrap(async (req, res) => {
     const tpId = Number(req.params.treatmentPlanId);
     const sessionId = Number(req.params.sessionId);
     const { amount } = req.body;
-    const { tenant_id, branch_id } = req.user;
+    const { id: userId, tenant_id, branch_id } = req.user;
 
-    const result = await treatmentPlanService.updatePaidSession(tpId, sessionId, amount, tenant_id, branch_id);
+    const result = await treatmentPlanService.updatePaidSession(tpId, sessionId, amount, userId, tenant_id, branch_id);
     res.status(200).json({ ok: true, data: result });
 });
 

@@ -6,7 +6,7 @@ import permissionMiddleware from '../middlewares/permissionMiddleware.js';
 import adminPlatformController from '../controllers/adminPlatformController.js';
 import adminPlatformValidate from '../validates/adminPlatformValidate.js';
 
-router.post('/register', adminPlatformValidate.register, adminPlatformController.register);
+router.post('/register', authMiddleware, permissionMiddleware('manage_system'), adminPlatformValidate.register, adminPlatformController.register);
 router.get('/tenants', authMiddleware, permissionMiddleware('manage_system'), adminPlatformController.getAll);
 
 export default router;

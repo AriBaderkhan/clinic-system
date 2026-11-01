@@ -27,12 +27,13 @@ function update(req, res, next) {
 // Runs AFTER the upload middleware, so plan_id is already on req.body as a string.
 const requestSchema = Joi.object({
     plan_id: Joi.number().positive().required(),
+    billing_period: Joi.string().valid('monthly', 'yearly').default('monthly'),
     note: Joi.string().allow('', null).optional(),
 })
 
 function request(req, res, next) {
     const { error, value } = requestSchema.validate(req.body)
-    if (error) return res.status(400).json({ message: error.details[0].message })
+    if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' })
     req.body = value
     next()
 }

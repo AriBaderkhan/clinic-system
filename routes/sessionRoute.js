@@ -14,12 +14,20 @@ router.use(authMiddleware);
 router.use(branchAssigmentMiddleware);
 
 router.get('/', permissionMiddleware('view_session'), sessionValidate.filters, sessionController.getAll);
-router.get('/unpaid', permissionMiddleware('view_session'), sessionController.getUnpaid);
+router.get('/unpaid', permissionMiddleware('view_session'), sessionValidate.unpaidFilters, sessionController.getUnpaid);
 router.get('/:sessionId/normal', permissionMiddleware('view_session'), validateIdParam('sessionId'), sessionController.getNormal);
 router.put('/:sessionId/normal', permissionMiddleware('edit_session'), validateIdParam('sessionId'), sessionValidate.edit, sessionController.editNormal);
 router.patch('/:sessionId/plan-works/tooth', permissionMiddleware('edit_session', 'finalize_session'), validateIdParam('sessionId'), sessionController.updatePlanTeeth);
 router.delete('/:sessionId', permissionMiddleware('delete_session'), validateIdParam('sessionId'), sessionController.delete);
-router.post('/:sessionId/pay', permissionMiddleware('collect_payment'), validateIdParam('sessionId'), sessionController.pay);
+router.post('/:sessionId/pay', permissionMiddleware('collect_payment'), validateIdParam('sessionId'), sessionValidate.pay, sessionController.pay);
+
+// ── Correcting a visit: one payment / one plan work at a time ───────────────
+router.patch('/:sessionId/payments/:paymentId', permissionMiddleware('edit_payment'), validateIdParam('sessionId'), validateIdParam('paymentId'), sessionValidate.paymentEdit, sessionController.editPayment);
+router.delete('/:sessionId/payments/:paymentId', permissionMiddleware('edit_payment'), validateIdParam('sessionId'), validateIdParam('paymentId'), sessionController.deletePayment);
+router.patch('/:sessionId/plan-payments/:paymentId', permissionMiddleware('edit_payment'), validateIdParam('sessionId'), validateIdParam('paymentId'), sessionValidate.paymentEdit, sessionController.editPlanPayment);
+router.delete('/:sessionId/plan-payments/:paymentId', permissionMiddleware('edit_payment'), validateIdParam('sessionId'), validateIdParam('paymentId'), sessionController.deletePlanPayment);
+router.delete('/:sessionId/plan-works/:sessionWorkId', permissionMiddleware('edit_session'), validateIdParam('sessionId'), validateIdParam('sessionWorkId'), sessionController.deletePlanWork);
+router.patch('/:sessionId/plan-works/:sessionWorkId/plan', permissionMiddleware('edit_session'), validateIdParam('sessionId'), validateIdParam('sessionWorkId'), sessionValidate.movePlanWork, sessionController.movePlanWork);
 
 // ── Case images for a session ──────────────────────────────────────────────
 router.post('/:sessionId/images', permissionMiddleware('finalize_session', 'edit_session'), validateIdParam('sessionId'), uploadImages, sessionImageController.upload);

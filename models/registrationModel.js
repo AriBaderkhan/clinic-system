@@ -1,11 +1,11 @@
 import pool from '../db_connection.js';
 
-async function createRequest({ tenant_name, manager_name, email, phone, address, password_hash, plan_id, evidence_path }) {
+async function createRequest({ tenant_name, manager_name, email, phone, address, password_hash, plan_id, billing_period, evidence_path }) {
     const { rows } = await pool.query(
         `INSERT INTO tenant_registration_requests
-            (tenant_name, manager_name, email, phone, address, password_hash, plan_id, evidence_path)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-        [tenant_name, manager_name, email, phone ?? null, address ?? null, password_hash, plan_id, evidence_path ?? null]
+            (tenant_name, manager_name, email, phone, address, password_hash, plan_id, billing_period, evidence_path)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+        [tenant_name, manager_name, email, phone ?? null, address ?? null, password_hash, plan_id, billing_period, evidence_path ?? null]
     );
     return rows[0];
 }
@@ -29,8 +29,9 @@ async function userEmailExists(email) {
 async function listByStatus(status = 'pending') {
     const { rows } = await pool.query(
         `SELECT r.id, r.tenant_name, r.manager_name, r.email, r.phone, r.address,
-                r.plan_id, r.evidence_path, r.status, r.note, r.created_at,
-                p.name AS plan_name, p.price AS plan_price
+                r.plan_id, r.billing_period, r.evidence_path, r.status, r.note, r.created_at,
+                p.name AS plan_name,
+                CASE WHEN r.billing_period = 'yearly' THEN p.yearly_price ELSE p.price END AS plan_price
          FROM tenant_registration_requests r
          JOIN plans p ON p.id = r.plan_id
          WHERE r.status = $1

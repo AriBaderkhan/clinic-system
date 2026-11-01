@@ -170,7 +170,7 @@ async function getAllTreatmentPlansForSection({ isPaid, isCompleted, search, pag
     idx++;
   }
   if (search && search.trim()) {
-    where.push(`p.name ILIKE $${idx}`);
+    where.push(`(p.name ILIKE $${idx} OR p.phone ILIKE $${idx} OR array_to_string(p.extra_phones, ' ') ILIKE $${idx})`);
     values.push(`%${search.trim()}%`);
     idx++;
   }
@@ -202,40 +202,36 @@ ORDER BY
   return { rows: rows.map(({ total_count, ...rest }) => rest), total };
 }
 
-async function editTp(tpId, fields, tenant_id, branch_id) {
-  const keys = Object.keys(fields);
-  const values = Object.values(fields);
-
-  if (keys.length === 0) throw new Error("No fields provided");
-
-  // optional: allow only specific fields (protect from random keys)
-  const allowed = new Set(["type", "agreed_total", "is_completed", "status"]);
-  for (const k of keys) {
-    if (!allowed.has(k)) throw new Error(`Field not allowed: ${k}`);
-  }
-
-  const setClause = keys.map((key, idx) => `${key} = $${idx + 1}`).join(", ");
-
-  // --- IMPORTANT RULE ---
-  // If agreed_total is provided, it must be >= total_paid
-  // const agreedIndex = keys.indexOf("agreed_total"); // -1 if not provided
-  // const agreedCheck = agreedIndex === -1
-  //   ? "" // no rule needed
-  //   : ` AND $${agreedIndex + 1} >= tp.total_paid`;
-
+// Edit a LIVE plan. Fields left undefined keep their value; is_paid is always
+// recomputed from the (possibly new) agreed_total so it can never go stale.
+async function editTp(tpId, { type, agreed_total, is_completed, status }, tenant_id, branch_id, client = pool) {
   const query = `
     UPDATE treatment_plans tp
-    SET ${setClause},
-
-     updated_at = NOW()
-    WHERE tp.id = $${keys.length + 1}
-    AND tp.tenant_id = $${keys.length + 2}
-    AND tp.branch_id = $${keys.length + 3}
-    RETURNING *;
+       SET type = COALESCE($1, type),
+           agreed_total = COALESCE($2, agreed_total),
+           is_completed = COALESCE($3, is_completed),
+           status = COALESCE($4, status),
+           is_paid = (COALESCE($2, agreed_total) <= total_paid),
+           updated_at = NOW()
+     WHERE tp.id = $5 AND tp.tenant_id = $6 AND tp.branch_id = $7 AND tp.is_deleted = false
+     RETURNING *;
   `;
+  const { rows } = await client.query(query, [type ?? null, agreed_total ?? null, is_completed ?? null, status ?? null, tpId, tenant_id, branch_id]);
+  return rows[0] || null;
+}
 
-  const allValues = [...values, tpId, tenant_id, branch_id];
-  const { rows } = await pool.query(query, allValues);
+// Void a plan only if nothing live is left in it (no works, no payments) — used
+// after its last work was removed or moved, so empty plans don't linger.
+async function voidPlanIfEmpty(tpId, deletedBy, tenant_id, branch_id, client = pool) {
+  const { rows } = await client.query(
+    `UPDATE treatment_plans tp
+        SET is_deleted = true, deleted_at = NOW(), deleted_by = $2
+      WHERE tp.id = $1 AND tp.tenant_id = $3 AND tp.branch_id = $4 AND tp.is_deleted = false
+        AND NOT EXISTS (SELECT 1 FROM session_works sw WHERE sw.treatment_plan_id = tp.id AND sw.is_deleted = false)
+        AND NOT EXISTS (SELECT 1 FROM treatment_payments p WHERE p.treatment_plan_id = tp.id AND p.is_deleted = false)
+      RETURNING *`,
+    [tpId, deletedBy, tenant_id, branch_id]
+  );
   return rows[0] || null;
 }
 
@@ -285,106 +281,9 @@ async function voidTp(tpId, deletedBy, tenant_id, branch_id) {
   }
 }
 
-// async function updatePaidForTpSession(tpId, sessionId, amount,tenant_id,branch_id) {
-//   const query = `
-//     UPDATE treatment_payments
-//     SET amount = $1, created_at = NOW()
-//     WHERE treatment_plan_id = $2 AND session_id = $3 AND tenant_id = $4 AND branch_id = $5
-//     RETURNING *;
-//   `;
-
-//   const { rows } = await pool.query(query, [amount, tpId, sessionId,tenant_id,branch_id]);
-//   return rows[0] || null;
-// }
-
-async function updatePaidForTpSession(tpId, sessionId, amount, tenant_id, branch_id) {
-  // Bug 2 fix: reject a zero/negative amount up front.
-  if (!Number.isFinite(Number(amount)) || Number(amount) <= 0) {
-    throw appError('INVALID_PLAN_AMOUNT', 'Amount must be greater than 0', 400);
-  }
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-
-    // 1) update if exists
-    const upd = await client.query(
-      `
-      UPDATE treatment_payments
-      SET amount = $1
-      WHERE treatment_plan_id = $2 AND session_id = $3 AND tenant_id = $4 AND branch_id = $5
-      RETURNING *;
-      `,
-      [amount, tpId, sessionId, tenant_id, branch_id]
-    );
-
-    // 2) if not exists, insert
-    let paymentRow = upd.rows[0];
-    if (!paymentRow) {
-      const ins = await client.query(
-        `
-        INSERT INTO treatment_payments (treatment_plan_id, session_id, amount,tenant_id,branch_id)
-        VALUES ($1, $2, $3,$4,$5)
-        RETURNING *;
-        `,
-        [tpId, sessionId, amount, tenant_id, branch_id]
-      );
-      paymentRow = ins.rows[0];
-    }
-
-    // 3) recalc tp.total_paid from treatment_payments
-    const sumRes = await client.query(
-      `
-      SELECT COALESCE(SUM(amount), 0) AS total_paid
-      FROM treatment_payments
-      WHERE treatment_plan_id = $1 AND tenant_id = $2 AND branch_id = $3;
-      `,
-      [tpId, tenant_id, branch_id]
-    );
-
-    const newTotalPaid = Number(sumRes.rows[0].total_paid || 0);
-
-    // Bug 2 fix: this payment must not push the plan above its agreed total.
-    const planRes = await client.query(
-      `SELECT agreed_total FROM treatment_plans WHERE id = $1 AND tenant_id = $2 AND branch_id = $3`,
-      [tpId, tenant_id, branch_id]
-    );
-    const agreedTotal = Number(planRes.rows[0]?.agreed_total || 0);
-    if (newTotalPaid > agreedTotal) {
-      throw appError('AMOUNT_EXCEEDS_REMAINING', `Amount exceeds the plan's agreed total of ${agreedTotal}`, 400);
-    }
-
-    // 4) update treatment_plans.total_paid
-    await client.query(
-      `
-      UPDATE treatment_plans
-SET
-  total_paid = $1,
-  is_paid = ($1 >= agreed_total),
-  updated_at = NOW()
-WHERE id = $2 AND tenant_id = $3 AND branch_id = $4;
-
-      `,
-      [newTotalPaid, tpId, tenant_id, branch_id]
-    );
-
-    await client.query("COMMIT");
-
-    return {
-      payment: paymentRow,
-      tp_total_paid: newTotalPaid,
-    };
-  } catch (e) {
-    await client.query("ROLLBACK");
-    throw e;
-  } finally {
-    client.release();
-  }
-}
-
-
 export default {
   getActivePlan, getActivePlans, createPlan, getTreatmentPlanByIdForUpdate, markCompleted, getSessionsForTp, getAllTreatmentPlansForSection,
-  editTp, voidTp, updatePaidForTpSession
+  editTp, voidTp, voidPlanIfEmpty
 }
 
 

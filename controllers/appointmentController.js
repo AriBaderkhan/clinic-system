@@ -101,34 +101,34 @@ const noShow = asyncWrap(async (req, res) => {
 })
 
 const getAll = asyncWrap(async (req, res) => {
-    const { day, type, q, page, limit } = req.query;
+    const { day, type, q, floor_id, page, limit } = req.query;
     const { tenant_id, branch_id } = req.user;
 
     const safePage = Math.max(1, parseInt(page) || 1);
     const safeLimit = Math.min(100, parseInt(limit) || 20);
 
     const { rows, total } = await appointmentService.getAll({
-        day, type, search: q, page: safePage, limit: safeLimit,
+        day, type, search: q, floor_id, page: safePage, limit: safeLimit,
     }, tenant_id, branch_id);
 
     res.status(200).json({ ok: true, data: rows, total, page: safePage, limit: safeLimit });
 })
 
 const getCalendar = asyncWrap(async (req, res) => {
-    const { from, to } = req.query;
+    const { from, to, floor_id } = req.query;
     const { tenant_id, branch_id, role } = req.user;
 
     // doctors only see their own appointments on the calendar
     const doctor_id = role === 'doctor' ? req.user.id : null;
 
-    const result = await appointmentService.getCalendar({ from, to, doctor_id }, tenant_id, branch_id);
+    const result = await appointmentService.getCalendar({ from, to, doctor_id, floor_id }, tenant_id, branch_id);
     res.status(200).json({ ok: true, data: result });
 })
 
 const getActiveToday = asyncWrap(async (req, res) => {
     const { tenant_id, branch_id } = req.user
 
-    const result = await appointmentService.getActiveToday(tenant_id, branch_id);
+    const result = await appointmentService.getActiveToday(req.query.floor_id, tenant_id, branch_id);
     res.status(200).json({ ok: true, data: result });
 })
 

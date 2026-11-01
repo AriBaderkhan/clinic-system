@@ -13,11 +13,13 @@ async function findUserById(user_id, tenant_id) {
     ubr.role_id,
     b.name AS branch_name,
     r.name AS role_name,
-    t.name AS tenant_name
+    t.name AS tenant_name,
+    s.end_date AS subscription_end_date
     FROM user_branch_roles ubr
     JOIN roles r ON ubr.role_id = r.id
-    JOIN branches b ON ubr.branch_id = b.id
+    LEFT JOIN branches b ON ubr.branch_id = b.id   -- tenant_manager rows have no branch
     JOIN tenants t ON ubr.tenant_id = t.id
+    LEFT JOIN subscriptions s ON s.tenant_id = ubr.tenant_id
     WHERE ubr.user_id = $1 AND ubr.tenant_id = $2 AND ubr.is_active = true`;
     const values = [user_id, tenant_id];
     const { rows } = await pool.query(query, values);
@@ -64,11 +66,13 @@ async function findUserByAll(user_id, tenant_id, branch_id) {
     ubr.role_id,
     b.name AS branch_name,
     r.name AS role_name,
-    t.name AS tenant_name
+    t.name AS tenant_name,
+    s.end_date AS subscription_end_date
     FROM user_branch_roles ubr
     JOIN roles r ON ubr.role_id = r.id
     JOIN branches b ON ubr.branch_id = b.id
     JOIN tenants t ON ubr.tenant_id = t.id
+    LEFT JOIN subscriptions s ON s.tenant_id = ubr.tenant_id
     WHERE ubr.user_id = $1 AND ubr.tenant_id = $2 AND ubr.branch_id = $3`;
     const values = [user_id, tenant_id, branch_id];
     const { rows } = await pool.query(query, values);

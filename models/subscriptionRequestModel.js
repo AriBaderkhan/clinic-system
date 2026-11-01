@@ -1,11 +1,11 @@
 import pool from '../db_connection.js';
 
 // Create a pending renew/upgrade request (with the uploaded evidence path).
-async function createRequest({ tenant_id, plan_id, amount, evidence_path }) {
+async function createRequest({ tenant_id, plan_id, billing_period, amount, evidence_path }) {
     const { rows } = await pool.query(
-        `INSERT INTO subscription_requests (tenant_id, plan_id, amount, evidence_path)
-         VALUES ($1, $2, $3, $4) RETURNING *`,
-        [tenant_id, plan_id, amount ?? null, evidence_path ?? null]
+        `INSERT INTO subscription_requests (tenant_id, plan_id, billing_period, amount, evidence_path)
+         VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+        [tenant_id, plan_id, billing_period, amount ?? null, evidence_path ?? null]
     );
     return rows[0];
 }
@@ -27,7 +27,7 @@ async function getPendingByTenant(tenant_id) {
 // Platform-admin queue: all pending requests with tenant + plan names.
 async function listByStatus(status = 'pending') {
     const { rows } = await pool.query(
-        `SELECT sr.id, sr.tenant_id, sr.plan_id, sr.amount, sr.evidence_path,
+        `SELECT sr.id, sr.tenant_id, sr.plan_id, sr.billing_period, sr.amount, sr.evidence_path,
                 sr.status, sr.note, sr.reviewed_by, sr.reviewed_at, sr.created_at,
                 p.name AS plan_name, p.price AS plan_price,
                 t.name AS tenant_name
@@ -46,14 +46,22 @@ async function getById(id, client = pool) {
     return rows[0] || null;
 }
 
+// Same row, locked until the transaction ends — two approvals of one request
+// can never both pass the 'pending' check.
+async function getByIdForUpdate(id, client) {
+    const { rows } = await client.query(`SELECT * FROM subscription_requests WHERE id = $1 FOR UPDATE`, [id]);
+    return rows[0] || null;
+}
+
+// Only a still-pending request can be reviewed (returns null otherwise).
 async function markReviewed(id, status, reviewed_by, note, client = pool) {
     const { rows } = await client.query(
         `UPDATE subscription_requests
          SET status = $2, reviewed_by = $3, note = COALESCE($4, note), reviewed_at = NOW()
-         WHERE id = $1 RETURNING *`,
+         WHERE id = $1 AND status = 'pending' RETURNING *`,
         [id, status, reviewed_by, note ?? null]
     );
     return rows[0] || null;
 }
 
-export default { createRequest, getPendingByTenant, listByStatus, getById, markReviewed };
+export default { createRequest, getPendingByTenant, listByStatus, getById, getByIdForUpdate, markReviewed };

@@ -3,8 +3,8 @@ import asyncWrap from '../utils/asyncWrap.js';
 
 const create = asyncWrap(async (req, res) => {
     const tenantId = Number(req.params.tenantId);
-    const { planId } = req.body;
-    const result = await subscriptionService.create(tenantId, planId);
+    const { plan_id } = req.body;
+    const result = await subscriptionService.create(tenantId, plan_id);
     res.status(201).json({ ok: true, data: result });
 })
 

@@ -24,7 +24,7 @@ async function getPaymentsHistory(tenant_id, branch_id) {
         JOIN patients p ON p.id=a.patient_id AND p.tenant_id = a.tenant_id 
         JOIN doctors d ON d.id=a.doctor_id AND d.tenant_id = a.tenant_id AND d.branch_id = a.branch_id
         JOIN profiles pr ON pr.user_id=d.id 
-        JOIN profiles pr2 ON pr2.user_id = sp.created_by 
+        LEFT JOIN profiles pr2 ON pr2.user_id = sp.created_by   -- older payments have no "taken by"
         WHERE sp.tenant_id = $1
         AND sp.branch_id = $2
         ORDER BY sp.created_at DESC

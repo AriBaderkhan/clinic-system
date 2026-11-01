@@ -5,12 +5,12 @@ import storage from '../config/storage.js';
 import subscriptionRequestModel from '../models/subscriptionRequestModel.js';
 import subscriptionModel from '../models/subscriptionModel.js';
 import planModel from '../models/planModel.js';
-import subscriptionService, { SUBSCRIPTION_PERIOD_DAYS } from './subscriptionService.js';
+import subscriptionService, { PERIOD_DAYS } from './subscriptionService.js';
 
 const EXT_BY_MIME = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
 
 // Tenant submits a renew/upgrade request with a payment-evidence image.
-async function createRequest(tenant_id, plan_id, file) {
+async function createRequest(tenant_id, plan_id, billing_period, file) {
     const plan = await planModel.getPlanById(plan_id);
     if (!plan) throw appError('PLAN_NOT_FOUND', 'Plan not found', 404);
 
@@ -34,10 +34,13 @@ async function createRequest(tenant_id, plan_id, file) {
 
     try {
         return await subscriptionRequestModel.createRequest({
-            tenant_id, plan_id, amount: plan.price, evidence_path: objectPath,
+            tenant_id, plan_id, billing_period, evidence_path: objectPath,
+            amount: billing_period === 'yearly' ? plan.yearly_price : plan.price,
         });
     } catch (err) {
         await storage.removeObject(objectPath).catch(() => {}); // don't orphan the file
+        // two staff submitting at the same moment: the unique index lets only one in
+        if (err.code === '23505') throw appError('REQUEST_ALREADY_PENDING', 'You already have a request awaiting confirmation.', 409);
         throw err;
     }
 }
@@ -59,12 +62,12 @@ async function approve(requestId, reviewer_id) {
     try {
         await client.query('BEGIN');
 
-        const reqRow = await subscriptionRequestModel.getById(requestId, client);
+        const reqRow = await subscriptionRequestModel.getByIdForUpdate(requestId, client);
         if (!reqRow) throw appError('REQUEST_NOT_FOUND', 'Request not found', 404);
         if (reqRow.status !== 'pending') throw appError('REQUEST_NOT_PENDING', 'This request was already reviewed.', 409);
 
         const subscription = await subscriptionModel.renewForTenant(
-            reqRow.tenant_id, reqRow.plan_id, SUBSCRIPTION_PERIOD_DAYS, client
+            reqRow.tenant_id, reqRow.plan_id, PERIOD_DAYS[reqRow.billing_period], reqRow.billing_period, client
         );
         if (!subscription) throw appError('SUBSCRIPTION_NOT_FOUND', 'Tenant has no subscription to renew.', 404);
 
@@ -84,7 +87,9 @@ async function reject(requestId, reviewer_id, note) {
     const reqRow = await subscriptionRequestModel.getById(requestId);
     if (!reqRow) throw appError('REQUEST_NOT_FOUND', 'Request not found', 404);
     if (reqRow.status !== 'pending') throw appError('REQUEST_NOT_PENDING', 'This request was already reviewed.', 409);
-    return subscriptionRequestModel.markReviewed(requestId, 'rejected', reviewer_id, note);
+    const request = await subscriptionRequestModel.markReviewed(requestId, 'rejected', reviewer_id, note);
+    if (!request) throw appError('REQUEST_NOT_PENDING', 'This request was already reviewed.', 409);
+    return request;
 }
 
 export default { createRequest, listPending, approve, reject };

@@ -2,9 +2,9 @@ import subscriptionModel from "../models/subscriptionModel.js";
 import subscriptionRequestModel from "../models/subscriptionRequestModel.js";
 import appError from '../utils/appError.js';
 
-// Length of a paid period. 37 for now (30 of value + a 7-day buffer); lower to
-// 30 later by changing this one number.
-export const SUBSCRIPTION_PERIOD_DAYS = 37;
+// Length of a paid period = value + a 7-day buffer. Monthly 30+7, yearly 365+7.
+// The ONE place period length is decided (renewals, registration, admin-add).
+export const PERIOD_DAYS = { monthly: 37, yearly: 372 };
 // Tenant sees the renewal banner once they're inside this many days of the end.
 export const RENEWAL_WINDOW_DAYS = 7;
 
@@ -24,7 +24,7 @@ function computeState(sub) {
 }
 
 async function create(tenantId, planId) {
-    const subscription = await subscriptionModel.createSubscription(tenantId, planId);
+    const subscription = await subscriptionModel.createSubscription(tenantId, planId, PERIOD_DAYS.monthly, 'monthly');
     if (!subscription) throw appError("SUBSCRIPTION_NOT_CREATED", 'subscription not created', 400)
     return subscription;
 }
@@ -58,6 +58,8 @@ async function getMyStatus(tenant_id) {
         plan_id: sub?.plan_id || null,
         plan_name: sub?.plan_name || null,
         price: sub?.plan_price ?? null,
+        yearly_price: sub?.plan_yearly_price ?? null,
+        billing_period: sub?.billing_period || null,   // monthly | yearly
         max_branches: sub?.max_branches ?? null,
         max_users: sub?.max_users ?? null,
         status: state,                 // none | active | expiring | expired
@@ -68,7 +70,7 @@ async function getMyStatus(tenant_id) {
         can_renew: state === 'expiring' || state === 'expired' || state === 'none',
         in_warning: state === 'expiring' || state === 'expired',
         pending_request: pending
-            ? { id: pending.id, plan_id: pending.plan_id, plan_name: pending.plan_name, created_at: pending.created_at }
+            ? { id: pending.id, plan_id: pending.plan_id, plan_name: pending.plan_name, billing_period: pending.billing_period, created_at: pending.created_at }
             : null,
     };
 }

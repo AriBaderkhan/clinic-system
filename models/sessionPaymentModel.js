@@ -26,11 +26,12 @@ async function recalcSessionTotals(sessionId, tenant_id, branch_id, client = poo
   // A session is paid when paid money + any applied discount reaches the total
   // owed — NOT when any amount is received. A partial payment keeps is_paid =
   // false. Including discount_amount is what lets a discounted balance close.
+  // A session reception closed as done ("settled") stays paid after any edit.
   const updateQuery = `
     UPDATE sessions
     SET
       total_paid = $2::numeric,
-      is_paid = ($2::numeric + COALESCE(discount_amount, 0) >= COALESCE(total, 0)),
+      is_paid = (is_settled OR $2::numeric + COALESCE(discount_amount, 0) >= COALESCE(total, 0)),
       updated_at = NOW()
     WHERE id = $1
     AND tenant_id = $3
@@ -42,83 +43,60 @@ async function recalcSessionTotals(sessionId, tenant_id, branch_id, client = poo
   return rows[0] || null;
 }
 
-
-async function upsertSessionPaymentBySessionId(
-  { sessionId, amount, note = null, createdBy = null },
-  tenant_id, branch_id, client = pool
-) {
-  // 1️⃣ Try to UPDATE first
-  const updateQuery = `
-    UPDATE session_payments
-    SET
-      amount = $1,
-      note = COALESCE($2, note),
-      created_by = COALESCE($3, created_by)
-    WHERE session_id = $4
-    AND tenant_id = $5
-    AND branch_id = $6
-    RETURNING *
-  `;
-  const updateResult = await client.query(updateQuery, [
-    amount,
-    note,
-    createdBy,
-    sessionId,
-    tenant_id,
-    branch_id
-  ]);
-
-  // If UPDATE found a row → done
-  if (updateResult.rows.length > 0) {
-    return updateResult.rows[0];
-  }
-
-  // 2️⃣ If no row exists → INSERT
-  const insertQuery = `
-    INSERT INTO session_payments (session_id, amount, note, created_by,tenant_id,branch_id)
-    VALUES ($1, $2, $3, $4,$5,$6)
-    RETURNING *
-  `;
-  const insertResult = await client.query(insertQuery, [
-    sessionId,
-    amount,
-    note,
-    createdBy,
-    tenant_id,
-    branch_id
-  ]);
-
-  return insertResult.rows[0];
+// Every payment of a session (oldest first) with who took it, for the edit screen.
+async function listForSession(sessionId, tenant_id, branch_id, client = pool) {
+  const { rows } = await client.query(
+    `SELECT sp.id, sp.amount, sp.note, sp.currency_code, sp.created_at, pr.full_name AS created_by_name
+       FROM session_payments sp
+       LEFT JOIN profiles pr ON pr.user_id = sp.created_by
+      WHERE sp.session_id = $1 AND sp.tenant_id = $2 AND sp.branch_id = $3
+      ORDER BY sp.created_at ASC, sp.id ASC`,
+    [sessionId, tenant_id, branch_id]
+  );
+  return rows;
 }
 
-
-
-
-// Set the session's paid to an EXACT amount from the edit screen. Collapses the
-// ledger to a single row so re-editing a session can never multiply the paid
-// (the old upsert overwrote EVERY row with the full total, then recalc summed
-// them). Deleting first also lets the paid be lowered, not only raised.
-async function setSessionPaidExact({ sessionId, amount, note = null, createdBy = null }, tenant_id, branch_id, client = pool) {
-  // Bug 3 fix: keep the session's original payment date so editing a paid session
-  // does not move the money to today (which would shift it to the wrong month in
-  // reports). Fall back to NOW() only when there was no payment before.
-  const { rows: prev } = await client.query(
-    `SELECT MIN(created_at) AS keep_date FROM session_payments WHERE session_id = $1 AND tenant_id = $2 AND branch_id = $3`,
-    [sessionId, tenant_id, branch_id]
-  );
-  const keepDate = prev[0]?.keep_date || null;
-  await client.query(
-    `DELETE FROM session_payments WHERE session_id = $1 AND tenant_id = $2 AND branch_id = $3`,
-    [sessionId, tenant_id, branch_id]
-  );
-  // amount has a CHECK (> 0): a zero/unpaid session simply keeps no payment row.
-  if (Number(amount) <= 0) return null;
+async function getByIdForUpdate(paymentId, sessionId, tenant_id, branch_id, client = pool) {
   const { rows } = await client.query(
-    `INSERT INTO session_payments (session_id, amount, note, created_by, tenant_id, branch_id, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, NOW())) RETURNING *`,
-    [sessionId, amount, note, createdBy, tenant_id, branch_id, keepDate]
+    `SELECT * FROM session_payments
+      WHERE id = $1 AND session_id = $2 AND tenant_id = $3 AND branch_id = $4
+      FOR UPDATE`,
+    [paymentId, sessionId, tenant_id, branch_id]
   );
   return rows[0] || null;
 }
 
-export default { createSessionPayment, recalcSessionTotals, upsertSessionPaymentBySessionId, setSessionPaidExact }
+// Change one payment's amount/note. created_at is kept, so the money stays in the
+// month it was really received (reports group by created_at).
+async function updatePayment(paymentId, amount, note, tenant_id, branch_id, client = pool) {
+  const { rows } = await client.query(
+    `UPDATE session_payments
+        SET amount = $2, note = $3
+      WHERE id = $1 AND tenant_id = $4 AND branch_id = $5
+      RETURNING *`,
+    [paymentId, amount, note, tenant_id, branch_id]
+  );
+  return rows[0] || null;
+}
+
+async function deletePayment(paymentId, tenant_id, branch_id, client = pool) {
+  const { rows } = await client.query(
+    `DELETE FROM session_payments WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 RETURNING *`,
+    [paymentId, tenant_id, branch_id]
+  );
+  return rows[0] || null;
+}
+
+// Used when a whole visit is deleted: its normal payments leave the reports.
+async function deleteAllForSession(sessionId, tenant_id, branch_id, client = pool) {
+  const { rows } = await client.query(
+    `DELETE FROM session_payments WHERE session_id = $1 AND tenant_id = $2 AND branch_id = $3 RETURNING *`,
+    [sessionId, tenant_id, branch_id]
+  );
+  return rows;
+}
+
+export default {
+  createSessionPayment, recalcSessionTotals, listForSession, getByIdForUpdate,
+  updatePayment, deletePayment, deleteAllForSession,
+}

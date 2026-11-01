@@ -30,7 +30,7 @@ async function getReferralSources(tenant_id) {
 
 async function getAllPatients({ q, page, limit } = {}, tenant_id, branch_id) {
   let query = `
-    SELECT p.id, p.name, p.phone, p.age, p.gender, p.address, p.created_by, p.updated_by,
+    SELECT p.id, p.name, p.phone, p.extra_phones, p.age, p.gender, p.address, p.created_by, p.updated_by,
            COUNT(*) OVER() AS total_count
 FROM patients p
 WHERE p.tenant_id = $1
@@ -216,10 +216,12 @@ async function getAllSessionsPatient(patientId, tenant_id, branch_id, limit = nu
     JOIN appointments a ON s.appointment_id = a.id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
     JOIN patients p ON a.patient_id = p.id AND p.tenant_id = a.tenant_id 
     JOIN profiles pr ON a.doctor_id= pr.user_id 
-    JOIN profiles pr2 ON s.created_by= pr2.user_id 
+    JOIN profiles pr2 ON s.created_by= pr2.user_id
     WHERE a.patient_id=$1
     AND a.tenant_id = $2
     AND a.branch_id = $3
+    AND s.is_deleted = false
+    AND a.is_deleted = false
     ORDER BY s.created_at DESC
     ${limit ? 'LIMIT $4' : ''}`;
   const value = limit ? [patientId, tenant_id, branch_id, limit] : [patientId, tenant_id, branch_id];
@@ -227,9 +229,11 @@ async function getAllSessionsPatient(patientId, tenant_id, branch_id, limit = nu
   return rows;
 }
 
+// normal (session) payments + treatment-plan payments, kind tells them apart
 async function getAllPaymentsPatient(patientId, tenant_id, branch_id) {
   const query = `
-    SELECT 
+    SELECT
+        'normal' AS kind,
         sp.id AS payment_id,
         sp.amount,
         sp.method,
@@ -238,21 +242,44 @@ async function getAllPaymentsPatient(patientId, tenant_id, branch_id) {
         sp.created_at,
 
         s.id AS session_id,
-        s.total,
-        s.total_paid,
+        NULL::bigint AS treatment_plan_id,
         pr.full_name AS doctor_name,
-        p.name AS patient_name,
         pr2.full_name AS processed_by
     FROM session_payments sp
-    JOIN sessions s ON sp.session_id = s.id
+    JOIN sessions s ON sp.session_id = s.id AND s.tenant_id = sp.tenant_id AND s.branch_id = sp.branch_id
     JOIN appointments a ON s.appointment_id = a.id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
-    JOIN patients p ON a.patient_id = p.id AND p.tenant_id = a.tenant_id 
-    JOIN profiles pr ON a.doctor_id= pr.user_id 
-    JOIN profiles pr2 ON s.created_by= pr2.user_id 
-    WHERE a.patient_id=$1
+    LEFT JOIN profiles pr ON a.doctor_id = pr.user_id
+    LEFT JOIN profiles pr2 ON sp.created_by = pr2.user_id
+    WHERE a.patient_id = $1
     AND a.tenant_id = $2
     AND a.branch_id = $3
-    ORDER BY sp.created_at DESC`;
+    AND s.is_deleted = false
+    AND a.is_deleted = false
+
+    UNION ALL
+
+    SELECT
+        'plan' AS kind,
+        tp.id AS payment_id,
+        tp.amount,
+        NULL AS method,
+        tp.note,
+        tp.currency_code,
+        tp.created_at,
+
+        tp.session_id,
+        tp.treatment_plan_id,
+        NULL AS doctor_name,
+        pr2.full_name AS processed_by
+    FROM treatment_payments tp
+    JOIN treatment_plans t ON tp.treatment_plan_id = t.id AND t.tenant_id = tp.tenant_id AND t.branch_id = tp.branch_id
+    LEFT JOIN profiles pr2 ON tp.created_by = pr2.user_id
+    WHERE t.patient_id = $1
+    AND tp.tenant_id = $2
+    AND tp.branch_id = $3
+    AND tp.is_deleted = false
+    AND t.is_deleted = false
+    ORDER BY created_at DESC`;
   const value = [patientId, tenant_id, branch_id];
   const { rows } = await pool.query(query, value);
   return rows;

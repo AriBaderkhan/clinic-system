@@ -7,6 +7,7 @@ import featureMiddleware from '../middlewares/featureMiddleware.js';
 import docController from '../controllers/docController.js';
 import reportsValidate from '../validates/reportsValidate.js';
 import validateIdParam from '../validates/idValidate.js';
+import docValidate from '../validates/docValidate.js';
 import branchAssigmentMiddleware from '../middlewares/branchAssigmentMiddleware.js';
 
 router.use(authMiddleware);
@@ -31,5 +32,9 @@ router.get('/report', permissionMiddleware('view_session'), gateCustomRange, rep
 router.get('/report/pdf', permissionMiddleware('view_session'), gateCustomRange, reportsValidate.monthly, docController.downloadMyReportPdf);
 
 router.get('/:appointmentId/session', permissionMiddleware('view_session'), validateIdParam('appointmentId'), docController.getSession);
+
+// a doctor's specialty + extra treatments (both managers)
+router.get('/:doctorId/settings', permissionMiddleware('manage_works'), validateIdParam('doctorId'), docController.getSettings);
+router.put('/:doctorId/settings', permissionMiddleware('manage_works'), validateIdParam('doctorId'), docValidate.settings, docController.saveSettings);
 
 export default router;

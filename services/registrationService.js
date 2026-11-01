@@ -8,6 +8,7 @@ import planModel from '../models/planModel.js';
 import adminPlatformModel from '../models/adminPlatformModel.js';
 import verificationService from './verificationService.js';
 import emailService from './emailService.js';
+import { PERIOD_DAYS } from './subscriptionService.js';
 
 const REG_PURPOSE = 'register';
 const EXT_BY_MIME = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
@@ -24,7 +25,7 @@ async function verifyCode(email, code) {
 
 // Step 3: create the pending registration (email must be verified first).
 async function createRequest(data, file) {
-    const { tenant_name, manager_name, email, phone, address, password, plan_id } = data;
+    const { tenant_name, manager_name, email, phone, address, password, plan_id, billing_period } = data;
 
     const plan = await planModel.getPlanById(plan_id);
     if (!plan) throw appError('PLAN_NOT_FOUND', 'Plan not found', 404);
@@ -54,7 +55,7 @@ async function createRequest(data, file) {
     try {
         request = await registrationModel.createRequest({
             tenant_name, manager_name, email, phone, address,
-            password_hash, plan_id, evidence_path: objectPath,
+            password_hash, plan_id, billing_period, evidence_path: objectPath,
         });
     } catch (err) {
         await storage.removeObject(objectPath).catch(() => {}); // don't orphan the file
@@ -100,7 +101,7 @@ async function approve(requestId, reviewer_id) {
         if (!role) throw appError('ROLE_MISSING', 'tenant_manager role not found', 500);
         await adminPlatformModel.assignRole(client, user.id, role.id, tenant.id, null); // null branch is fine for tenant_manager
 
-        await adminPlatformModel.createSubscription(client, tenant.id, reqRow.plan_id);
+        await adminPlatformModel.createSubscription(client, tenant.id, reqRow.plan_id, PERIOD_DAYS[reqRow.billing_period], reqRow.billing_period);
 
         await registrationModel.markReviewed(requestId, 'approved', reviewer_id, null, client);
 

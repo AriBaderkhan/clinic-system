@@ -10,6 +10,7 @@ import workCatalogModel from '../models/workCatalogModel.js';
 import treatmentPlanModel from '../models/treatmentPlanModel.js';
 import prescriptionModel from '../models/prescriptionModel.js';
 import notificationService from './notificationService.js';
+import worksService from './worksService.js';
 import pool from '../db_connection.js';
 
 
@@ -88,6 +89,19 @@ async function update(appointmentDataForUpdate, tenant_id, branch_id) {
 
     if (Object.keys(fields).length === 0) {
         throw appError('NO_FIELDS_TO_UPDATE', 'No fields provided to update', 400);
+    }
+
+    // 3b) Changing the patient: block it when the visit already holds works or
+    // payments — they belong to the old patient (and their treatment plans).
+    if (patient_id && Number(patient_id) !== Number(appt.patient_id)) {
+        const liveSession = await appointmentModel.getAppointmentLiveSession(appointmentId, tenant_id, branch_id);
+        if (liveSession) {
+            const counts = await sessionModel.sessionLiveChildCounts(liveSession.id, tenant_id, branch_id);
+            const live = Number(counts.works) + Number(counts.session_payments) + Number(counts.plan_payments);
+            if (live > 0) {
+                throw appError('PATIENT_CHANGE_HAS_RECORDS', 'Cannot change the patient: this visit already has works or payments. Delete the visit and create it for the right patient.', 409);
+            }
+        }
     }
 
     // 4) Determine final doctor + time after update
@@ -326,6 +340,9 @@ async function complete({ appointmentId, doctorId, next_plan, notes, works, comp
 
         }
 
+        // every treatment must be allowed for the visit's doctor (specialty / extras)
+        await worksService.assertAllowedForDoctor(appt.doctor_id, works.map(w => w.work_id), [], tenant_id, branch_id, client);
+
         // Mark the existing plans the doctor ticked "completed" (validated to
         // belong to this patient). Done after the works loop so a final session
         // can attach to a plan and complete it in the same visit.
@@ -409,7 +426,7 @@ async function noShow(appointmentId, userId, cancel_reason, tenant_id, branch_id
 
 
 // for filtters and searches by type and p.name, p.phone and d.name
-async function getAll({ day, type, search, page, limit }, tenant_id, branch_id) {
+async function getAll({ day, type, search, floor_id, page, limit }, tenant_id, branch_id) {
 
     const settings = await settingModel.getEffectiveSettings(tenant_id, branch_id);
     const range = day ? dateRange.getDateRange(day, settings?.timezone) : null;
@@ -419,6 +436,7 @@ async function getAll({ day, type, search, page, limit }, tenant_id, branch_id) 
         to: range ? range.to : null,
         type,
         search,
+        floor_id,
         page,
         limit,
     }, tenant_id, branch_id);
@@ -427,7 +445,7 @@ async function getAll({ day, type, search, page, limit }, tenant_id, branch_id) 
 }
 
 // FOR CALENDAR (reception/branch_manager see all, doctor sees only their own)
-async function getCalendar({ from, to, doctor_id }, tenant_id, branch_id) {
+async function getCalendar({ from, to, doctor_id, floor_id }, tenant_id, branch_id) {
 
     if (!from || !to) throw appError('INVALID_CALENDAR_RANGE', 'from and to dates are required', 400);
 
@@ -441,13 +459,14 @@ async function getCalendar({ from, to, doctor_id }, tenant_id, branch_id) {
         from: fromDate.toISOString(),
         to: toDate.toISOString(),
         doctor_id: doctor_id || null,
+        floor_id: floor_id || null,
     }, tenant_id, branch_id);
 
     return appointments;
 }
 
 // FOR DASHBOARD
-async function getActiveToday(tenant_id, branch_id) {
+async function getActiveToday(floor_id, tenant_id, branch_id) {
 
     const settings = await settingModel.getEffectiveSettings(tenant_id, branch_id);
     const todayAppt = dateRange.getDateRange('today', settings?.timezone);
@@ -457,6 +476,7 @@ async function getActiveToday(tenant_id, branch_id) {
     const appointments = await appointmentModel.activeTodayAppt({
         from: todayAppt ? todayAppt.from : null,
         to: todayAppt ? todayAppt.to : null,
+        floor_id: floor_id || null,
     }, tenant_id, branch_id);
 
     return appointments;

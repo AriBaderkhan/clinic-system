@@ -16,10 +16,11 @@ async function getDoctorById(doctor_id, tenant_id, branch_id) {
 }
 
 async function getAllDocs(tenant_id, branch_id) {
-  const query = `SELECT d.id,d.room, p.full_name
+  const query = `SELECT d.id,d.room, p.full_name, d.specialty_id, s.name AS specialty_name
        FROM doctors d
        JOIN profiles p ON d.id = p.user_id
        JOIN users u ON d.id = u.id
+       LEFT JOIN specialties s ON s.id = d.specialty_id AND s.tenant_id = d.tenant_id AND s.branch_id = d.branch_id
        WHERE d.tenant_id = $1 AND d.branch_id = $2 AND u.is_active = true
        ORDER BY p.full_name ASC;
     `;
@@ -120,6 +121,7 @@ async function findApptsPerDoctorWithFilters({ from, to, type, search, doc_id },
       a.patient_id,
       p.name  AS patient_name,
       p.phone AS patient_phone,
+      p.extra_phones AS patient_extra_phones,
       pr.full_name AS doctor_name,
       a.scheduled_start,
       a.status,
@@ -277,7 +279,56 @@ async function doctorWorksBreakdown(from, to, tenant_id, branch_id, doc_id) {
   return rows;
 }
 
+// the doctor's specialty (null = no specialty) and whether it uses the teeth chart
+async function getDoctorSpecialty(doctor_id, tenant_id, branch_id, client = pool) {
+  const query = `
+    SELECT d.id, d.specialty_id, s.uses_teeth
+      FROM doctors d
+      LEFT JOIN specialties s ON s.id = d.specialty_id AND s.tenant_id = d.tenant_id AND s.branch_id = d.branch_id
+     WHERE d.id = $1 AND d.tenant_id = $2 AND d.branch_id = $3`;
+  const { rows } = await client.query(query, [doctor_id, tenant_id, branch_id]);
+  return rows[0] || null;
+}
+
+async function getExtraWorkIds(doctor_id, tenant_id, branch_id, client = pool) {
+  const query = `
+    SELECT work_id
+      FROM doctor_extra_works
+     WHERE doctor_id = $1 AND tenant_id = $2 AND branch_id = $3
+     ORDER BY work_id`;
+  const { rows } = await client.query(query, [doctor_id, tenant_id, branch_id]);
+  return rows.map(r => Number(r.work_id));
+}
+
+async function lockDoctor(doctor_id, tenant_id, branch_id, client) {
+  const query = `SELECT id FROM doctors WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 FOR UPDATE`;
+  const { rows } = await client.query(query, [doctor_id, tenant_id, branch_id]);
+  return rows[0] || null;
+}
+
+async function setSpecialty(doctor_id, specialty_id, tenant_id, branch_id, client = pool) {
+  const query = `
+    UPDATE doctors SET specialty_id = $1
+     WHERE id = $2 AND tenant_id = $3 AND branch_id = $4
+     RETURNING id, specialty_id`;
+  const { rows } = await client.query(query, [specialty_id, doctor_id, tenant_id, branch_id]);
+  return rows[0] || null;
+}
+
+async function deleteExtraWorks(doctor_id, tenant_id, branch_id, client = pool) {
+  const query = `DELETE FROM doctor_extra_works WHERE doctor_id = $1 AND tenant_id = $2 AND branch_id = $3`;
+  await client.query(query, [doctor_id, tenant_id, branch_id]);
+}
+
+async function addExtraWorks(doctor_id, work_ids, tenant_id, branch_id, client = pool) {
+  const query = `
+    INSERT INTO doctor_extra_works (doctor_id, work_id, tenant_id, branch_id)
+    SELECT $1, unnest($2::int[]), $3, $4`;
+  await client.query(query, [doctor_id, work_ids, tenant_id, branch_id]);
+}
+
 export default {
+  getDoctorSpecialty, getExtraWorkIds, lockDoctor, setSpecialty, deleteExtraWorks, addExtraWorks,
   addDoc, getDoctorById, getAllDocs, activeTodayAppt, openApptsPerDoctor, getDoc,
   findApptsPerDoctorWithFilters, getSessionByApptIdPerDoc,
   getReportHeader, doctorRevenue, doctorApptCountsByStatus, doctorWorksBreakdown

@@ -29,7 +29,8 @@ function signAccessToken(identity) {
 // Make a refresh token (a JWT carrying identity) and store ONLY its hash so we
 // can revoke it later. Returns the raw token to hand to the client.
 async function issueRefreshToken(identity) {
-    const refreshToken = jwt.sign({ ...identity, type: 'refresh' }, REFRESH_SECRET, {
+    // jti = random id, so two logins in the same second never produce the same token
+    const refreshToken = jwt.sign({ ...identity, type: 'refresh', jti: crypto.randomUUID() }, REFRESH_SECRET, {
         expiresIn: `${REFRESH_TOKEN_DAYS}d`,
     });
     const expires_at = new Date(Date.now() + REFRESH_TOKEN_DAYS * 24 * 60 * 60 * 1000);
@@ -98,9 +99,14 @@ async function login({ email, password, branch_id }) {
     if (tenant.status !== 'active') throw appError('TENANT_NOT_ACTIVE', 'Tenant is not active', 403);
 
     const user_id = user.id;
-    const userRows = await userBranchRoleModel.findUserById(user_id, user.tenant_id);
+    const allRows = await userBranchRoleModel.findUserById(user_id, user.tenant_id);
 
-    if (!userRows || userRows.length === 0) throw appError('ASSIGNMENT_NOT_ACTIVE', 'No active role assignment found', 403);
+    if (!allRows || allRows.length === 0) throw appError('ASSIGNMENT_NOT_ACTIVE', 'No active role assignment found', 403);
+
+    // Use branch rows when the user has any; the no-branch (organisation-level
+    // tenant_manager) row is only used when it's all they have, e.g. a brand-new clinic.
+    const branchRows = allRows.filter((r) => r.branch_id !== null);
+    const userRows = branchRows.length > 0 ? branchRows : allRows;
 
     let activeUserRow;
 
@@ -183,11 +189,14 @@ async function getLiveContext(user_id, tenant_id, branch_id) {
         return { role: 'platform_admin', permissions: ['manage_system'], is_active: true };
     }
 
+    // Expired = the subscription has an end date and it has passed (no end date = never expires).
+    const isExpired = (row) => Boolean(row.subscription_end_date) && new Date(row.subscription_end_date) < new Date();
+
     const assignment = await userBranchRoleModel.findUserByAll(user_id, tenant_id, branch_id);
     if (assignment && assignment.is_active) {
         const permissionsRow = await permissionsModel.findPermissionsByRole(assignment.role_id);
         const permissions = permissionsRow.map(row => row.permission_key);
-        return { role: assignment.role_name, permissions, is_active: true, clinic_name: assignment.tenant_name };
+        return { role: assignment.role_name, permissions, is_active: true, clinic_name: assignment.tenant_name, subscription_expired: isExpired(assignment) };
     }
 
     // No assignment on THIS branch. A tenant_manager owns every branch in their
@@ -202,7 +211,7 @@ async function getLiveContext(user_id, tenant_id, branch_id) {
     if (managerRow) {
         const permissionsRow = await permissionsModel.findPermissionsByRole(managerRow.role_id);
         const permissions = permissionsRow.map(row => row.permission_key);
-        return { role: managerRow.role_name, permissions, is_active: true, clinic_name: managerRow.tenant_name };
+        return { role: managerRow.role_name, permissions, is_active: true, clinic_name: managerRow.tenant_name, subscription_expired: isExpired(managerRow) };
     }
 
     return { role: null, permissions: [], is_active: false };

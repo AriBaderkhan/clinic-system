@@ -6,8 +6,9 @@ import asyncWrap from '../utils/asyncWrap.js';
 const create = asyncWrap(async (req, res) => {
     const { tenant_id } = req.user;
     const plan_id = Number(req.body.plan_id);
+    const { billing_period } = req.body;
     const file = req.files?.[0] || null;
-    const result = await subscriptionRequestService.createRequest(tenant_id, plan_id, file);
+    const result = await subscriptionRequestService.createRequest(tenant_id, plan_id, billing_period, file);
     res.status(201).json({ ok: true, data: result });
 });
 

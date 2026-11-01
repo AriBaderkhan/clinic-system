@@ -1,9 +1,11 @@
 import pool from '../db_connection.js';
 
-async function createSubscription(tenantId, planId) {
+// Always with a real end date — a row without one would never expire.
+async function createSubscription(tenantId, planId, days, billingPeriod) {
     const { rows } = await pool.query(
-        'INSERT INTO subscriptions (tenant_id, plan_id) VALUES ($1, $2) RETURNING *',
-        [tenantId, planId]
+        `INSERT INTO subscriptions (tenant_id, plan_id, status, start_date, end_date, billing_period)
+         VALUES ($1, $2, 'active', NOW(), NOW() + ($3 || ' days')::interval, $4) RETURNING *`,
+        [tenantId, planId, String(days), billingPeriod]
     );
     return rows[0];
 }
@@ -16,6 +18,7 @@ async function getAllSubscriptions() {
         s.status,
         s.start_date,
         s.end_date,
+        s.billing_period,
         p.name AS plan_name,
         t.name AS tenant_name
         FROM subscriptions s
@@ -58,8 +61,8 @@ async function updateSubscription(subscriptionId, tenantId, body) {
 // The tenant's single subscription, enriched with its plan.
 async function getByTenant(tenant_id) {
     const { rows } = await pool.query(
-        `SELECT s.id, s.tenant_id, s.plan_id, s.status, s.start_date, s.end_date,
-                p.name AS plan_name, p.price AS plan_price,
+        `SELECT s.id, s.tenant_id, s.plan_id, s.status, s.start_date, s.end_date, s.billing_period,
+                p.name AS plan_name, p.price AS plan_price, p.yearly_price AS plan_yearly_price,
                 p.max_branches, p.max_users
          FROM subscriptions s
          JOIN plans p ON p.id = s.plan_id
@@ -74,16 +77,17 @@ async function getByTenant(tenant_id) {
 // Renew/upgrade the tenant's existing subscription row (one per tenant — never
 // insert a second). New period = GREATEST(now, end_date) + N days, so renewing
 // early in the warning window extends instead of losing remaining days.
-async function renewForTenant(tenant_id, plan_id, days, client = pool) {
+async function renewForTenant(tenant_id, plan_id, days, billing_period, client = pool) {
     const { rows } = await client.query(
         `UPDATE subscriptions
          SET plan_id = $2,
              start_date = NOW(),
              end_date = GREATEST(NOW(), COALESCE(end_date, NOW())) + ($3 || ' days')::interval,
+             billing_period = $4,
              status = 'active'
          WHERE tenant_id = $1
          RETURNING *`,
-        [tenant_id, plan_id, String(days)]
+        [tenant_id, plan_id, String(days), billing_period]
     );
     return rows[0] || null;
 }

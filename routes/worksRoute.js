@@ -13,6 +13,7 @@ router.use(branchAssigmentMiddleware);
 
 router.post('/', permissionMiddleware('manage_works'), worksValidate.create, worksController.create);
 router.get('/', permissionMiddleware('view_works'), worksController.getAll);
+router.get('/doctor/:doctorId', permissionMiddleware('view_works'), idValidate('doctorId'), worksController.getForDoctor);
 router.get('/:workId', permissionMiddleware('view_works'), idValidate('workId'), worksController.getById);
 router.put('/:workId', permissionMiddleware('manage_works'), idValidate('workId'), worksValidate.update, worksController.update);
 router.delete('/:workId', permissionMiddleware('manage_works'), idValidate('workId'), worksController.delete);

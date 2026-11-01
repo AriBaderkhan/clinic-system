@@ -12,16 +12,18 @@ const registerTenantSchema = Joi.object({
     manager_password: Joi.string().min(6).required(),
 
     plan_id: Joi.number().positive().required(),
+    billing_period: Joi.string().valid('monthly', 'yearly').default('monthly'),
 
     phone: Joi.string().pattern(/^[0-9]+$/).min(10).optional(),
     address: Joi.string().optional()
 });
 
 const register = asyncWrap(async (req, res, next) => {
-    const { error } = registerTenantSchema.validate(req.body);
+    const { error, value } = registerTenantSchema.validate(req.body);
     if (error) {
         throw appError('VALIDATION_ERROR', error.details[0].message, 400);
     }
+    req.body = value; // carries the billing_period default
     next();
 });
 

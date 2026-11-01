@@ -107,11 +107,25 @@ const listApptsFiltersSchema = Joi.object({
 
     limit: Joi.number().integer().min(1).max(100).optional(),
 
+    floor_id: Joi.number().integer().positive().optional(),
+
 }).unknown(false)
 
 function filters(req, res, next) {
     const { error } = listApptsFiltersSchema.validate(req.query);
     if (error) return res.status(400).json({ message: error.details[0].message })
+    next();
+}
+
+// calendar + today lists: only the optional floor filter is checked here
+// (calendar from/to keep their own checks in the service)
+const floorFilterSchema = Joi.object({
+    floor_id: Joi.number().integer().positive().optional(),
+}).unknown(true);
+
+function floorFilter(req, res, next) {
+    const { error } = floorFilterSchema.validate(req.query);
+    if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' })
     next();
 }
 
@@ -129,5 +143,5 @@ function visitDraft(req, res, next) {
 }
 
 export default {
-    create, update, cancel, complete, filters, visitDraft
+    create, update, cancel, complete, filters, floorFilter, visitDraft
 }

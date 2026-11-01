@@ -13,6 +13,12 @@ const getAll = asyncWrap(async (req, res) => {
     res.status(200).json({ ok: true, data: result });
 })
 
+const getForDoctor = asyncWrap(async (req, res) => {
+    const { tenant_id, branch_id } = req.user;
+    const result = await worksService.getForDoctor(req.params.doctorId, tenant_id, branch_id);
+    res.status(200).json({ ok: true, data: result });
+})
+
 const getById = asyncWrap(async (req, res) => {
     const { tenant_id, branch_id } = req.user;
     const { workId } = req.params;
@@ -34,4 +40,4 @@ const _delete = asyncWrap(async (req, res) => {
     res.status(200).json({ ok: true });
 })
 
-export default { create, getAll, getById, update, delete: _delete }
+export default { create, getAll, getForDoctor, getById, update, delete: _delete }

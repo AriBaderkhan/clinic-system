@@ -9,7 +9,8 @@ const workValidateSchema = Joi.object({
     min_installment_amount: Joi.number().when('allow_installments', { is: true, then: Joi.required(), otherwise: Joi.forbidden() }),
     is_active: Joi.boolean().default(true),
     is_plan: Joi.boolean().default(false),
-    is_whole_mouth: Joi.boolean().default(false)
+    is_whole_mouth: Joi.boolean().default(false),
+    specialty_id: Joi.number().integer().positive().allow(null).default(null)
 });
 
 function create(req, res, next) {
@@ -27,7 +28,8 @@ const workUpdateSchema = Joi.object({
     min_installment_amount: Joi.number().when('allow_installments', { is: true, then: Joi.required(), otherwise: Joi.optional() }),
     is_active: Joi.boolean().optional(),
     is_plan: Joi.boolean().optional(),
-    is_whole_mouth: Joi.boolean().optional()
+    is_whole_mouth: Joi.boolean().optional(),
+    specialty_id: Joi.number().integer().positive().allow(null).optional()
 });
 
 function update(req, res, next) {

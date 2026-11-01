@@ -32,10 +32,11 @@ const createSchema = Joi.object({
     confirmPassword: Joi.string().valid(Joi.ref('password')).required()
         .messages({ 'any.only': 'Passwords do not match' }),
     plan_id: Joi.number().positive().required(),
+    billing_period: Joi.string().valid('monthly', 'yearly').default('monthly'),
 });
 function create(req, res, next) {
     const { error, value } = createSchema.validate(req.body);
-    if (error) return res.status(400).json({ message: error.details[0].message });
+    if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' });
     req.body = value;
     next();
 }

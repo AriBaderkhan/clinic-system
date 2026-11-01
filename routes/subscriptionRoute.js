@@ -21,10 +21,10 @@ router.get('/requests', permissionMiddleware('manage_system'), subscriptionReque
 router.post('/requests/:requestId/approve', permissionMiddleware('manage_system'), idValidate('requestId'), subscriptionRequestController.approve)
 router.post('/requests/:requestId/reject', permissionMiddleware('manage_system'), idValidate('requestId'), subscriptionRequestController.reject)
 
-// --- existing admin endpoints ---
-router.post('/:tenantId', idValidate('tenantId'), subscriptionValidate.create, subscriptionController.create)
-router.get('/', subscriptionController.getAll)
-router.get('/:subscriptionId', idValidate('subscriptionId'), subscriptionController.getById)
-router.put('/:subscriptionId/tenant/:tenantId', idValidate('subscriptionId'), idValidate('tenantId'), subscriptionValidate.update, subscriptionController.update)
+// --- existing admin endpoints (platform admin only) ---
+router.post('/:tenantId', permissionMiddleware('manage_system'), idValidate('tenantId'), subscriptionValidate.create, subscriptionController.create)
+router.get('/', permissionMiddleware('manage_system'), subscriptionController.getAll)
+router.get('/:subscriptionId', permissionMiddleware('manage_system'), idValidate('subscriptionId'), subscriptionController.getById)
+router.put('/:subscriptionId/tenant/:tenantId', permissionMiddleware('manage_system'), idValidate('subscriptionId'), idValidate('tenantId'), subscriptionValidate.update, subscriptionController.update)
 
 export default router;
