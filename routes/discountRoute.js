@@ -12,11 +12,11 @@ router.use(authMiddleware);
 router.use(branchAssigmentMiddleware);
 
 // Listing is used by Settings (managers) AND the pay dropdown (payment collectors).
-router.get('/', permissionMiddleware('manage_branch_settings', 'collect_payment'), discountController.getAll);
+router.get('/', permissionMiddleware('manage_discounts', 'collect_payment'), discountController.getAll);
 
 // Managing discounts is manager-only.
-router.post('/', permissionMiddleware('manage_branch_settings'), discountValidate.create, discountController.create);
-router.put('/:discountId', permissionMiddleware('manage_branch_settings'), idValidate('discountId'), discountValidate.update, discountController.update);
-router.delete('/:discountId', permissionMiddleware('manage_branch_settings'), idValidate('discountId'), discountController.delete);
+router.post('/', permissionMiddleware('manage_discounts'), discountValidate.create, discountController.create);
+router.put('/:discountId', permissionMiddleware('manage_discounts'), idValidate('discountId'), discountValidate.update, discountController.update);
+router.delete('/:discountId', permissionMiddleware('manage_discounts'), idValidate('discountId'), discountController.delete);
 
 export default router;

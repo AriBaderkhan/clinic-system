@@ -14,6 +14,7 @@ import discountModel from '../models/discountModel.js';
 import withTransaction from '../utils/withTransaction.js';
 import cents from '../utils/money.js';
 import worksService from './worksService.js';
+import { ownId } from '../utils/scope.js';
 
 // lock plan rows always in id order, so two requests can never deadlock
 async function lockPlansInOrder(planIds, tenant_id, branch_id, client) {
@@ -79,13 +80,14 @@ function buildPlanWorks(rows) {
   }));
 }
 
-async function getAll({ day, search, page, limit }, tenant_id, branch_id) {
+async function getAll({ day, search, page, limit, viewer }, tenant_id, branch_id) {
   const settings = await settingModel.getEffectiveSettings(tenant_id, branch_id);
   const range = day ? dateRange.getDateRange(day, settings?.timezone) : null;
   const result = await sessionModel.getAllNormalSessions({
     from: range ? range.from : null,
     to: range ? range.to : null,
     search,
+    doctor_id: ownId(viewer, 'view_session'),   // "own only" -> just this doctor's visits
     page,
     limit,
   }, tenant_id, branch_id);
@@ -549,9 +551,9 @@ async function _delete(sessionID, deletedBy, tenant_id, branch_id) {
   });
 }
 
-async function getUnpaid(tenant_id, branch_id, { limit, q, floor_id } = {}) {
+async function getUnpaid(tenant_id, branch_id, { limit, q, floor_id, viewer } = {}) {
   // STEP 1: base unpaid sessions (floor_id = the doctor's current floor, same as appointments)
-  const { rows: baseSessions, total } = await sessionModel.getAllUnPaidSessions(tenant_id, branch_id, { limit, q, floor_id });
+  const { rows: baseSessions, total } = await sessionModel.getAllUnPaidSessions(tenant_id, branch_id, { limit, q, floor_id, doctor_id: ownId(viewer, 'view_session') });
   if (baseSessions.length === 0) return { sessions: [], total };
 
   const sessionIds = baseSessions.map(s => s.session_id);
@@ -721,6 +723,11 @@ async function pay({ sessionId, normalAmount, planPayments, note, settleNormal, 
       return { ok: true, message: "Nothing due for this session" };
     }
 
+    // the branch's workflow switches decide if settle / discounts may be used
+    const workflow = (settleNormal || discountId)
+      ? await settingModel.getWorkflow(tenant_id, branch_id, client)
+      : null;
+
     // -------------------------
     // 1) NORMAL SESSION PAYMENT
     // -------------------------
@@ -765,6 +772,9 @@ async function pay({ sessionId, normalAmount, planPayments, note, settleNormal, 
     // Does NOT touch any price/cost — it's recorded as discount_amount on the
     // session and never exceeds what's still owed. Plan balances are untouched.
     if (discountId && !session.is_paid) {
+      if (!workflow.allow_discounts) {
+        throw appError("DISCOUNTS_NOT_ALLOWED", "Discounts are turned off in this branch", 403);
+      }
       const discount = await discountModel.getDiscountById(Number(discountId), tenant_id, branch_id, client);
       if (!discount || !discount.is_active) throw appError("DISCOUNT_NOT_FOUND", "Discount not found", 404);
 
@@ -773,6 +783,13 @@ async function pay({ sessionId, normalAmount, planPayments, note, settleNormal, 
         ? Math.round((total * Number(discount.value)) / 100)
         : Number(discount.value);
       const discountAmount = Math.min(raw, remainingBefore); // cap: never exceed what's owed
+
+      // never more than the branch's biggest allowed discount (% of the visit total,
+      // rounded the same way a percent discount is rounded above)
+      const maxAmount = Math.round((total * Number(workflow.max_discount_percent)) / 100);
+      if (cents(discountAmount) > cents(maxAmount)) {
+        throw appError("DISCOUNT_OVER_MAX", `The biggest discount allowed in this branch is ${workflow.max_discount_percent}%`, 400);
+      }
 
       const applied = await sessionModel.applyDiscount(sessionId, discount.id, discountAmount, tenant_id, branch_id, client);
       session.total_paid = applied.total_paid;
@@ -783,6 +800,9 @@ async function pay({ sessionId, normalAmount, planPayments, note, settleNormal, 
     // if paid less than the total — a discount. Treatment-plan balances are NOT
     // touched here; they stay tracked separately.
     if (settleNormal && !session.is_paid) {
+      if (!workflow.allow_settle_unpaid) {
+        throw appError("SETTLE_NOT_ALLOWED", "Closing a visit without the full payment is turned off in this branch", 403);
+      }
       const settled = await sessionModel.markSessionSettled(sessionId, tenant_id, branch_id, client);
       session.total_paid = settled.total_paid;
       session.is_paid = settled.is_paid;

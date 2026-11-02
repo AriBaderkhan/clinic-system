@@ -18,7 +18,8 @@ const schemaPatientAdd = Joi.object({
         'number.min': 'Age must be at least 3'
     }),
     gender: Joi.string().valid('male', 'female', 'other').optional(),
-    address: Joi.string().trim().optional(),
+    // the form sends null when the address is left empty
+    address: Joi.string().trim().allow('', null).optional(),
     // Tier 3 medical fields (all optional)
     allergies: Joi.string().trim().allow('', null).optional(),
     chronic_diseases: Joi.string().trim().allow('', null).optional(),

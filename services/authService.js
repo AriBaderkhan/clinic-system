@@ -22,6 +22,18 @@ const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET;
 
 const hashToken = (raw) => crypto.createHash('sha256').update(raw).digest('hex');
 
+// The owner role (scope 'tenant') always has its fixed defaults.
+// Branch roles use the ticks of the branch they are working in.
+// scopes lists only the "own only" ticks, e.g. { view_patient: 'own' }.
+async function permissionsFor(row) {
+    const rows = row.role_scope === 'tenant' || !row.branch_id
+        ? await permissionsModel.findPermissionsByRole(row.role_id)
+        : await permissionsModel.findBranchPermissions(row.role_id, row.tenant_id, row.branch_id);
+    const scopes = {};
+    for (const r of rows) if (r.scope === 'own') scopes[r.permission_key] = 'own';
+    return { permissions: rows.map(r => r.permission_key), scopes };
+}
+
 function signAccessToken(identity) {
     return jwt.sign(identity, process.env.JWT_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRES });
 }
@@ -139,8 +151,7 @@ async function login({ email, password, branch_id }) {
         if (branch.status !== 'active') throw appError('BRANCH_NOT_ACTIVE', 'Branch is not active', 403);
     }
 
-    const permissionsRow = await permissionsModel.findPermissionsByRole(activeUserRow.role_id);
-    const permissions = permissionsRow.map(row => row.permission_key);
+    const { permissions, scopes } = await permissionsFor(activeUserRow);
 
     return {
         id: user.id,
@@ -148,7 +159,8 @@ async function login({ email, password, branch_id }) {
         branch_id: activeUserRow.branch_id || null,
         role: activeUserRow.role_name,
         name: user.full_name,
-        permissions: permissions
+        permissions: permissions,
+        scopes: scopes
     }
 }
 
@@ -166,8 +178,7 @@ async function switchBranch(user_id, tenant_id, branch_id) {
     if (!userRow) throw appError('USER_NOT_FOUND', 'User not found', 404);
     if (!userRow.is_active) throw appError('USER_ASSIGNMENT_NOT_ACTIVE', 'user Assignment is not active', 403);
 
-    const permissionsRow = await permissionsModel.findPermissionsByRole(userRow.role_id);
-    const permissions = permissionsRow.map(row => row.permission_key);
+    const { permissions, scopes } = await permissionsFor(userRow);
 
     return {
         id: user.id,
@@ -175,7 +186,8 @@ async function switchBranch(user_id, tenant_id, branch_id) {
         branch_id: branch_id,
         role: userRow.role_name,
         name: user.full_name,
-        permissions: permissions
+        permissions: permissions,
+        scopes: scopes
     }
 }
 
@@ -186,7 +198,7 @@ async function switchBranch(user_id, tenant_id, branch_id) {
 async function getLiveContext(user_id, tenant_id, branch_id) {
     // Platform admin (no tenant) keeps system-wide access, same as login.
     if (!tenant_id) {
-        return { role: 'platform_admin', permissions: ['manage_system'], is_active: true };
+        return { role: 'platform_admin', permissions: ['manage_system'], scopes: {}, is_active: true };
     }
 
     // Expired = the subscription has an end date and it has passed (no end date = never expires).
@@ -194,27 +206,24 @@ async function getLiveContext(user_id, tenant_id, branch_id) {
 
     const assignment = await userBranchRoleModel.findUserByAll(user_id, tenant_id, branch_id);
     if (assignment && assignment.is_active) {
-        const permissionsRow = await permissionsModel.findPermissionsByRole(assignment.role_id);
-        const permissions = permissionsRow.map(row => row.permission_key);
-        return { role: assignment.role_name, permissions, is_active: true, clinic_name: assignment.tenant_name, subscription_expired: isExpired(assignment) };
+        const { permissions, scopes } = await permissionsFor(assignment);
+        return { role: assignment.role_name, role_id: assignment.role_id, role_scope: assignment.role_scope, permissions, scopes, is_active: true, clinic_name: assignment.tenant_name, subscription_expired: isExpired(assignment) };
     }
 
-    // No assignment on THIS branch. A tenant_manager owns every branch in their
-    // tenant (same exemption branchAssigmentMiddleware already grants them), so
-    // fall back to their organization-level tenant_manager role + permissions.
-    // This only elevates real, active tenant_managers of THIS tenant — every
-    // other user still gets locked out of branches they aren't assigned to.
+    // No assignment on THIS branch. An owner-level role (scope 'tenant') owns every
+    // branch in the clinic (same exemption branchAssigmentMiddleware grants), so
+    // fall back to that role + permissions. This only elevates real, active owners
+    // of THIS clinic — every other user is still locked out of branches they aren't assigned to.
     const allAssignments = await userBranchRoleModel.findUserById(user_id, tenant_id);
     const managerRow = (allAssignments || []).find(
-        (r) => String(r.role_name).toLowerCase() === 'tenant_manager' && r.is_active
+        (r) => r.role_scope === 'tenant' && r.is_active
     );
     if (managerRow) {
-        const permissionsRow = await permissionsModel.findPermissionsByRole(managerRow.role_id);
-        const permissions = permissionsRow.map(row => row.permission_key);
-        return { role: managerRow.role_name, permissions, is_active: true, clinic_name: managerRow.tenant_name, subscription_expired: isExpired(managerRow) };
+        const { permissions, scopes } = await permissionsFor(managerRow);
+        return { role: managerRow.role_name, role_id: managerRow.role_id, role_scope: managerRow.role_scope, permissions, scopes, is_active: true, clinic_name: managerRow.tenant_name, subscription_expired: isExpired(managerRow) };
     }
 
-    return { role: null, permissions: [], is_active: false };
+    return { role: null, permissions: [], scopes: {}, is_active: false };
 }
 
 // ── Forgot / reset password (public, reuses the generic OTP engine) ──

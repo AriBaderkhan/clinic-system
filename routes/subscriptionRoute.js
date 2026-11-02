@@ -13,6 +13,7 @@ router.use(authMiddleware)
 
 // --- tenant self-service (static paths first so they aren't read as :params) ---
 router.get('/me', subscriptionController.myStatus)
+router.get('/me/quote', permissionMiddleware('manage_subscription'), subscriptionValidate.quote, subscriptionController.myQuote)
 router.get('/me/features', subscriptionController.myFeatures)
 router.post('/request', permissionMiddleware('manage_subscription'), uploadImages, subscriptionValidate.request, subscriptionRequestController.create)
 

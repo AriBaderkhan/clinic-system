@@ -80,6 +80,7 @@ import adminPlatformRoute from './routes/adminPlatformRoute.js';
 import worksRoute from './routes/worksRoute.js';
 import specialtyRoute from './routes/specialtyRoute.js';
 import floorRoute from './routes/floorRoute.js';
+import rolePermissionRoute from './routes/rolePermissionRoute.js';
 import discountRoute from './routes/discountRoute.js';
 import labRoute from './routes/labRoute.js';
 import reminderRoute from './routes/reminderRoute.js';
@@ -115,6 +116,7 @@ app.use('/api/admin-platform', adminPlatformRoute)
 app.use('/api/works', worksRoute)
 app.use('/api/specialties', specialtyRoute)
 app.use('/api/floors', floorRoute)
+app.use('/api/role-permissions', rolePermissionRoute)
 app.use('/api/discounts', discountRoute)
 app.use('/api/labs', labRoute)
 app.use('/api/reminders', reminderRoute)

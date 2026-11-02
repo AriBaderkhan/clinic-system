@@ -30,7 +30,7 @@ const getAll = asyncWrap(async (req, res) => {
         return undefined;
     };
 
-    const { tenant_id, branch_id } = req.user;
+    const { id, scopes, tenant_id, branch_id } = req.user;
     const safePage = Math.max(1, parseInt(page) || 1);
     const safeLimit = Math.min(100, parseInt(limit) || 20);
     const { rows, total } = await treatmentPlanService.getAll({
@@ -39,6 +39,7 @@ const getAll = asyncWrap(async (req, res) => {
         search: q,
         page: safePage,
         limit: safeLimit,
+        viewer: { id, scopes },
     }, tenant_id, branch_id);
 
     res.status(200).json({ ok: true, data: rows, total, page: safePage, limit: safeLimit });

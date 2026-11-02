@@ -7,9 +7,10 @@ async function createUser(email, hashedPassword, tenant_id, is_active) {
     return rows[0] || null;
 }
 
-async function checkRoleIfDoc(role_id) {
-    const { rows } = await pool.query(
-        'SELECT name FROM roles WHERE id = $1',
+async function checkRoleIfDoc(role_id, client = pool) {
+    // the role's flags (is_doctor) and owner clinic (NULL = built-in)
+    const { rows } = await client.query(
+        'SELECT is_doctor, tenant_id FROM roles WHERE id = $1',
         [role_id]
     )
     return rows[0] || null;
@@ -40,7 +41,7 @@ async function getAllUsers(tenant_id) {
     JOIN tenants t ON ubr.tenant_id = t.id
     JOIN roles r ON ubr.role_id = r.id
     JOIN profiles pr ON u.id = pr.user_id
-    LEFT JOIN doctors d ON u.id = d.id
+    LEFT JOIN doctors d ON d.id = u.id AND d.tenant_id = ubr.tenant_id AND d.branch_id = ubr.branch_id
     WHERE u.tenant_id = $1 AND u.is_active = true ;`
 
     const { rows } = await pool.query(query, [tenant_id]);
@@ -69,7 +70,7 @@ async function getUserById(user_id, tenant_id) {
     JOIN tenants t ON ubr.tenant_id = t.id
     JOIN roles r ON ubr.role_id = r.id
     JOIN profiles pr ON u.id = pr.user_id
-    LEFT JOIN doctors d ON u.id = d.id
+    LEFT JOIN doctors d ON d.id = u.id AND d.tenant_id = ubr.tenant_id AND d.branch_id = ubr.branch_id
     WHERE u.tenant_id = $1 AND u.id = $2 ;`
 
     const { rows } = await pool.query(query, [tenant_id, user_id]);
@@ -115,10 +116,10 @@ async function updateUser(user_id, tenant_id, userData) {
             const query4 = `
             UPDATE doctors
             SET room = $1
-            WHERE id = $2 AND tenant_id = $3
+            WHERE id = $2 AND tenant_id = $3 AND ($4::bigint IS NULL OR branch_id = $4)
             RETURNING *
             `;
-            const values4 = [userData.room, user_id, tenant_id];
+            const values4 = [userData.room, user_id, tenant_id, userData.branch_id ?? null];
             await client.query(query4, values4);
         }
 
@@ -135,7 +136,7 @@ async function updateUser(user_id, tenant_id, userData) {
 
 
 
-async function assigendToTheBranch(user_id, tenant_id, branch_id, role_id) {
+async function assigendToTheBranch(user_id, tenant_id, branch_id, role_id, client = pool) {
     // idempotent: re-assigning the same (user, branch, role) reactivates the row
     // instead of throwing a unique-constraint "Duplicate value" error.
     const query = `
@@ -146,15 +147,16 @@ async function assigendToTheBranch(user_id, tenant_id, branch_id, role_id) {
     RETURNING *;
     `;
     const values = [user_id, branch_id, tenant_id, role_id];
-    const { rows } = await pool.query(query, values);
+    const { rows } = await client.query(query, values);
     return rows[0] || null;
 }
 
 
 //-------------------------------- dropdown---------
-async function getRoles() {
-    const query = `SELECT id,name FROM roles`;
-    const { rows } = await pool.query(query);
+async function getRoles(tenant_id) {
+    // built-in roles + this clinic's custom roles
+    const query = `SELECT id, name, is_doctor, tenant_id FROM roles WHERE tenant_id IS NULL OR tenant_id = $1 ORDER BY tenant_id NULLS FIRST, id`;
+    const { rows } = await pool.query(query, [tenant_id]);
     return rows;
 }
 export default { createUser, checkRoleIfDoc, getAllUsers, getUserById, updateUser, getRoles, assigendToTheBranch }

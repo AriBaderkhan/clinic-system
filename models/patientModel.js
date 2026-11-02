@@ -1,4 +1,5 @@
 import pool from '../db_connection.js';
+import { ownPatientSql } from './scopeModel.js';
 
 
 async function createPatient(name, phone, extra_phones, age, gender, address, allergies, blood_type, chronic_diseases, referral_source, created_by, tenant_id, branch_id) {
@@ -28,7 +29,7 @@ async function getReferralSources(tenant_id) {
 //     return rows;
 // }
 
-async function getAllPatients({ q, page, limit } = {}, tenant_id, branch_id) {
+async function getAllPatients({ q, page, limit, own_id } = {}, tenant_id, branch_id) {
   let query = `
     SELECT p.id, p.name, p.phone, p.extra_phones, p.age, p.gender, p.address, p.created_by, p.updated_by,
            COUNT(*) OVER() AS total_count
@@ -55,6 +56,12 @@ WHERE p.tenant_id = $1
     idx++;
   }
 
+  if (own_id) {
+    query += ` AND ${ownPatientSql('p', idx)}`;
+    values.push(own_id);
+    idx++;
+  }
+
   query += ` ORDER BY p.name ASC`;
 
   const safePage = Math.max(1, page || 1);
@@ -72,7 +79,7 @@ async function getPatient(patientId, tenant_id, branch_id) {
   const query = `
   SELECT p.id, p.name, p.phone, p.extra_phones, p.age, p.gender, p.address,
          p.allergies, p.blood_type, p.chronic_diseases, p.referral_source,
-         p.created_by, p.updated_by
+         p.created_by, p.updated_by, p.branch_id
 FROM patients p
 WHERE p.id = $1
   AND p.tenant_id = $2
@@ -104,39 +111,23 @@ async function updatePatient(patientId, fields, updatedBy, tenant_id, branch_id)
 
   const setClause = keys.map((key, idx) => `${key} = $${idx + 1}`).join(", ");
 
-  const query = `UPDATE patients SET ${setClause}, updated_at = NOW() WHERE id = $${keys.length + 1} AND tenant_id = $${keys.length + 2} AND (
-  branch_id = $${keys.length + 3}
-  OR EXISTS (
-    SELECT 1
-    FROM patient_branch_access pba
-    WHERE pba.tenant_id = patients.tenant_id
-      AND pba.patient_id = patients.id
-      AND pba.branch_id = $${keys.length + 3}
-  )
-) RETURNING *;`;
+  // home branch only (a branch the patient is shared with cannot change the main details)
+  const query = `UPDATE patients SET ${setClause}, updated_at = NOW() WHERE id = $${keys.length + 1} AND tenant_id = $${keys.length + 2} AND branch_id = $${keys.length + 3} RETURNING *;`;
   const allValues = [...values, patientId, tenant_id, branch_id];
   const { rows } = await pool.query(query, allValues);
   return rows[0] || null;
 }
 
 async function deletePatient(patientId, tenant_id, branch_id) {
-  const query = `DELETE FROM patients WHERE id=$1 AND tenant_id = $2 AND (
-  branch_id = $3
-  OR EXISTS (
-    SELECT 1
-    FROM patient_branch_access pba
-    WHERE pba.tenant_id = patients.tenant_id
-      AND pba.patient_id = patients.id
-      AND pba.branch_id = $3
-  )
-)RETURNING *;`;
+  // home branch only (a branch the patient is shared with cannot delete them)
+  const query = `DELETE FROM patients WHERE id=$1 AND tenant_id = $2 AND branch_id = $3 RETURNING *;`;
   const value = [patientId, tenant_id, branch_id];
   const { rows } = await pool.query(query, value);
   return rows[0] || null;
 }
 
 // for search available patient in creating appointment
-async function searchPatientsModel(q, tenant_id, branch_id) {
+async function searchPatientsModel(q, tenant_id, branch_id, own_id = null) {
   const like = `%${q}%`;
   const query = `
       SELECT id, name, phone
@@ -153,23 +144,28 @@ async function searchPatientsModel(q, tenant_id, branch_id) {
         )
       ) AND
       (p.name ILIKE $1 OR p.phone ILIKE $1 OR array_to_string(p.extra_phones, ' ') ILIKE $1)
+      ${own_id ? `AND ${ownPatientSql('p', 4)}` : ''}
       ORDER BY p.name ASC
       LIMIT 20;
     `;
-  const value = [like, tenant_id, branch_id];
+  const value = own_id ? [like, tenant_id, branch_id, own_id] : [like, tenant_id, branch_id];
   const { rows } = await pool.query(query, value);
   return rows;
 
 }
 
 
-// For Patient Folder
-async function getAllApptsPatient(patientId, tenant_id, branch_id) {
+// For Patient Folder — the FULL history in every branch of the clinic (a shared patient keeps
+// the old branch's history). branch_id / branch_name tell where each record belongs; only the
+// record's own branch can change it. The caller must first check the patient is open in its branch.
+async function getAllApptsPatient(patientId, tenant_id) {
   const query = `
     SELECT 
         a.id AS appointment_id,
         a.scheduled_start,
         a.status,
+        a.branch_id,
+        br.name AS branch_name,
 
         pr.full_name AS doctor_name,
         p.name AS patient_name,
@@ -181,18 +177,18 @@ async function getAllApptsPatient(patientId, tenant_id, branch_id) {
      AND p.tenant_id = a.tenant_id
     JOIN profiles pr  ON pr.user_id = a.doctor_id
     JOIN profiles pr2 ON pr2.user_id = a.created_by
+    JOIN branches br  ON br.id = a.branch_id
     WHERE a.patient_id = $1
       AND a.tenant_id = $2
-      AND a.branch_id = $3
       AND a.is_deleted = false
 ORDER BY a.scheduled_start DESC;
 `;
-  const value = [patientId, tenant_id, branch_id];
+  const value = [patientId, tenant_id];
   const { rows } = await pool.query(query, value);
   return rows;
 }
 
-async function getAllSessionsPatient(patientId, tenant_id, branch_id, limit = null) {
+async function getAllSessionsPatient(patientId, tenant_id, limit = null) {
   const query = `
     SELECT 
         s.id AS session_id,
@@ -207,6 +203,8 @@ async function getAllSessionsPatient(patientId, tenant_id, branch_id, limit = nu
         a.id AS appointment_id,
         a.scheduled_start,
         a.status,
+        s.branch_id,
+        br.name AS branch_name,
 
         pr.full_name AS doctor_name,
         p.name AS patient_name,
@@ -217,20 +215,20 @@ async function getAllSessionsPatient(patientId, tenant_id, branch_id, limit = nu
     JOIN patients p ON a.patient_id = p.id AND p.tenant_id = a.tenant_id 
     JOIN profiles pr ON a.doctor_id= pr.user_id 
     JOIN profiles pr2 ON s.created_by= pr2.user_id
+    JOIN branches br ON br.id = s.branch_id
     WHERE a.patient_id=$1
     AND a.tenant_id = $2
-    AND a.branch_id = $3
     AND s.is_deleted = false
     AND a.is_deleted = false
     ORDER BY s.created_at DESC
-    ${limit ? 'LIMIT $4' : ''}`;
-  const value = limit ? [patientId, tenant_id, branch_id, limit] : [patientId, tenant_id, branch_id];
+    ${limit ? 'LIMIT $3' : ''}`;
+  const value = limit ? [patientId, tenant_id, limit] : [patientId, tenant_id];
   const { rows } = await pool.query(query, value);
   return rows;
 }
 
 // normal (session) payments + treatment-plan payments, kind tells them apart
-async function getAllPaymentsPatient(patientId, tenant_id, branch_id) {
+async function getAllPaymentsPatient(patientId, tenant_id) {
   const query = `
     SELECT
         'normal' AS kind,
@@ -244,15 +242,17 @@ async function getAllPaymentsPatient(patientId, tenant_id, branch_id) {
         s.id AS session_id,
         NULL::bigint AS treatment_plan_id,
         pr.full_name AS doctor_name,
-        pr2.full_name AS processed_by
+        pr2.full_name AS processed_by,
+        sp.branch_id,
+        br.name AS branch_name
     FROM session_payments sp
     JOIN sessions s ON sp.session_id = s.id AND s.tenant_id = sp.tenant_id AND s.branch_id = sp.branch_id
     JOIN appointments a ON s.appointment_id = a.id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
     LEFT JOIN profiles pr ON a.doctor_id = pr.user_id
     LEFT JOIN profiles pr2 ON sp.created_by = pr2.user_id
+    JOIN branches br ON br.id = sp.branch_id
     WHERE a.patient_id = $1
     AND a.tenant_id = $2
-    AND a.branch_id = $3
     AND s.is_deleted = false
     AND a.is_deleted = false
 
@@ -270,40 +270,45 @@ async function getAllPaymentsPatient(patientId, tenant_id, branch_id) {
         tp.session_id,
         tp.treatment_plan_id,
         NULL AS doctor_name,
-        pr2.full_name AS processed_by
+        pr2.full_name AS processed_by,
+        tp.branch_id,
+        br.name AS branch_name
     FROM treatment_payments tp
     JOIN treatment_plans t ON tp.treatment_plan_id = t.id AND t.tenant_id = tp.tenant_id AND t.branch_id = tp.branch_id
     LEFT JOIN profiles pr2 ON tp.created_by = pr2.user_id
+    JOIN branches br ON br.id = tp.branch_id
     WHERE t.patient_id = $1
     AND tp.tenant_id = $2
-    AND tp.branch_id = $3
     AND tp.is_deleted = false
     AND t.is_deleted = false
     ORDER BY created_at DESC`;
-  const value = [patientId, tenant_id, branch_id];
+  const value = [patientId, tenant_id];
   const { rows } = await pool.query(query, value);
   return rows;
 }
 
 
-async function getAllTreatmentPlansPatient(patientId, tenant_id, branch_id) {
+async function getAllTreatmentPlansPatient(patientId, tenant_id) {
   const query = `
     SELECT
-        id,
-        patient_id,
-        type,
-        agreed_total,
-        COALESCE(total_paid, 0) AS total_paid,
-        (agreed_total - COALESCE(total_paid, 0)) AS remaining,
-        is_paid,
-        is_completed,
-        status,
-        currency_code,
-        created_at
-    FROM treatment_plans
-    WHERE patient_id = $1 AND tenant_id = $2 AND branch_id = $3 AND is_deleted = false
-    ORDER BY created_at DESC`;
-  const value = [patientId, tenant_id, branch_id];
+        tp.id,
+        tp.patient_id,
+        tp.branch_id,
+        br.name AS branch_name,
+        tp.type,
+        tp.agreed_total,
+        COALESCE(tp.total_paid, 0) AS total_paid,
+        (tp.agreed_total - COALESCE(tp.total_paid, 0)) AS remaining,
+        tp.is_paid,
+        tp.is_completed,
+        tp.status,
+        tp.currency_code,
+        tp.created_at
+    FROM treatment_plans tp
+    JOIN branches br ON br.id = tp.branch_id
+    WHERE tp.patient_id = $1 AND tp.tenant_id = $2 AND tp.is_deleted = false
+    ORDER BY tp.created_at DESC`;
+  const value = [patientId, tenant_id];
   const { rows } = await pool.query(query, value);
   return rows;
 }

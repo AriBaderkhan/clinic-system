@@ -24,4 +24,18 @@ function assign(req, res, next) {
     next();
 }
 
-export default { create, assign };
+// per-clinic extra: which feature, optionally until when, and why
+const grantSchema = Joi.object({
+    feature_id: Joi.number().integer().positive().required(),
+    expires_at: Joi.date().iso().allow(null).optional(),
+    note: Joi.string().trim().max(200).allow('', null).optional(),
+}).unknown(false);
+
+function grant(req, res, next) {
+    const { error, value } = grantSchema.validate(req.body);
+    if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' });
+    req.body = value;
+    next();
+}
+
+export default { create, assign, grant };

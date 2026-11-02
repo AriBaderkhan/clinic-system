@@ -5,14 +5,13 @@ import permissionCheck from "../middlewares/permissionMiddleware.js";
 import idValidate from "../validates/idValidate.js";
 import userController from "../controllers/userController.js";
 import userValidate from "../validates/userValidate.js";
-import planMiddleware from "../middlewares/planMiddleware.js";
 
 const router = express.Router();
 
 router.use(authMiddleware);
 router.use(permissionCheck('manage_users'));
 
-router.post('/', planMiddleware.checkMaxUsers, userValidate.create, userController.create);
+router.post('/', userValidate.create, userController.create); // staff are free; doctor seats are checked in the user service
 router.get('/', userController.getAll);
 router.get('/roles', userController.getRoles);
 

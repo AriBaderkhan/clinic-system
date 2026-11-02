@@ -37,7 +37,8 @@ const login = asyncWrap(async (req, res) => {
             branch_id: user.branch_id,
             role: user.role,
             name: user.name,
-            permissions: user.permissions
+            permissions: user.permissions,
+            scopes: user.scopes
         }
     });
 })
@@ -61,7 +62,8 @@ const switchBranch = asyncWrap(async (req, res) => {
             branch_id: user.branch_id,
             role: user.role,
             name: user.name,
-            permissions: user.permissions
+            permissions: user.permissions,
+            scopes: user.scopes
         }
     });
 })
@@ -94,6 +96,7 @@ const me = asyncWrap(async (req, res) => {
             role: req.user.role,
             name: req.user.name,
             permissions: req.user.permissions,
+            scopes: req.user.scopes,
             clinic_name: req.user.clinic_name,
         },
     });

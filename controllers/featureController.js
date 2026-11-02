@@ -31,4 +31,19 @@ const getPlanFeatures = asyncWrap(async (req, res) => {
     res.status(200).json({ ok: true, data: result });
 });
 
-export default { create, getAll, assign, remove, getPlanFeatures };
+const getTenantGrants = asyncWrap(async (req, res) => {
+    const result = await featureService.getTenantGrants(Number(req.params.tenantId));
+    res.status(200).json({ ok: true, data: result });
+});
+
+const grant = asyncWrap(async (req, res) => {
+    const result = await featureService.grant(Number(req.params.tenantId), req.body, req.user.id);
+    res.status(201).json({ ok: true, data: result });
+});
+
+const revoke = asyncWrap(async (req, res) => {
+    await featureService.revoke(Number(req.params.tenantId), Number(req.params.featureId));
+    res.status(200).json({ ok: true });
+});
+
+export default { create, getAll, assign, remove, getPlanFeatures, getTenantGrants, grant, revoke };

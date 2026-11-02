@@ -1,5 +1,6 @@
 import pool from '../db_connection.js';
 import appError from '../utils/appError.js';
+import { ownPatientSql } from './scopeModel.js';
 
 
 
@@ -130,7 +131,7 @@ ORDER BY a.finished_at DESC NULLS LAST;`;
   return rows;
 }
 
-async function getAllTreatmentPlansForSection({ isPaid, isCompleted, search, page, limit }, tenant_id, branch_id) {
+async function getAllTreatmentPlansForSection({ isPaid, isCompleted, search, page, limit, own_id }, tenant_id, branch_id) {
   const baseQuery = `
     SELECT
         tp.id,
@@ -172,6 +173,11 @@ async function getAllTreatmentPlansForSection({ isPaid, isCompleted, search, pag
   if (search && search.trim()) {
     where.push(`(p.name ILIKE $${idx} OR p.phone ILIKE $${idx} OR array_to_string(p.extra_phones, ' ') ILIKE $${idx})`);
     values.push(`%${search.trim()}%`);
+    idx++;
+  }
+  if (own_id) {
+    where.push(ownPatientSql('p', idx));
+    values.push(own_id);
     idx++;
   }
   let query = baseQuery;

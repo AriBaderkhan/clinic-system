@@ -12,6 +12,7 @@ import prescriptionModel from '../models/prescriptionModel.js';
 import notificationService from './notificationService.js';
 import worksService from './worksService.js';
 import pool from '../db_connection.js';
+import { ownId } from '../utils/scope.js';
 
 
 async function create(appointmentData, tenant_id, branch_id) {
@@ -22,6 +23,12 @@ async function create(appointmentData, tenant_id, branch_id) {
 
     const doctor = await doctorModel.getDoctorById(doctor_id, tenant_id, branch_id);
     if (!doctor) throw appError('DOCTOR_NOT_FOUND', 'Doctor not found', 404);
+
+    // branch switch: no new booking while the patient owes for a finished visit here
+    const workflow = await settingModel.getWorkflow(tenant_id, branch_id);
+    if (workflow?.block_booking_if_owes && await sessionModel.patientHasUnpaidVisit(patient_id, tenant_id, branch_id)) {
+        throw appError('PATIENT_HAS_UNPAID', 'This patient must pay the unpaid visit before a new booking', 409);
+    }
 
     const slotTaken = await appointmentModel.isDoctorSlotTakenExact(doctor_id, scheduled_start, tenant_id, branch_id);
     if (slotTaken) {
@@ -426,7 +433,7 @@ async function noShow(appointmentId, userId, cancel_reason, tenant_id, branch_id
 
 
 // for filtters and searches by type and p.name, p.phone and d.name
-async function getAll({ day, type, search, floor_id, page, limit }, tenant_id, branch_id) {
+async function getAll({ day, type, search, floor_id, page, limit, viewer }, tenant_id, branch_id) {
 
     const settings = await settingModel.getEffectiveSettings(tenant_id, branch_id);
     const range = day ? dateRange.getDateRange(day, settings?.timezone) : null;
@@ -437,6 +444,7 @@ async function getAll({ day, type, search, floor_id, page, limit }, tenant_id, b
         type,
         search,
         floor_id,
+        doctor_id: ownId(viewer, 'view_appointment'),   // "own only" -> just this doctor's
         page,
         limit,
     }, tenant_id, branch_id);
@@ -444,8 +452,8 @@ async function getAll({ day, type, search, floor_id, page, limit }, tenant_id, b
     return result;
 }
 
-// FOR CALENDAR (reception/branch_manager see all, doctor sees only their own)
-async function getCalendar({ from, to, doctor_id, floor_id }, tenant_id, branch_id) {
+// FOR CALENDAR (whole branch, or only the user's own when their tick is "own only")
+async function getCalendar({ from, to, floor_id, viewer }, tenant_id, branch_id) {
 
     if (!from || !to) throw appError('INVALID_CALENDAR_RANGE', 'from and to dates are required', 400);
 
@@ -458,7 +466,7 @@ async function getCalendar({ from, to, doctor_id, floor_id }, tenant_id, branch_
     const appointments = await appointmentModel.findAppointmentsForCalendar({
         from: fromDate.toISOString(),
         to: toDate.toISOString(),
-        doctor_id: doctor_id || null,
+        doctor_id: ownId(viewer, 'view_appointment'),
         floor_id: floor_id || null,
     }, tenant_id, branch_id);
 
@@ -466,7 +474,7 @@ async function getCalendar({ from, to, doctor_id, floor_id }, tenant_id, branch_
 }
 
 // FOR DASHBOARD
-async function getActiveToday(floor_id, tenant_id, branch_id) {
+async function getActiveToday(floor_id, tenant_id, branch_id, viewer) {
 
     const settings = await settingModel.getEffectiveSettings(tenant_id, branch_id);
     const todayAppt = dateRange.getDateRange('today', settings?.timezone);
@@ -477,6 +485,7 @@ async function getActiveToday(floor_id, tenant_id, branch_id) {
         from: todayAppt ? todayAppt.from : null,
         to: todayAppt ? todayAppt.to : null,
         floor_id: floor_id || null,
+        doctor_id: ownId(viewer, 'view_appointment'),
     }, tenant_id, branch_id);
 
     return appointments;

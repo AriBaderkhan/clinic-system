@@ -35,7 +35,8 @@ async function createRequest(tenant_id, plan_id, billing_period, file) {
     try {
         return await subscriptionRequestModel.createRequest({
             tenant_id, plan_id, billing_period, evidence_path: objectPath,
-            amount: billing_period === 'yearly' ? plan.yearly_price : plan.price,
+            // plan (or locked) price + extra doctors — the same calculation the clinic saw in its quote
+            amount: (await subscriptionService.quote(tenant_id, plan_id, billing_period)).total,
         });
     } catch (err) {
         await storage.removeObject(objectPath).catch(() => {}); // don't orphan the file

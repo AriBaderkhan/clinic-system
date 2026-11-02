@@ -12,7 +12,7 @@ async function createSession(appointment_id, next_plan, notes, created_by, tenan
 
 
 // add these 
-async function getAllNormalSessions({ from, to, search, page, limit }, tenant_id, branch_id) {
+async function getAllNormalSessions({ from, to, search, doctor_id, page, limit }, tenant_id, branch_id) {
   const baseQuery = `
   SELECT
       s.id AS session_id,
@@ -89,6 +89,12 @@ async function getAllNormalSessions({ from, to, search, page, limit }, tenant_id
       `(p.name ILIKE $${idx} OR p.phone ILIKE $${idx} OR array_to_string(p.extra_phones, ' ') ILIKE $${idx} OR pr.full_name ILIKE $${idx})`
     );
     values.push(`%${search}%`);
+    idx++;
+  }
+
+  if (doctor_id) {
+    where.push(`a.doctor_id = $${idx}`);
+    values.push(doctor_id);
     idx++;
   }
 
@@ -376,7 +382,7 @@ async function markSessionSettled(sessionId, tenant_id, branch_id, client = pool
   return rows[0] || null;
 }
 
-async function getAllUnPaidSessions(tenant_id, branch_id, { limit, q, floor_id } = {}) {
+async function getAllUnPaidSessions(tenant_id, branch_id, { limit, q, floor_id, doctor_id } = {}) {
   const values = [tenant_id, branch_id];
   let idx = 3;
   let whereExtra = '';
@@ -390,6 +396,12 @@ async function getAllUnPaidSessions(tenant_id, branch_id, { limit, q, floor_id }
   if (floor_id) {
     whereExtra += ` AND ${onDoctorFloor(idx)}`;
     values.push(floor_id);
+    idx++;
+  }
+
+  if (doctor_id) {
+    whereExtra += ` AND a.doctor_id = $${idx}`;
+    values.push(doctor_id);
     idx++;
   }
 
@@ -795,7 +807,23 @@ async function updateSessionNotesFields(session_id, notess, tenant_id, branch_id
   return rows[0] || null;
 }
 
+// Does the patient still owe this branch for a finished visit? (the unpaid list's rule)
+async function patientHasUnpaidVisit(patient_id, tenant_id, branch_id) {
+  const query = `
+    SELECT EXISTS (
+      SELECT 1
+      FROM sessions s
+      JOIN appointments a ON a.id = s.appointment_id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
+      WHERE a.patient_id = $1 AND s.tenant_id = $2 AND s.branch_id = $3
+        AND s.is_deleted = false AND a.status = 'completed'
+        AND s.is_paid = false AND COALESCE(s.total, 0) > 0
+    ) AS owes`;
+  const { rows } = await pool.query(query, [patient_id, tenant_id, branch_id]);
+  return rows[0].owes;
+}
+
 export default {
+  patientHasUnpaidVisit,
   createSession, getAllNormalSessions, getNormalSession, getSession, updateSession, voidSession, sessionLiveChildCounts, deleteSessionWorksBySiD, createSessionWork, bulkCreateSessionWorks, updateSessionTotal, markSessionSettled, applyDiscount, getAllUnPaidSessions, getWorksForNormalSession, getWorksForSessions, getAllWorksForSession,
   getSessionWithAppointment, getTreatmentPlansForSession, getSessionPaymentContext, getSessionWithAppointmentForUpdate,
   getTreatmentPlansForSessions, hasPlanDue, updateSessionNotesFields, updatePlanWorkTooth,

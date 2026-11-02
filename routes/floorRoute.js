@@ -14,11 +14,11 @@ router.use(branchAssigmentMiddleware);
 // everyone who sees appointments needs the floor list for the filter
 router.get('/', permissionMiddleware('view_appointment'), floorController.getAll);
 
-// managing floors and who sits where = both managers (branch settings)
-router.get('/staff', permissionMiddleware('manage_branch_settings'), floorController.getStaff);
-router.put('/staff/:userId', permissionMiddleware('manage_branch_settings'), idValidate('userId'), floorValidate.staffFloor, floorController.setStaffFloor);
-router.post('/', permissionMiddleware('manage_branch_settings'), floorValidate.save, floorController.create);
-router.put('/:floorId', permissionMiddleware('manage_branch_settings'), idValidate('floorId'), floorValidate.save, floorController.update);
-router.delete('/:floorId', permissionMiddleware('manage_branch_settings'), idValidate('floorId'), floorController.delete);
+// managing floors and who sits where (manage_floors tick)
+router.get('/staff', permissionMiddleware('manage_floors'), floorController.getStaff);
+router.put('/staff/:userId', permissionMiddleware('manage_floors'), idValidate('userId'), floorValidate.staffFloor, floorController.setStaffFloor);
+router.post('/', permissionMiddleware('manage_floors'), floorValidate.save, floorController.create);
+router.put('/:floorId', permissionMiddleware('manage_floors'), idValidate('floorId'), floorValidate.save, floorController.update);
+router.delete('/:floorId', permissionMiddleware('manage_floors'), idValidate('floorId'), floorController.delete);
 
 export default router;

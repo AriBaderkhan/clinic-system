@@ -2,6 +2,7 @@ import tenantModel from '../models/tenantModel.js';
 import reportsModel from '../models/reportsModel.js';
 import pool from '../db_connection.js';
 import branchModel from '../models/branchModel.js';
+import permissionsModel from '../models/permissionsModel.js';
 import appError from '../utils/appError.js';
 
 async function getDetails(tenantId) {
@@ -38,6 +39,8 @@ async function createBranch(tenantId, branchData) {
             currency_codeUse = currency_code;
         }
         await tenantModel.createBranchSettings(client, branchId, tenantId, timezoneUse, currency_codeUse);
+        // the new branch starts with the default ticks of every role
+        await permissionsModel.copyDefaultsToBranch(tenantId, branchId, client);
         await client.query('COMMIT');
         return branch;
     } catch (error) {

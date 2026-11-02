@@ -1,9 +1,12 @@
 import pool from '../db_connection.js';
 
-async function addDoc(doc_id, room, tenant_id, branch_id) {
-  const query = `INSERT INTO doctors (id,room,tenant_id,branch_id) VALUES ($1,$2,$3,$4) RETURNING *`;
+// the doctor's record in ONE branch (a doctor can work in several branches);
+// already there -> nothing changes
+async function addDoc(doc_id, room, tenant_id, branch_id, client = pool) {
+  const query = `INSERT INTO doctors (id,room,tenant_id,branch_id) VALUES ($1,$2,$3,$4)
+    ON CONFLICT (id, tenant_id, branch_id) DO NOTHING RETURNING *`;
   const values = [doc_id, room, tenant_id, branch_id];
-  const { rows } = await pool.query(query, values)
+  const { rows } = await client.query(query, values)
   return rows[0] || null;
 
 }

@@ -3,6 +3,7 @@ const router = express.Router();
 
 import authMiddleware from '../middlewares/authMiddleware.js';
 import permissionMiddleware from '../middlewares/permissionMiddleware.js';
+import scopeMiddleware from "../middlewares/scopeMiddleware.js";
 import featureMiddleware from '../middlewares/featureMiddleware.js';
 import docController from '../controllers/docController.js';
 import reportsValidate from '../validates/reportsValidate.js';
@@ -28,10 +29,10 @@ router.get("/active/appointments/today", permissionMiddleware('view_appointment'
 router.get("/active/appointments/open", permissionMiddleware('view_appointment'), docController.getOpenAppts);
 
 // The doctor's own report (current branch) — on-screen JSON + downloadable PDF.
-router.get('/report', permissionMiddleware('view_session'), gateCustomRange, reportsValidate.monthly, docController.getMyReport);
-router.get('/report/pdf', permissionMiddleware('view_session'), gateCustomRange, reportsValidate.monthly, docController.downloadMyReportPdf);
+router.get('/report', permissionMiddleware('view_own_report'), gateCustomRange, reportsValidate.monthly, docController.getMyReport);
+router.get('/report/pdf', permissionMiddleware('view_own_report'), gateCustomRange, reportsValidate.monthly, docController.downloadMyReportPdf);
 
-router.get('/:appointmentId/session', permissionMiddleware('view_session'), validateIdParam('appointmentId'), docController.getSession);
+router.get('/:appointmentId/session', permissionMiddleware('view_session'), validateIdParam('appointmentId'), scopeMiddleware.appointment, docController.getSession);
 
 // a doctor's specialty + extra treatments (both managers)
 router.get('/:doctorId/settings', permissionMiddleware('manage_works'), validateIdParam('doctorId'), docController.getSettings);

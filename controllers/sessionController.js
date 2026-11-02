@@ -3,11 +3,11 @@ import asyncWrap from '../utils/asyncWrap.js';
 
 const getAll = asyncWrap(async (req, res) => {
     const { day, q, page, limit } = req.query;
-    const { tenant_id, branch_id } = req.user;
+    const { id, scopes, tenant_id, branch_id } = req.user;
     const safePage = Math.max(1, parseInt(page) || 1);
     const safeLimit = Math.min(100, parseInt(limit) || 20);
     const { rows, total } = await sessionService.getAll({
-        day, search: q, page: safePage, limit: safeLimit,
+        day, search: q, page: safePage, limit: safeLimit, viewer: { id, scopes },
     }, tenant_id, branch_id);
     res.status(200).json({ ok: true, data: rows, total, page: safePage, limit: safeLimit });
 })
@@ -39,10 +39,10 @@ const _delete = asyncWrap(async (req, res) => {
 })
 
 const getUnpaid = asyncWrap(async (req, res) => {
-    const { tenant_id, branch_id } = req.user;
+    const { id, scopes, tenant_id, branch_id } = req.user;
     const { limit, q, floor_id } = req.query;
     const safeLimit = limit ? Math.min(100, parseInt(limit) || 20) : undefined;
-    const { sessions, total } = await sessionService.getUnpaid(tenant_id, branch_id, { limit: safeLimit, q, floor_id: floor_id ? Number(floor_id) : undefined });
+    const { sessions, total } = await sessionService.getUnpaid(tenant_id, branch_id, { limit: safeLimit, q, floor_id: floor_id ? Number(floor_id) : undefined, viewer: { id, scopes } });
     res.status(200).json({ ok: true, data: sessions, total });
 })
 

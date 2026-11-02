@@ -44,15 +44,24 @@ async function markRead(id, user_id, tenant_id, branch_id, client = pool) {
     return rows[0] || null;
 }
 
-// Active user ids for any of the given roles in a branch (recipients for
-// role-wide events). DISTINCT because a user could hold more than one role.
-async function getUserIdsByRoles(roles, tenant_id, branch_id, client = pool) {
+// Active user ids in a branch whose role has the tick there (branch roles: the
+// branch's ticks; owner role: its fixed defaults). DISTINCT: a user can hold two roles.
+async function getUserIdsByPermission(permission, tenant_id, branch_id, client = pool) {
     const query = `
         SELECT DISTINCT ubr.user_id
         FROM user_branch_roles ubr
         JOIN roles r ON r.id = ubr.role_id
-        WHERE r.name = ANY($1) AND ubr.tenant_id = $2 AND ubr.branch_id = $3 AND ubr.is_active = true`;
-    const { rows } = await client.query(query, [roles, tenant_id, branch_id]);
+        WHERE ubr.tenant_id = $2 AND ubr.branch_id = $3 AND ubr.is_active = true
+          AND (
+            (r.scope = 'branch' AND EXISTS (
+               SELECT 1 FROM branch_role_permissions brp JOIN permissions p ON p.id = brp.permission_id
+                WHERE brp.branch_id = ubr.branch_id AND brp.role_id = r.id AND p.key = $1))
+            OR
+            (r.scope = 'tenant' AND EXISTS (
+               SELECT 1 FROM role_permissions rp JOIN permissions p ON p.id = rp.permission_id
+                WHERE rp.role_id = r.id AND p.key = $1))
+          )`;
+    const { rows } = await client.query(query, [permission, tenant_id, branch_id]);
     return rows.map((x) => x.user_id);
 }
 
@@ -66,4 +75,4 @@ async function markAllRead(user_id, tenant_id, branch_id, client = pool) {
     const { rows } = await client.query(query, [user_id, tenant_id, branch_id]);
     return rows;
 }
-export default { createMany, listForUser, markRead, getUserIdsByRoles, markAllRead };
+export default { createMany, listForUser, markRead, getUserIdsByPermission, markAllRead };

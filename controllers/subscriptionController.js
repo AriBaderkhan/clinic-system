@@ -37,4 +37,10 @@ const myFeatures = asyncWrap(async (req, res) => {
     res.status(200).json({ ok: true, data: result });
 })
 
-export default { create, getAll, getById, update, myStatus, myFeatures }
+// Tenant self-service: what a renewal / plan change costs right now (plan or locked price + extra doctors).
+const myQuote = asyncWrap(async (req, res) => {
+    const result = await subscriptionService.quote(req.user.tenant_id, req.query.plan_id, req.query.billing_period);
+    res.status(200).json({ ok: true, data: result });
+})
+
+export default { create, getAll, getById, update, myStatus, myFeatures, myQuote }

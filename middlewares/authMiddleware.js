@@ -7,6 +7,7 @@ const EXPIRED_ALLOWED = [
     'GET /me',
     'GET /api/subscriptions/me',
     'GET /api/subscriptions/me/features',
+    'GET /api/subscriptions/me/quote',
     'POST /api/subscriptions/request',
     'GET /api/plans',
     'GET /api/profile/me',
@@ -41,7 +42,10 @@ async function authMiddleware(req, res, next) {
         req.user = {
             ...decoded,
             role: live.role ?? decoded.role,
+            role_id: live.role_id ?? null,
+            role_scope: live.role_scope ?? null,
             permissions: live.permissions,
+            scopes: live.scopes || {},
             clinic_name: live.clinic_name,
         };
 

@@ -14,10 +14,10 @@ const create = asyncWrap(async (req, res) => {
 
 const getAll = asyncWrap(async (req, res) => {
     const { q, page, limit } = req.query;
-    const { tenant_id, branch_id } = req.user;
+    const { id, scopes, tenant_id, branch_id } = req.user;
     const safePage = Math.max(1, parseInt(page) || 1);
     const safeLimit = Math.min(100, parseInt(limit) || 20);
-    const { rows, total } = await patientService.getAll({ q, page: safePage, limit: safeLimit }, tenant_id, branch_id);
+    const { rows, total } = await patientService.getAll({ q, page: safePage, limit: safeLimit, viewer: { id, scopes } }, tenant_id, branch_id);
     res.status(200).json({ ok: true, data: rows, total, page: safePage, limit: safeLimit });
 })
 
@@ -51,9 +51,9 @@ const _delete = asyncWrap(async (req, res) => {
 
 const search = asyncWrap(async (req, res) => {
     const q = (req.query.q || "").trim();
-    const { tenant_id, branch_id } = req.user;
+    const { id, scopes, tenant_id, branch_id } = req.user;
 
-    const result = await patientService.search(q, tenant_id, branch_id);
+    const result = await patientService.search(q, tenant_id, branch_id, { id, scopes });
     res.status(200).json({ ok: true, data: result });
 })
 

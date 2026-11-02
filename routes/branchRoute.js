@@ -10,6 +10,7 @@ import branchAssigmentMiddleware from '../middlewares/branchAssigmentMiddleware.
 router.use(authMiddleware)
 router.use(branchAssigmentMiddleware)
 
+router.get('/dashboard', permissionMiddleware('view_branch_dashboard'), branchController.getDashboard);
 router.get('/:branchId', permissionMiddleware('manage_branch_settings'), idValidate('branchId'), branchController.getById);
 router.put('/:branchId', permissionMiddleware('manage_branch_settings'), idValidate('branchId'), branchController.update);
 

@@ -59,7 +59,8 @@ async function createSubscription(client, tenantId, planId, days, billingPeriod)
 
 // 8. Helper: Find Role
 async function findRoleIdByName(roleName) {
-    const { rows } = await pool.query('SELECT id FROM roles WHERE name = $1', [roleName]);
+    // built-in roles only (a clinic may have its own roles)
+    const { rows } = await pool.query('SELECT id FROM roles WHERE name = $1 AND tenant_id IS NULL', [roleName]);
     return rows[0];
 }
 

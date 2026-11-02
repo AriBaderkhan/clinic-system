@@ -67,10 +67,10 @@ const complete = asyncWrap(async (req, res) => {
 
     const result = await appointmentService.complete({ appointmentId, doctorId: userId, next_plan, notes, works, completedPlanIds, prescription }, tenant_id, branch_id);
 
-    // Notify the front desk (reception + branch/tenant managers), live + saved
-    // to their bell.
-    await notificationService.notifyRoles({
-        roles: ['reception', 'branch_manager', 'tenant_manager'],
+    // Notify the front desk (everyone who takes payments in this branch), live +
+    // saved to their bell.
+    await notificationService.notifyHolders({
+        permission: 'collect_payment',
         type: 'appointment_completed',
         message: `Dr. ${result.details.doctor_name} completed the appointment for ${result.details.patient_name}`,
         appointmentId,
@@ -102,13 +102,13 @@ const noShow = asyncWrap(async (req, res) => {
 
 const getAll = asyncWrap(async (req, res) => {
     const { day, type, q, floor_id, page, limit } = req.query;
-    const { tenant_id, branch_id } = req.user;
+    const { id, scopes, tenant_id, branch_id } = req.user;
 
     const safePage = Math.max(1, parseInt(page) || 1);
     const safeLimit = Math.min(100, parseInt(limit) || 20);
 
     const { rows, total } = await appointmentService.getAll({
-        day, type, search: q, floor_id, page: safePage, limit: safeLimit,
+        day, type, search: q, floor_id, page: safePage, limit: safeLimit, viewer: { id, scopes },
     }, tenant_id, branch_id);
 
     res.status(200).json({ ok: true, data: rows, total, page: safePage, limit: safeLimit });
@@ -116,19 +116,16 @@ const getAll = asyncWrap(async (req, res) => {
 
 const getCalendar = asyncWrap(async (req, res) => {
     const { from, to, floor_id } = req.query;
-    const { tenant_id, branch_id, role } = req.user;
+    const { id, scopes, tenant_id, branch_id } = req.user;
 
-    // doctors only see their own appointments on the calendar
-    const doctor_id = role === 'doctor' ? req.user.id : null;
-
-    const result = await appointmentService.getCalendar({ from, to, doctor_id, floor_id }, tenant_id, branch_id);
+    const result = await appointmentService.getCalendar({ from, to, floor_id, viewer: { id, scopes } }, tenant_id, branch_id);
     res.status(200).json({ ok: true, data: result });
 })
 
 const getActiveToday = asyncWrap(async (req, res) => {
-    const { tenant_id, branch_id } = req.user
+    const { id, scopes, tenant_id, branch_id } = req.user
 
-    const result = await appointmentService.getActiveToday(req.query.floor_id, tenant_id, branch_id);
+    const result = await appointmentService.getActiveToday(req.query.floor_id, tenant_id, branch_id, { id, scopes });
     res.status(200).json({ ok: true, data: result });
 })
 

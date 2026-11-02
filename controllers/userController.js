@@ -35,7 +35,7 @@ const assignToBranch = asyncWrap(async (req, res) => {
 })
 
 const getRoles = asyncWrap(async (req, res) => {
-    const result = await userService.getRoles();
+    const result = await userService.getRoles(req.user.tenant_id);
     res.status(200).json({ ok: true, data: result });
 })
 

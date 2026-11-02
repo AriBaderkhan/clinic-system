@@ -14,8 +14,9 @@ const schemacreateUser = Joi.object({
 })
 
 function create(req, res, next) {
-    const { error } = schemacreateUser.validate(req.body);
+    const { error, value } = schemacreateUser.validate(req.body);
     if (error) return res.status(400).send(error.details[0].message)
+    req.body = value; // apply the defaults (is_active: true, room: 1) — without this a new user was saved inactive
     next();
 }
 

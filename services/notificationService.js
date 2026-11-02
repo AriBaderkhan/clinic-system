@@ -21,14 +21,14 @@ async function notify({ recipientUserIds, type, message, appointmentId, tenant_i
     }
 }
 
-// Same as notify(), but the recipients are everyone holding one of the given
-// roles in the branch (e.g. reception + branch/tenant managers at the desk).
-async function notifyRoles({ roles, type, message, appointmentId, tenant_id, branch_id }) {
+// Same as notify(), but the recipients are everyone in the branch who has the
+// tick (e.g. collect_payment = the people at the desk).
+async function notifyHolders({ permission, type, message, appointmentId, tenant_id, branch_id }) {
     try {
-        const ids = await notificationModel.getUserIdsByRoles(roles, tenant_id, branch_id);
+        const ids = await notificationModel.getUserIdsByPermission(permission, tenant_id, branch_id);
         await notify({ recipientUserIds: ids, type, message, appointmentId, tenant_id, branch_id });
     } catch (err) {
-        console.error('notifyRoles failed (non-fatal):', err.message);
+        console.error('notifyHolders failed (non-fatal):', err.message);
     }
 }
 
@@ -44,4 +44,4 @@ async function markAllRead(user_id, tenant_id, branch_id) {
     return notificationModel.markAllRead(user_id, tenant_id, branch_id);
 }
 
-export default { notify, notifyRoles, listMine, markRead, markAllRead };
+export default { notify, notifyHolders, listMine, markRead, markAllRead };

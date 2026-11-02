@@ -1,5 +1,6 @@
 import pool from '../db_connection.js';
 import treatmentPlanModel from '../models/treatmentPlanModel.js';
+import { ownId } from '../utils/scope.js';
 import treatmentPlanPaymentModel from '../models/treatmentPlanPaymentModel.js';
 import sessionModel from '../models/sessionModel.js';
 import appError from '../utils/appError.js';
@@ -19,8 +20,10 @@ async function getSessions(tpId, tenant_id, branch_id) {
   return sessionsForTp;
 }
 
-async function getAll({ isPaid, isCompleted, search, page, limit }, tenant_id, branch_id) {
-  const result = await treatmentPlanModel.getAllTreatmentPlansForSection({ isPaid, isCompleted, search, page, limit }, tenant_id, branch_id);
+async function getAll({ isPaid, isCompleted, search, page, limit, viewer }, tenant_id, branch_id) {
+  // "own only" patients -> only the plans of the user's own patients
+  const own_id = ownId(viewer, 'view_patient');
+  const result = await treatmentPlanModel.getAllTreatmentPlansForSection({ isPaid, isCompleted, search, page, limit, own_id }, tenant_id, branch_id);
   return result;
 }
 

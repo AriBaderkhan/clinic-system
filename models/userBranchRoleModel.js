@@ -13,6 +13,7 @@ async function findUserById(user_id, tenant_id) {
     ubr.role_id,
     b.name AS branch_name,
     r.name AS role_name,
+    r.scope AS role_scope,
     t.name AS tenant_name,
     s.end_date AS subscription_end_date
     FROM user_branch_roles ubr
@@ -66,6 +67,7 @@ async function findUserByAll(user_id, tenant_id, branch_id) {
     ubr.role_id,
     b.name AS branch_name,
     r.name AS role_name,
+    r.scope AS role_scope,
     t.name AS tenant_name,
     s.end_date AS subscription_end_date
     FROM user_branch_roles ubr
