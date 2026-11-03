@@ -1,4 +1,5 @@
 import branchDashboardModel from '../models/branchDashboardModel.js';
+import subscriptionModel from '../models/subscriptionModel.js';
 
 // Clinic time is UTC+3 (same as the clinic overview in tenantService).
 const CLINIC_TZ_OFFSET_HOURS = 3;
@@ -92,19 +93,22 @@ function busyRows(rows) {
 
 async function getDashboard(tenant_id, branch_id) {
     const r = ranges();
+    // doctors / busy times / treatments are the full overview: Pro and up (feature overview_full)
+    const full = (await subscriptionModel.getTenantFeatureCodes(tenant_id)).includes('overview_full');
     const [counts, list, revenue, unpaid, work, income, busy, treatments] = await Promise.all([
         branchDashboardModel.getCounts(r.todayStart, r.todayEnd, tenant_id, branch_id),
         branchDashboardModel.getTodayAppointments(r.todayStart, r.todayEnd, tenant_id, branch_id),
         branchDashboardModel.getRevenueWindows(r, tenant_id, branch_id),
         branchDashboardModel.getUnpaid(tenant_id, branch_id),
-        branchDashboardModel.getDoctorWork(r.monthStart, r.now, tenant_id, branch_id),
-        branchDashboardModel.getDoctorIncome(r.monthStart, r.now, tenant_id, branch_id),
-        branchDashboardModel.getBusyTimes(r.busySince, r.now, tenant_id, branch_id),
-        branchDashboardModel.getTreatments(r.monthStart, r.now, tenant_id, branch_id),
+        full ? branchDashboardModel.getDoctorWork(r.monthStart, r.now, tenant_id, branch_id) : null,
+        full ? branchDashboardModel.getDoctorIncome(r.monthStart, r.now, tenant_id, branch_id) : null,
+        full ? branchDashboardModel.getBusyTimes(r.busySince, r.now, tenant_id, branch_id) : null,
+        full ? branchDashboardModel.getTreatments(r.monthStart, r.now, tenant_id, branch_id) : null,
     ]);
 
     return {
         branch_id: Number(branch_id),
+        full_overview: full,
         new_patients: counts.new_patients,
         returning_patients: counts.returning_patients,
         team_members: counts.team_members,
@@ -116,9 +120,9 @@ async function getDashboard(tenant_id, branch_id) {
         },
         revenue: revenueRows(revenue),
         unpaid: unpaidRows(unpaid),
-        doctors: doctorRows(work, income),
-        busy: busyRows(busy),
-        treatments_month: treatments,
+        doctors: full ? doctorRows(work, income) : null,
+        busy: full ? busyRows(busy) : null,
+        treatments_month: full ? treatments : null,
     };
 }
 
