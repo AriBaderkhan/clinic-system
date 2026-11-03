@@ -30,7 +30,7 @@ const update = asyncWrap(async (req, res) => {
 const assignToBranch = asyncWrap(async (req, res) => {
     const tenant_id = req.user.tenant_id;
     const user_id = req.params.userId;
-    const result = await userService.assignToBranch(user_id, tenant_id, req.body);
+    const result = await userService.assignToBranch(user_id, tenant_id, req.body, req.user);
     res.status(200).json({ ok: true, data: result });
 })
 

@@ -65,13 +65,29 @@ async function update(user_id, tenant_id, userData) {
 
 
 // give the user a role in a branch; a doctor role also gets his doctor record there
-// (one doctor can work in several branches)
-async function assignToBranch(user_id, tenant_id, userData) {
+// (one doctor can work in several branches). A branch where the user already works
+// gets its role CHANGED (one row per branch), never a second role.
+// Appointments/visits hang off the doctor record, so a role change never touches them.
+async function assignToBranch(user_id, tenant_id, userData, caller) {
     const { branch_id, role_id } = userData
     return withTransaction(async (client) => {
+        const found = await userModel.clinicHas(user_id, branch_id, tenant_id, client);
+        if (!found.user_ok) throw appError('USER_NOT_FOUND', 'User not found', 404);
+        if (!found.branch_ok) throw appError('BRANCH_NOT_FOUND', 'Branch not found', 404);
         const role = await roleOfClinic(role_id, tenant_id, client);
         if (role.is_doctor) await subscriptionService.assertDoctorSeat(tenant_id, user_id);
-        const result = await userModel.assigendToTheBranch(user_id, tenant_id, branch_id, role_id, client);
+
+        const rows = await userModel.getBranchRows(user_id, tenant_id, branch_id, client);
+        let result;
+        if (rows.length === 0) {
+            result = await userModel.assigendToTheBranch(user_id, tenant_id, branch_id, role_id, client);
+        } else {
+            if (Number(user_id) === Number(caller.id)) throw appError('CANNOT_EDIT_OWN_ROLE', 'You cannot change your own role', 403);
+            if (rows.some((r) => r.scope === 'tenant')) throw appError('ROLE_PROTECTED', 'The clinic owner role cannot be changed', 403);
+            // keep the oldest row, drop any extra ones (old duplicates)
+            await userModel.removeBranchRows(rows.slice(1).map((r) => r.id), client);
+            result = await userModel.setBranchRole(rows[0].id, role_id, client);
+        }
         if (role.is_doctor) await docModel.addDoc(user_id, 1, tenant_id, branch_id, client);
         return result;
     });

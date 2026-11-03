@@ -64,6 +64,11 @@ async function rotateAccessToken(refreshToken) {
 
     const row = await refreshTokenModel.findByHash(hashToken(refreshToken));
     if (!row || row.revoked) throw appError('REFRESH_INVALID', 'Refresh token revoked', 401);
+    // a deleted (deactivated) user gets no new access token
+    if (payload.tenant_id) {
+        const user = await authModel.selectAUser(payload.id, payload.tenant_id);
+        if (!user || !user.is_active) throw appError('USER_NOT_ACTIVE', 'User is not active', 401);
+    }
 
     const identity = {
         id: payload.id,
@@ -195,6 +200,9 @@ async function switchBranch(user_id, tenant_id, branch_id) {
 // Used on every request so permission/role changes apply instantly, instead of
 // trusting a stale list baked into a long-lived token. A deactivated assignment
 // returns no permissions, which effectively locks the user out immediately.
+// a deleted (deactivated) user: blocked on the very next request, not when the token runs out
+const USER_LOCKED = { role: null, permissions: [], scopes: {}, is_active: false, user_active: false };
+
 async function getLiveContext(user_id, tenant_id, branch_id) {
     // Platform admin (no tenant) keeps system-wide access, same as login.
     if (!tenant_id) {
@@ -205,9 +213,12 @@ async function getLiveContext(user_id, tenant_id, branch_id) {
     const isExpired = (row) => Boolean(row.subscription_end_date) && new Date(row.subscription_end_date) < new Date();
 
     const assignment = await userBranchRoleModel.findUserByAll(user_id, tenant_id, branch_id);
+    if (assignment && !assignment.user_active) return USER_LOCKED;
     if (assignment && assignment.is_active) {
         const { permissions, scopes } = await permissionsFor(assignment);
-        return { role: assignment.role_name, role_id: assignment.role_id, role_scope: assignment.role_scope, permissions, scopes, is_active: true, clinic_name: assignment.tenant_name, subscription_expired: isExpired(assignment) };
+        // active role in THIS branch + branch open = the branch check is already answered
+        const branch_checked = assignment.branch_status === 'active';
+        return { role: assignment.role_name, role_id: assignment.role_id, role_scope: assignment.role_scope, permissions, scopes, is_active: true, clinic_name: assignment.tenant_name, subscription_expired: isExpired(assignment), branch_checked };
     }
 
     // No assignment on THIS branch. An owner-level role (scope 'tenant') owns every
@@ -215,6 +226,7 @@ async function getLiveContext(user_id, tenant_id, branch_id) {
     // fall back to that role + permissions. This only elevates real, active owners
     // of THIS clinic — every other user is still locked out of branches they aren't assigned to.
     const allAssignments = await userBranchRoleModel.findUserById(user_id, tenant_id);
+    if (allAssignments && !allAssignments[0].user_active) return USER_LOCKED;
     const managerRow = (allAssignments || []).find(
         (r) => r.role_scope === 'tenant' && r.is_active
     );

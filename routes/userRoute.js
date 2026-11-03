@@ -19,6 +19,6 @@ router.put('/:userId', idValidate('userId'), userController.update);
 router.delete('/:userId', idValidate('userId'), userController.deactivate);
 router.get('/:userId', idValidate('userId'), userController.getById);
 
-router.post('/:userId/assign', idValidate('userId'), userController.assignToBranch)
+router.post('/:userId/assign', idValidate('userId'), userValidate.assign, userController.assignToBranch)
 
 export default router;

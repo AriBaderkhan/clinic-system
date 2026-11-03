@@ -39,6 +39,10 @@ async function authMiddleware(req, res, next) {
         // permissions are read LIVE from the DB so changes apply instantly and a
         // stale long-lived token can't keep old permissions.
         const live = await authService.getLiveContext(decoded.id, decoded.tenant_id, decoded.branch_id);
+        // deleted user: 401 so the app's refresh fails too and it logs them out
+        if (live.user_active === false) {
+            return res.status(401).json({ message: 'User is not active', code: 'USER_NOT_ACTIVE' });
+        }
         req.user = {
             ...decoded,
             role: live.role ?? decoded.role,
@@ -47,6 +51,7 @@ async function authMiddleware(req, res, next) {
             permissions: live.permissions,
             scopes: live.scopes || {},
             clinic_name: live.clinic_name,
+            branch_checked: live.branch_checked === true,
         };
 
         const route = `${req.method} ${req.originalUrl.split('?')[0]}`;

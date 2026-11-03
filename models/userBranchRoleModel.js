@@ -11,12 +11,14 @@ async function findUserById(user_id, tenant_id) {
     ubr.tenant_id,
     ubr.is_active,
     ubr.role_id,
+    u.is_active AS user_active,
     b.name AS branch_name,
     r.name AS role_name,
     r.scope AS role_scope,
     t.name AS tenant_name,
     s.end_date AS subscription_end_date
     FROM user_branch_roles ubr
+    JOIN users u ON u.id = ubr.user_id
     JOIN roles r ON ubr.role_id = r.id
     LEFT JOIN branches b ON ubr.branch_id = b.id   -- tenant_manager rows have no branch
     JOIN tenants t ON ubr.tenant_id = t.id
@@ -65,12 +67,15 @@ async function findUserByAll(user_id, tenant_id, branch_id) {
     ubr.tenant_id,
     ubr.is_active,
     ubr.role_id,
+    u.is_active AS user_active,
     b.name AS branch_name,
+    b.status AS branch_status,
     r.name AS role_name,
     r.scope AS role_scope,
     t.name AS tenant_name,
     s.end_date AS subscription_end_date
     FROM user_branch_roles ubr
+    JOIN users u ON u.id = ubr.user_id
     JOIN roles r ON ubr.role_id = r.id
     JOIN branches b ON ubr.branch_id = b.id
     JOIN tenants t ON ubr.tenant_id = t.id

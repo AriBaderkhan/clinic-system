@@ -17,9 +17,6 @@ export default function setupSocket(io) {
             // (e.g. the doctor of a checked-in patient).
             socket.join(`user_${payload.id}`);
 
-            if (socket.user.role === "reception") {
-                socket.join("reception_room");
-            }
 
         } catch (error) {
             socket.disconnect(true);

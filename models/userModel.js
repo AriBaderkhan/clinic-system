@@ -10,7 +10,7 @@ async function createUser(email, hashedPassword, tenant_id, is_active) {
 async function checkRoleIfDoc(role_id, client = pool) {
     // the role's flags (is_doctor) and owner clinic (NULL = built-in)
     const { rows } = await client.query(
-        'SELECT is_doctor, tenant_id FROM roles WHERE id = $1',
+        'SELECT is_doctor, tenant_id, scope FROM roles WHERE id = $1',
         [role_id]
     )
     return rows[0] || null;
@@ -29,6 +29,8 @@ async function getAllUsers(tenant_id) {
     pr.address,
     
     ubr.is_active AS is_active_branch,
+    ubr.branch_id,
+    ubr.role_id,
 
     br.name as branch_name,
     t.name as tenant_name,
@@ -152,6 +154,32 @@ async function assigendToTheBranch(user_id, tenant_id, branch_id, role_id, clien
 }
 
 
+// both must belong to this clinic
+async function clinicHas(user_id, branch_id, tenant_id, client = pool) {
+    const query = `SELECT EXISTS (SELECT 1 FROM users WHERE id = $1 AND tenant_id = $3) AS user_ok,
+                          EXISTS (SELECT 1 FROM branches WHERE id = $2 AND tenant_id = $3) AS branch_ok`;
+    const { rows } = await client.query(query, [user_id, branch_id, tenant_id]);
+    return rows[0];
+}
+
+// the user's role rows in one branch, oldest first
+async function getBranchRows(user_id, tenant_id, branch_id, client = pool) {
+    const query = `SELECT ubr.id, r.scope FROM user_branch_roles ubr JOIN roles r ON r.id = ubr.role_id
+                   WHERE ubr.user_id = $1 AND ubr.tenant_id = $2 AND ubr.branch_id = $3 ORDER BY ubr.id`;
+    const { rows } = await client.query(query, [user_id, tenant_id, branch_id]);
+    return rows;
+}
+
+async function removeBranchRows(ids, client = pool) {
+    await client.query(`DELETE FROM user_branch_roles WHERE id = ANY($1::bigint[])`, [ids]);
+}
+
+async function setBranchRole(id, role_id, client = pool) {
+    const query = `UPDATE user_branch_roles SET role_id = $2, is_active = true WHERE id = $1 RETURNING *`;
+    const { rows } = await client.query(query, [id, role_id]);
+    return rows[0] || null;
+}
+
 //-------------------------------- dropdown---------
 async function getRoles(tenant_id) {
     // built-in roles + this clinic's custom roles
@@ -159,4 +187,4 @@ async function getRoles(tenant_id) {
     const { rows } = await pool.query(query, [tenant_id]);
     return rows;
 }
-export default { createUser, checkRoleIfDoc, getAllUsers, getUserById, updateUser, getRoles, assigendToTheBranch }
+export default { createUser, checkRoleIfDoc, getAllUsers, getUserById, updateUser, getRoles, assigendToTheBranch, clinicHas, getBranchRows, removeBranchRows, setBranchRole }

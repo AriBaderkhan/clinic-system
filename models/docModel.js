@@ -25,6 +25,9 @@ async function getAllDocs(tenant_id, branch_id) {
        JOIN users u ON d.id = u.id
        LEFT JOIN specialties s ON s.id = d.specialty_id AND s.tenant_id = d.tenant_id AND s.branch_id = d.branch_id
        WHERE d.tenant_id = $1 AND d.branch_id = $2 AND u.is_active = true
+         -- only while the person still holds a doctor-type role in this branch
+         AND EXISTS (SELECT 1 FROM user_branch_roles ubr JOIN roles r ON r.id = ubr.role_id
+                     WHERE ubr.user_id = d.id AND ubr.branch_id = d.branch_id AND ubr.is_active AND r.is_doctor)
        ORDER BY p.full_name ASC;
     `;
   const { rows } = await pool.query(query, [tenant_id, branch_id]);

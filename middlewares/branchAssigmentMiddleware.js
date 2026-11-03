@@ -6,6 +6,8 @@ import appError from '../utils/appError.js';
 const branchAssigmentMiddleware = asyncWrap(async (req, res, next) => {
     const { id, tenant_id, branch_id, role_scope } = req.user;
     if (!branch_id) return next();
+    // the login check already found an ACTIVE role in this branch and the branch active
+    if (req.user.branch_checked) return next();
     // owner-level roles may open any branch of their clinic; everyone else needs an assignment
     if (role_scope !== 'tenant') {
     const assignment = await userBranchRoleModel.findUserByIdForMiddleware(id, tenant_id, branch_id);

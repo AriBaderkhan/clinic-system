@@ -20,4 +20,17 @@ function create(req, res, next) {
     next();
 }
 
-export default { create }
+// a role in a branch (new branch = added, branch the user already works in = role changed)
+const schemaAssign = Joi.object({
+    branch_id: Joi.number().integer().positive().required(),
+    role_id: Joi.number().integer().positive().required(),
+})
+
+function assign(req, res, next) {
+    const { error, value } = schemaAssign.validate(req.body);
+    if (error) return res.status(400).json({ code: 'VALIDATION_ERROR', message: error.details[0].message });
+    req.body = value;
+    next();
+}
+
+export default { create, assign }
