@@ -24,6 +24,7 @@ async function getWorkflow(tenant_id, branch_id, client = pool) {
       COALESCE(w.allow_discounts, true)        AS allow_discounts,
       COALESCE(w.max_discount_percent, 100)    AS max_discount_percent,
       COALESCE(w.block_booking_if_owes, false) AS block_booking_if_owes,
+      COALESCE(w.allow_overpay, true)          AS allow_overpay,
       w.updated_at
     FROM branches b
     LEFT JOIN branch_workflow w ON w.tenant_id = b.tenant_id AND w.branch_id = b.id
@@ -32,20 +33,21 @@ async function getWorkflow(tenant_id, branch_id, client = pool) {
     return rows[0] || null
 }
 
-async function saveWorkflow({ allow_settle_unpaid, allow_discounts, max_discount_percent, block_booking_if_owes }, updated_by, tenant_id, branch_id) {
+async function saveWorkflow({ allow_settle_unpaid, allow_discounts, max_discount_percent, block_booking_if_owes, allow_overpay }, updated_by, tenant_id, branch_id) {
     const query = `
     INSERT INTO branch_workflow
-      (tenant_id, branch_id, allow_settle_unpaid, allow_discounts, max_discount_percent, block_booking_if_owes, updated_by, updated_at)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+      (tenant_id, branch_id, allow_settle_unpaid, allow_discounts, max_discount_percent, block_booking_if_owes, allow_overpay, updated_by, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
     ON CONFLICT (tenant_id, branch_id) DO UPDATE SET
       allow_settle_unpaid   = EXCLUDED.allow_settle_unpaid,
       allow_discounts       = EXCLUDED.allow_discounts,
       max_discount_percent  = EXCLUDED.max_discount_percent,
       block_booking_if_owes = EXCLUDED.block_booking_if_owes,
+      allow_overpay         = EXCLUDED.allow_overpay,
       updated_by            = EXCLUDED.updated_by,
       updated_at            = NOW()
-    RETURNING allow_settle_unpaid, allow_discounts, max_discount_percent, block_booking_if_owes, updated_at`
-    const values = [tenant_id, branch_id, allow_settle_unpaid, allow_discounts, max_discount_percent, block_booking_if_owes, updated_by]
+    RETURNING allow_settle_unpaid, allow_discounts, max_discount_percent, block_booking_if_owes, allow_overpay, updated_at`
+    const values = [tenant_id, branch_id, allow_settle_unpaid, allow_discounts, max_discount_percent, block_booking_if_owes, allow_overpay, updated_by]
     const { rows } = await pool.query(query, values)
     return rows[0]
 }

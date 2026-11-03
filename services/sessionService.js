@@ -388,8 +388,9 @@ async function editPayment(session_id, payment_id, { amount, note }, tenant_id, 
     const newAmount = Number(amount);
     const newPaid = Number(session.total_paid) - oldAmount + newAmount;
     const limit = Number(session.total) - Number(session.discount_amount || 0);
-    // raising a payment may never make the visit paid more than its bill
-    if (newAmount > oldAmount && cents(newPaid) > cents(limit)) {
+    // raising a payment above the bill is allowed unless the branch switched overpaying off
+    const workflow = await settingModel.getWorkflow(tenant_id, branch_id, client);
+    if (workflow && !workflow.allow_overpay && newAmount > oldAmount && cents(newPaid) > cents(limit)) {
       throw appError("PAYMENT_EXCEEDS_TOTAL", `Payments (${newPaid}) cannot be more than the session total (${limit})`, 400);
     }
 
@@ -724,7 +725,7 @@ async function pay({ sessionId, normalAmount, planPayments, note, settleNormal, 
     }
 
     // the branch's workflow switches decide if settle / discounts may be used
-    const workflow = (settleNormal || discountId)
+    const workflow = (settleNormal || discountId || payNormal)
       ? await settingModel.getWorkflow(tenant_id, branch_id, client)
       : null;
 
@@ -741,9 +742,9 @@ async function pay({ sessionId, normalAmount, planPayments, note, settleNormal, 
         throw appError("INVALID_PAYMENT_AMOUNT", "Invalid amount", 400);
       }
 
-      // never take more than what is still owed on the session
+      // paying more than what is still owed is allowed unless the branch switched it off
       const remaining = total - totalPaid - Number(session.discount_amount || 0);
-      if (cents(numericAmount) > cents(remaining)) {
+      if (workflow && !workflow.allow_overpay && cents(numericAmount) > cents(remaining)) {
         throw appError("PAYMENT_EXCEEDS_REMAINING", `Amount is more than the remaining balance (${remaining})`, 400);
       }
 

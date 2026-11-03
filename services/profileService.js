@@ -24,6 +24,15 @@ async function getMe(user) {
     };
 }
 
+// the caller's own design (theme, font, corners, cards, size, light/dark); {} = default
+async function getDesign(user) {
+    return (await profileModel.getDesign(user.id)) || {};
+}
+
+async function updateDesign(user, prefs) {
+    return profileModel.saveDesign(user.id, prefs);
+}
+
 async function updateMe(user, data, file) {
     const { full_name, phone, address } = data;
     await profileModel.updateProfile(user.id, { full_name, phone, address });
@@ -64,4 +73,4 @@ async function changeEmail(user, newEmail, code) {
     return { changed: true, email: newEmail };
 }
 
-export default { getMe, updateMe, changePassword, sendEmailChangeCode, changeEmail };
+export default { getMe, updateMe, changePassword, sendEmailChangeCode, changeEmail, getDesign, updateDesign };

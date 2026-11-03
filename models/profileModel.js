@@ -51,7 +51,23 @@ async function setImage(user_id, image_path) {
 //         return rows;
 // }
 
+// the user's own design choices (no row = default design)
+async function getDesign(user_id) {
+    const { rows } = await pool.query('SELECT prefs FROM user_design WHERE user_id = $1', [user_id]);
+    return rows[0]?.prefs || null;
+}
+
+async function saveDesign(user_id, prefs) {
+    const query = `INSERT INTO user_design (user_id, prefs, updated_at) VALUES ($1, $2, now())
+                   ON CONFLICT (user_id) DO UPDATE SET prefs = EXCLUDED.prefs, updated_at = now()
+                   RETURNING prefs`;
+    const { rows } = await pool.query(query, [user_id, prefs]);
+    return rows[0].prefs;
+}
+
 export default {
+        getDesign,
+        saveDesign,
         addProfile,
         getByUserId,
         updateProfile,

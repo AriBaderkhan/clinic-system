@@ -11,6 +11,8 @@ const EXPIRED_ALLOWED = [
     'POST /api/subscriptions/request',
     'GET /api/plans',
     'GET /api/profile/me',
+    'GET /api/profile/me/design',
+    'PUT /api/profile/me/design',
 ];
 
 async function authMiddleware(req, res, next) {

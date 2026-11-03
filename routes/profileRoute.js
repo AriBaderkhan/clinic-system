@@ -15,5 +15,7 @@ router.put('/me', uploadImages, profileValidate.update, profileController.update
 router.put('/me/password', profileValidate.password, profileController.changePassword);
 router.post('/me/email/send-code', profileValidate.emailSend, profileController.sendEmailCode);
 router.put('/me/email', profileValidate.emailChange, profileController.changeEmail);
+router.get('/me/design', profileController.getDesign);
+router.put('/me/design', profileValidate.design, profileController.updateDesign);
 
 export default router;

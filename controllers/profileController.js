@@ -30,4 +30,14 @@ const changeEmail = asyncWrap(async (req, res) => {
     res.status(200).json({ ok: true, data: result });
 });
 
-export default { getMe, updateMe, changePassword, sendEmailCode, changeEmail };
+const getDesign = asyncWrap(async (req, res) => {
+    const result = await profileService.getDesign(req.user);
+    res.status(200).json({ ok: true, data: result });
+});
+
+const updateDesign = asyncWrap(async (req, res) => {
+    const result = await profileService.updateDesign(req.user, req.body);
+    res.status(200).json({ ok: true, data: result });
+});
+
+export default { getMe, updateMe, changePassword, sendEmailCode, changeEmail, getDesign, updateDesign };
