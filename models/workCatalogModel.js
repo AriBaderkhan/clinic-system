@@ -1,19 +1,19 @@
 import pool from '../db_connection.js';
 
-async function createWork(code, name, min_price, allow_installments, min_installment_amount, tenant_id, branch_id, is_active, is_plan, is_whole_mouth, specialty_id, client = pool) {
+async function createWork(code, name, min_price, allow_installments, min_installment_amount, tenant_id, branch_id, is_active, is_plan, is_whole_mouth, specialty_id, one_visit, client = pool) {
   const query = `
-    INSERT INTO work_catalog (code, name, min_price, allow_installments, min_installment_amount, tenant_id, branch_id, is_active, is_plan, is_whole_mouth, specialty_id)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    INSERT INTO work_catalog (code, name, min_price, allow_installments, min_installment_amount, tenant_id, branch_id, is_active, is_plan, is_whole_mouth, specialty_id, one_visit)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
     RETURNING id,code,name
   `;
-  const values = [code, name, min_price, allow_installments, min_installment_amount, tenant_id, branch_id, is_active, is_plan, is_whole_mouth, specialty_id];
+  const values = [code, name, min_price, allow_installments, min_installment_amount, tenant_id, branch_id, is_active, is_plan, is_whole_mouth, specialty_id, one_visit];
   const { rows } = await client.query(query, values);
   return rows[0] || null;
 }
     
 async function getWorks(tenant_id, branch_id, client = pool) {
   const query = `
-    SELECT id, code, name, min_price, allow_installments, min_installment_amount, is_active, is_plan, is_whole_mouth, specialty_id
+    SELECT id, code, name, min_price, allow_installments, min_installment_amount, is_active, is_plan, is_whole_mouth, specialty_id, one_visit
     FROM work_catalog
     WHERE tenant_id = $1
     AND branch_id = $2
@@ -26,7 +26,7 @@ async function getWorks(tenant_id, branch_id, client = pool) {
 
 async function getWorkById(id, tenant_id, branch_id, client = pool) {
   const query = `
-    SELECT id, code, name, min_price, allow_installments, min_installment_amount, is_active, is_plan, is_whole_mouth, specialty_id
+    SELECT id, code, name, min_price, allow_installments, min_installment_amount, is_active, is_plan, is_whole_mouth, specialty_id, one_visit
     FROM work_catalog
     WHERE id = $1
     AND tenant_id = $2
@@ -38,7 +38,7 @@ async function getWorkById(id, tenant_id, branch_id, client = pool) {
 
 async function getWorksByIds(ids, tenant_id, branch_id, client = pool) {
   const query = `
-    SELECT id, code, name, min_price, allow_installments, min_installment_amount, is_active, is_plan, is_whole_mouth, specialty_id
+    SELECT id, code, name, min_price, allow_installments, min_installment_amount, is_active, is_plan, is_whole_mouth, specialty_id, one_visit
     FROM work_catalog
     WHERE id = ANY($1::int[])
     AND tenant_id = $2
@@ -108,7 +108,7 @@ const ALLOWED_FOR_DOCTOR = `
 async function getWorksForDoctor(doctor_id, tenant_id, branch_id, client = pool) {
   const query = `
     SELECT wc.id, wc.code, wc.name, wc.min_price, wc.allow_installments, wc.min_installment_amount,
-           wc.is_active, wc.is_plan, wc.is_whole_mouth, wc.specialty_id
+           wc.is_active, wc.is_plan, wc.is_whole_mouth, wc.specialty_id, wc.one_visit
       FROM work_catalog wc
       JOIN doctors d ON d.id = $1 AND d.tenant_id = wc.tenant_id AND d.branch_id = wc.branch_id
      WHERE wc.tenant_id = $2 AND wc.branch_id = $3 AND wc.is_active = true

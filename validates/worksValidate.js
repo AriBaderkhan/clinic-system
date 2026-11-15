@@ -10,7 +10,9 @@ const workValidateSchema = Joi.object({
     is_active: Joi.boolean().default(true),
     is_plan: Joi.boolean().default(false),
     is_whole_mouth: Joi.boolean().default(false),
-    specialty_id: Joi.number().integer().positive().allow(null).default(null)
+    specialty_id: Joi.number().integer().positive().allow(null).default(null),
+    // a plan treatment may be finished in the same visit it starts in
+    one_visit: Joi.boolean().default(true)
 });
 
 function create(req, res, next) {
@@ -29,7 +31,8 @@ const workUpdateSchema = Joi.object({
     is_active: Joi.boolean().optional(),
     is_plan: Joi.boolean().optional(),
     is_whole_mouth: Joi.boolean().optional(),
-    specialty_id: Joi.number().integer().positive().allow(null).optional()
+    specialty_id: Joi.number().integer().positive().allow(null).optional(),
+    one_visit: Joi.boolean().optional()
 });
 
 function update(req, res, next) {

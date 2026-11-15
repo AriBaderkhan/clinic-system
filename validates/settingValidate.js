@@ -7,6 +7,7 @@ const workflowSchema = Joi.object({
   max_discount_percent: Joi.number().integer().min(0).max(100).required(),
   block_booking_if_owes: Joi.boolean().required(),
   allow_overpay: Joi.boolean().default(true),
+  allow_one_visit_plans: Joi.boolean().default(true),
 });
 
 function workflow(req, res, next) {

@@ -261,6 +261,10 @@ async function complete({ appointmentId, doctorId, next_plan, notes, works, comp
         let planMinTotal = 0;
         let planGrandTotal = 0;
 
+        // new plans the doctor finished in this visit (closed after the works are saved)
+        const finishedNowPlanIds = [];
+        let workflow = null;
+
 
         for (const w of works) {
 
@@ -305,6 +309,12 @@ async function complete({ appointmentId, doctorId, next_plan, notes, works, comp
                     if (agreedTotal < Number(catalog.min_price)) {
                         throw appError('AGREEMENT_TOTAL_BELOW_MIN', `${code} agreement must be >= ${catalog.min_price}`, 400);
                     }
+                    if (w.finish_now) {
+                        workflow = workflow || await settingModel.getWorkflow(tenant_id, branch_id, client);
+                        if (!workflow.allow_one_visit_plans || !catalog.one_visit) {
+                            throw appError('PLAN_ONE_VISIT_NOT_ALLOWED', `${code} cannot be finished in one visit in this branch`, 400);
+                        }
+                    }
                     const plan = await treatmentPlanModel.createPlan({
                         patientId: appt.patient_id,
                         type: code,
@@ -312,6 +322,7 @@ async function complete({ appointmentId, doctorId, next_plan, notes, works, comp
                         createdBy: doctorId,
                     }, tenant_id, branch_id, client);
                     rawTreatmentPlanId = plan.id;
+                    if (w.finish_now) finishedNowPlanIds.push(plan.id);
                 }
             }
 
@@ -360,6 +371,9 @@ async function complete({ appointmentId, doctorId, next_plan, notes, works, comp
                     await treatmentPlanModel.markCompleted(Number(pid), tenant_id, branch_id, client);
                 }
             }
+        }
+        for (const pid of finishedNowPlanIds) {
+            await treatmentPlanModel.markCompleted(pid, tenant_id, branch_id, client);
         }
 
         const min_total = normalMinTotal;

@@ -64,6 +64,8 @@ const schemaCompleteFillWork = Joi.object({
                 // existing plan (treatment_plan_id) OR starts a new one (agreed_total).
                 treatment_plan_id: Joi.number().integer().positive().allow(null),
                 agreed_total: Joi.number().min(0).allow(null),
+                // a NEW plan finished in this same visit (branch switch + the treatment's tick)
+                finish_now: Joi.boolean().optional(),
                 // whole-mouth region: 'upper' | 'lower' (absent/null = whole mouth)
                 arch: Joi.string().valid('upper', 'lower').allow(null).optional(),
             })

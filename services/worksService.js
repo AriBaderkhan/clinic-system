@@ -13,7 +13,7 @@ const checkSpecialty = async (specialty_id, tenant_id, branch_id, client) => {
 
 const create = async (workData, tenant_id, branch_id) => {
     const client = await pool.connect();
-    let { code, name, min_price, allow_installments, min_installment_amount, is_active, is_plan, is_whole_mouth, specialty_id } = workData;
+    let { code, name, min_price, allow_installments, min_installment_amount, is_active, is_plan, is_whole_mouth, specialty_id, one_visit } = workData;
     try {
 
         await client.query('BEGIN');
@@ -22,7 +22,7 @@ const create = async (workData, tenant_id, branch_id) => {
         if (existingWork) throw appError('WORK_ALREADY_EXISTS', 'Work with this code already exists', 400);
         await checkSpecialty(specialty_id, tenant_id, branch_id, client);
 
-        const work = await worksModel.createWork(code, name, min_price, allow_installments, min_installment_amount, tenant_id, branch_id, is_active, !!is_plan, !!is_whole_mouth, specialty_id ?? null, client);
+        const work = await worksModel.createWork(code, name, min_price, allow_installments, min_installment_amount, tenant_id, branch_id, is_active, !!is_plan, !!is_whole_mouth, specialty_id ?? null, one_visit !== false, client);
         if (!work) throw appError('WORK_CREATION_FAILED', 'Failed to create work', 500);
 
         await client.query('COMMIT');
@@ -49,7 +49,7 @@ const getById = async (workId, tenant_id, branch_id) => {
 
 const update = async (workId, workData, tenant_id, branch_id) => {
     const client = await pool.connect();
-    let { code, name, min_price, allow_installments, min_installment_amount, is_active, is_plan, is_whole_mouth, specialty_id } = workData;
+    let { code, name, min_price, allow_installments, min_installment_amount, is_active, is_plan, is_whole_mouth, specialty_id, one_visit } = workData;
     try {
         await client.query('BEGIN');
         if (code !== undefined) {
@@ -63,7 +63,7 @@ const update = async (workId, workData, tenant_id, branch_id) => {
 
         // only the fields that were sent are changed; a missing field keeps its value
         // (before, a missing field was saved as empty: e.g. the work became inactive)
-        const sent = { code, name, min_price, allow_installments, min_installment_amount, is_active, is_plan, is_whole_mouth, specialty_id };
+        const sent = { code, name, min_price, allow_installments, min_installment_amount, is_active, is_plan, is_whole_mouth, specialty_id, one_visit };
         const fields = Object.fromEntries(Object.entries(sent).filter(([, v]) => v !== undefined));
         if (Object.keys(fields).length === 0) throw appError('NOTHING_TO_UPDATE', 'Nothing to update', 400);
 

@@ -194,6 +194,8 @@ async function editNormal(session_id, fields, userId, tenant_id, branch_id) {
     if (!base) throw appError("SESSION_NOT_FOUND", "session not found", 404);
 
     const currentPaid = Number(base.total_paid) || 0;
+    // new plans the doctor finished in this visit (closed after the works are saved)
+    const finishedNowPlanIds = [];
 
     // 2) normal works: the list sent is the full new list (it may be empty)
     let normalMinTotal = Number(base.min_total) || 0;
@@ -214,6 +216,7 @@ async function editNormal(session_id, fields, userId, tenant_id, branch_id) {
       const catalogMap = Object.fromEntries(catalogRows.map(c => [c.id, c]));
 
       const workItems = [];
+      let workflow = null;
       for (const w of works) {
         const { work_id, quantity, tooth_number } = w;
 
@@ -248,6 +251,13 @@ async function editNormal(session_id, fields, userId, tenant_id, branch_id) {
             const agreedTotal = Number(w.agreed_total);
             if (!agreedTotal || agreedTotal <= 0) throw appError('AGREEMENT_TOTAL_REQUIRED', `${code} agreement total required`, 400);
             if (agreedTotal < minUnit) throw appError('AGREEMENT_TOTAL_BELOW_MIN', `${code} agreement must be >= ${minUnit}`, 400);
+            // a new plan finished in this same visit (branch switch + the treatment's tick)
+            if (w.finish_now) {
+              workflow = workflow || await settingModel.getWorkflow(tenant_id, branch_id, client);
+              if (!workflow.allow_one_visit_plans || !catalog.one_visit) {
+                throw appError('PLAN_ONE_VISIT_NOT_ALLOWED', `${code} cannot be finished in one visit in this branch`, 400);
+              }
+            }
             const plan = await treatmentPlanModel.createPlan({
               patientId: base.patient_id,
               type: code,
@@ -255,6 +265,7 @@ async function editNormal(session_id, fields, userId, tenant_id, branch_id) {
               createdBy: userId,
             }, tenant_id, branch_id, client);
             treatmentPlanId = plan.id;
+            if (w.finish_now) finishedNowPlanIds.push(plan.id);
           }
         }
 
@@ -336,6 +347,9 @@ async function editNormal(session_id, fields, userId, tenant_id, branch_id) {
           await treatmentPlanModel.markCompleted(Number(pid), tenant_id, branch_id, client);
         }
       }
+    }
+    for (const pid of finishedNowPlanIds) {
+      await treatmentPlanModel.markCompleted(pid, tenant_id, branch_id, client);
     }
 
     return {
