@@ -2,10 +2,24 @@ import pool from '../db_connection.js';
 import { ownPatientSql } from './scopeModel.js';
 
 
-async function createPatient(name, phone, extra_phones, age, gender, address, allergies, blood_type, chronic_diseases, referral_source, created_by, tenant_id, branch_id) {
+async function createPatient(name, phone, extra_phones, age, gender, address, allergies, blood_type, chronic_diseases, referral_source, created_by, tenant_id, branch_id, client = pool) {
   const query = `INSERT INTO patients (name,phone,extra_phones,age,gender,address,allergies,blood_type,chronic_diseases,referral_source,created_by,tenant_id,branch_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *;`;
   const values = [name, phone, extra_phones, age, gender, address, allergies, blood_type, chronic_diseases, referral_source, created_by, tenant_id, branch_id];
-  const { rows } = await pool.query(query, values);
+  const { rows } = await client.query(query, values);
+  return rows[0] || null;
+}
+
+// one save at a time for the same name + phone in a branch (released at COMMIT/ROLLBACK)
+async function lockSamePatient(name, phone, branch_id, client) {
+  await client.query(`SELECT pg_advisory_xact_lock($1::int, hashtext(lower(trim($2)) || '|' || trim($3)))`, [branch_id, name, phone]);
+}
+
+// a patient in this branch with the same name (any case/spaces) and the same phone
+async function findSamePatient(name, phone, tenant_id, branch_id, client = pool) {
+  const query = `SELECT id FROM patients
+    WHERE tenant_id = $1 AND branch_id = $2 AND phone = trim($3) AND lower(trim(name)) = lower(trim($4))
+    LIMIT 1;`;
+  const { rows } = await client.query(query, [tenant_id, branch_id, phone, name]);
   return rows[0] || null;
 }
 
@@ -314,7 +328,7 @@ async function getAllTreatmentPlansPatient(patientId, tenant_id) {
 }
 
 export default {
-  createPatient, getAllPatients, getPatient, updatePatient, deletePatient,
+  createPatient, lockSamePatient, findSamePatient, getAllPatients, getPatient, updatePatient, deletePatient,
   searchPatientsModel, getAllApptsPatient, getAllSessionsPatient, getAllPaymentsPatient,
   getAllTreatmentPlansPatient, getReferralSources
 }

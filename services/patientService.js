@@ -1,5 +1,6 @@
 import patientModel from '../models/patientModel.js';
 import appError from '../utils/appError.js';
+import withTransaction from '../utils/withTransaction.js';
 import { ownId } from '../utils/scope.js';
 
 // only the patient's HOME branch edits or deletes the patient (a shared branch only reads + adds visits)
@@ -12,10 +13,16 @@ const mustBeHome = (patient, branch_id) => {
 async function create(patientData, tenant_id, branch_id) {
 
     const { name, phone, extra_phones = [], age, gender, address, allergies, blood_type, chronic_diseases, referral_source, created_by } = patientData;
-    const patient = await patientModel.createPatient(name, phone, extra_phones, age,gender, address, allergies, blood_type, chronic_diseases, referral_source, created_by, tenant_id, branch_id);
+    // the same person saved twice (double click, retry, two tabs) -> refuse the second one
+    return withTransaction(async (client) => {
+        await patientModel.lockSamePatient(name, phone, branch_id, client);
+        const same = await patientModel.findSamePatient(name, phone, tenant_id, branch_id, client);
+        if (same) throw appError('PATIENT_ALREADY_EXISTS', 'A patient with this name and phone already exists', 409);
 
-    if (!patient) throw appError('INSERT_FAILED', 'Failed to create patient', 500);
-    return patient;
+        const patient = await patientModel.createPatient(name, phone, extra_phones, age, gender, address, allergies, blood_type, chronic_diseases, referral_source, created_by, tenant_id, branch_id, client);
+        if (!patient) throw appError('INSERT_FAILED', 'Failed to create patient', 500);
+        return patient;
+    });
 }
 
 async function getAll({ q, page, limit, viewer }, tenant_id, branch_id) {
