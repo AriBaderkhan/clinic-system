@@ -1,4 +1,5 @@
 import patientModel from '../models/patientModel.js';
+import feedbackModel from '../models/feedbackModel.js';
 import appError from '../utils/appError.js';
 import withTransaction from '../utils/withTransaction.js';
 import { ownId } from '../utils/scope.js';
@@ -41,6 +42,7 @@ async function getById(patientId, tenant_id, branch_id) {
 
 async function update(patientDataUpdate, tenant_id, branch_id) {
     const { patientId, fields, updatedBy } = patientDataUpdate;
+    if (!fields || Object.keys(fields).length === 0) throw appError('NOTHING_TO_UPDATE', 'Nothing to update', 400);
 
     const thePatient = await patientModel.getPatient(patientId, tenant_id, branch_id)
 
@@ -58,9 +60,12 @@ async function _delete(patientId, tenant_id, branch_id) {
     if (!thePatient) throw appError('PATIENT_NOT_FOUND', 'Patient not found', 404);
     mustBeHome(thePatient, branch_id);
     try {
-        const result = await patientModel.deletePatient(patientId, tenant_id, branch_id);
-        if (!result) throw appError('PATIENT_NOT_FOUND', 'Patient not found', 404);
-        return result;
+        return await withTransaction(async (client) => {
+            const result = await patientModel.deletePatient(patientId, tenant_id, branch_id, client);
+            if (!result) throw appError('PATIENT_NOT_FOUND', 'Patient not found', 404);
+            await feedbackModel.detachPatient(patientId, tenant_id, client);
+            return result;
+        });
     } catch (err) {
         if (err.code === '23503') {
             throw appError('PATIENT_HAS_RECORDS', 'Cannot delete this patient. They have existing appointments, sessions, or treatment plans.', 409);

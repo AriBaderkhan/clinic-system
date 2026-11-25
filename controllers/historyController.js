@@ -3,7 +3,7 @@ import asyncWrap from '../utils/asyncWrap.js';
 
 const getPayments = asyncWrap(async (req, res) => {
     const { tenant_id, branch_id } = req.user;
-    const result = await historyService.getPayments(tenant_id, branch_id);
+    const result = await historyService.getPayments(tenant_id, branch_id, req.paging);
     res.status(200).json({ ok: true, data: result });
 })
 

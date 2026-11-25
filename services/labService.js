@@ -231,6 +231,10 @@ async function getOrderById(orderId, tenant_id, branch_id) {
 async function updateOrder(orderId, { notes, items }, tenant_id, branch_id) {
   const order = await labModel.getOrderById(orderId, tenant_id, branch_id);
   if (!order) throw appError('LAB_ORDER_NOT_FOUND', 'Order not found', 404);
+  // a delivered or cancelled order's money is closed: its items / price can't change (the note still can)
+  if (items !== undefined && !['ordered', 'ready'].includes(order.status)) {
+    throw appError('LAB_ORDER_CLOSED', 'A delivered or cancelled order cannot be changed', 409);
+  }
 
   const client = await pool.connect();
   try {

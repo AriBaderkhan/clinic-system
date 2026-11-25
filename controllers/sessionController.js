@@ -75,6 +75,7 @@ const editPayment = asyncWrap(async (req, res) => {
     const { tenant_id, branch_id } = req.user;
 
     const result = await sessionService.editPayment(sessionId, paymentId, { amount, note }, tenant_id, branch_id);
+    res.locals.auditDetails = { payment_id: paymentId, old_amount: result.old_amount, new_amount: Number(amount) };
     res.status(200).json({ ok: true, data: result });
 })
 
@@ -84,6 +85,7 @@ const deletePayment = asyncWrap(async (req, res) => {
     const { tenant_id, branch_id } = req.user;
 
     const result = await sessionService.deletePayment(sessionId, paymentId, tenant_id, branch_id);
+    res.locals.auditDetails = { payment_id: paymentId, old_amount: Number(result.payment?.amount), new_amount: null };
     res.status(200).json({ ok: true, data: result });
 })
 
@@ -94,6 +96,7 @@ const editPlanPayment = asyncWrap(async (req, res) => {
     const { tenant_id, branch_id } = req.user;
 
     const result = await sessionService.editPlanPayment(sessionId, paymentId, { amount, note }, tenant_id, branch_id);
+    res.locals.auditDetails = { plan_payment_id: paymentId, old_amount: result.old_amount, new_amount: Number(amount) };
     res.status(200).json({ ok: true, data: result });
 })
 
@@ -103,6 +106,7 @@ const deletePlanPayment = asyncWrap(async (req, res) => {
     const { id: userId, tenant_id, branch_id } = req.user;
 
     const result = await sessionService.deletePlanPayment(sessionId, paymentId, userId, tenant_id, branch_id);
+    res.locals.auditDetails = { plan_payment_id: paymentId, old_amount: Number(result.payment?.amount), new_amount: null };
     res.status(200).json({ ok: true, data: result });
 })
 

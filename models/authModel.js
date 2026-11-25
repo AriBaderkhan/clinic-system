@@ -28,7 +28,7 @@ async function findByEmail(email) {
 }
 
 async function getCredById(user_id) {
-        const { rows } = await pool.query(`SELECT id, email, password FROM users WHERE id = $1`, [user_id]);
+        const { rows } = await pool.query(`SELECT id, email, password, is_active FROM users WHERE id = $1`, [user_id]);
         return rows[0] || null;
 }
 

@@ -15,11 +15,15 @@ const EXPIRED_ALLOWED = [
     'PUT /api/profile/me/design',
 ];
 
+// same error shape as everywhere else, so the screens can react by code
+const unauthorized = (req, res, message) =>
+    res.status(401).json({ message, code: 'UNAUTHORIZED', support_code: req.requestId || 'N/A' });
+
 async function authMiddleware(req, res, next) {
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-        return res.status(401).send("Access Denied. No token provided.");
+        return unauthorized(req, res, 'Access denied. No token provided.');
     }
 
     const token = authHeader.split(" ")[1];
@@ -28,12 +32,12 @@ async function authMiddleware(req, res, next) {
     try {
         decoded = jwt.verify(token, process.env.JWT_SECRET);
     } catch (err) {
-        return res.status(401).send("Invalid Token");
+        return unauthorized(req, res, 'Invalid token');
     }
 
     // A refresh token must never be accepted as an access token.
     if (decoded.type === 'refresh') {
-        return res.status(401).send("Invalid Token");
+        return unauthorized(req, res, 'Invalid token');
     }
 
     try {

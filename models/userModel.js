@@ -89,10 +89,15 @@ async function updateUser(user_id, tenant_id, userData) {
     password = COALESCE($2, password),
     is_active = COALESCE($3, is_active)
     WHERE id = $4 AND tenant_id = $5
-    RETURNING *
+    RETURNING id, email, is_active, tenant_id, created_at
     `;
         const values = [userData.email, userData.password, userData.is_active, user_id, tenant_id];
         const result = await client.query(query, values);
+        // not a user of this clinic: change nothing else (the profile below has no clinic column)
+        if (!result.rows[0]) {
+            await client.query('ROLLBACK');
+            return null;
+        }
 
         // NOTE: editing a user updates identity/profile only. Branch & role
         // assignments are managed through the dedicated "Assign to Branch" flow.

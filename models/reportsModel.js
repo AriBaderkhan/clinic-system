@@ -135,7 +135,7 @@ async function apptForEachDoctor(from, to, tenant_id, branch_id) {
     FROM appointments 
     JOIN profiles pr ON pr.user_id=doctor_id
     WHERE scheduled_start >= $1 AND scheduled_start < $2 AND tenant_id = $3 AND branch_id = $4 AND is_deleted = false
-    GROUP BY pr.full_name
+    GROUP BY doctor_id, pr.full_name
     ORDER BY total_appointments DESC;`
   const values = [from, to, tenant_id, branch_id]
   const { rows } = await pool.query(query, values);
@@ -174,7 +174,7 @@ async function workByQtySingle(from, to, tenant_id, branch_id, direction) {
     JOIN sessions s ON s.id = sw.session_id AND s.tenant_id = sw.tenant_id AND s.branch_id = sw.branch_id
     WHERE s.created_at >= $1 AND s.created_at < $2 AND s.tenant_id = $3 AND s.branch_id = $4 AND sw.is_deleted = false
     GROUP BY sw.work_id, wc.code
-    ORDER BY total_qty ${direction}
+    ORDER BY total_qty ${direction}, wc.code
     LIMIT 1;
   `;
   const values = [from, to, tenant_id, branch_id];
@@ -254,8 +254,8 @@ async function apptForEachDoctorByBranch(from, to, tenant_id) {
     JOIN profiles pr ON pr.user_id = a.doctor_id
     JOIN branches b ON b.id = a.branch_id
     WHERE a.scheduled_start >= $1 AND a.scheduled_start < $2 AND a.tenant_id = $3 AND a.is_deleted = false
-    GROUP BY b.name, pr.full_name
-    ORDER BY b.name, total_appointments DESC;
+    GROUP BY b.name, a.doctor_id, pr.full_name
+    ORDER BY b.name, total_appointments DESC, pr.full_name;
   `;
   const values = [from, to, tenant_id];
   const { rows } = await pool.query(query, values);
@@ -283,11 +283,12 @@ async function sumOfSessionsAmountByBranch(from, to, tenant_id) {
   const query = `
     SELECT
       b.name AS branch_name,
+      sp.currency_code,
       COALESCE(SUM(sp.amount), 0) AS total_paid
     FROM session_payments sp
     JOIN branches b ON b.id = sp.branch_id
     WHERE sp.created_at >= $1 AND sp.created_at < $2 AND sp.tenant_id = $3
-    GROUP BY b.name;
+    GROUP BY b.name, sp.currency_code;
   `;
   const values = [from, to, tenant_id];
   const { rows } = await pool.query(query, values);
@@ -298,11 +299,12 @@ async function sumOfTreatmentPlansAmountByBranch(from, to, tenant_id) {
   const query = `
     SELECT
       b.name AS branch_name,
+      tp.currency_code,
       COALESCE(SUM(tp.amount), 0) AS total_paid
     FROM treatment_payments tp
     JOIN branches b ON b.id = tp.branch_id
     WHERE tp.created_at >= $1 AND tp.created_at < $2 AND tp.tenant_id = $3 AND tp.is_deleted = false
-    GROUP BY b.name;
+    GROUP BY b.name, tp.currency_code;
   `;
   const values = [from, to, tenant_id];
   const { rows } = await pool.query(query, values);
@@ -326,7 +328,7 @@ async function workByQtyByBranch(from, to, tenant_id, direction) {
     JOIN branches b ON b.id = s.branch_id
     WHERE s.created_at >= $1 AND s.created_at < $2 AND s.tenant_id = $3 AND sw.is_deleted = false
     GROUP BY b.name, sw.work_id, wc.code
-    ORDER BY b.name, total_qty ${direction};
+    ORDER BY b.name, total_qty ${direction}, wc.code;
   `;
   const values = [from, to, tenant_id];
   const { rows } = await pool.query(query, values);
@@ -460,7 +462,7 @@ async function treatmentBreakdownByBranch(from, to, tenant_id) {
     JOIN branches b ON b.id = s.branch_id
     WHERE s.tenant_id = $3 AND s.created_at >= $1 AND s.created_at < $2 AND sw.is_deleted = false
     GROUP BY b.name, wc.name
-    ORDER BY b.name, total DESC;`;
+    ORDER BY b.name, total DESC, wc.name;`;
   const { rows } = await pool.query(query, [from, to, tenant_id]);
   return rows;
 }
@@ -471,30 +473,31 @@ async function treatmentBreakdownByBranch(from, to, tenant_id) {
 async function revenuePerDoctorByBranch(from, to, tenant_id) {
   const query = `
     WITH pay AS (
-      SELECT sp.branch_id, a.doctor_id, sp.amount
+      SELECT sp.branch_id, a.doctor_id, sp.currency_code, sp.amount
       FROM session_payments sp
       JOIN sessions s ON s.id = sp.session_id AND s.tenant_id = sp.tenant_id AND s.branch_id = sp.branch_id
       JOIN appointments a ON a.id = s.appointment_id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
       WHERE sp.tenant_id = $3 AND sp.created_at >= $1 AND sp.created_at < $2
       UNION ALL
-      SELECT tp.branch_id, a.doctor_id, tp.amount
+      SELECT tp.branch_id, a.doctor_id, tp.currency_code, tp.amount
       FROM treatment_payments tp
       JOIN sessions s ON s.id = tp.session_id AND s.tenant_id = tp.tenant_id AND s.branch_id = tp.branch_id
       JOIN appointments a ON a.id = s.appointment_id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
       WHERE tp.tenant_id = $3 AND tp.created_at >= $1 AND tp.created_at < $2 AND tp.session_id IS NOT NULL AND tp.is_deleted = false
       UNION ALL
-      SELECT tp.branch_id, NULL AS doctor_id, tp.amount
+      SELECT tp.branch_id, NULL AS doctor_id, tp.currency_code, tp.amount
       FROM treatment_payments tp
       WHERE tp.tenant_id = $3 AND tp.created_at >= $1 AND tp.created_at < $2 AND tp.session_id IS NULL AND tp.is_deleted = false
     )
     SELECT
       b.name AS branch_name,
+      pay.currency_code,
       COALESCE(pr.full_name, 'Unassigned') AS label,
       COALESCE(SUM(pay.amount), 0) AS total
     FROM pay
     JOIN branches b ON b.id = pay.branch_id
     LEFT JOIN profiles pr ON pr.user_id = pay.doctor_id
-    GROUP BY b.name, pr.full_name
+    GROUP BY b.name, pay.doctor_id, pr.full_name, pay.currency_code
     ORDER BY b.name, total DESC;`;
   const { rows } = await pool.query(query, [from, to, tenant_id]);
   return rows;
@@ -507,6 +510,7 @@ async function revenuePerTreatmentByBranch(from, to, tenant_id) {
   const query = `
     SELECT
       b.name AS branch_name,
+      s.currency_code,
       wc.name AS label,
       COALESCE(SUM(sw.total_price), 0) AS total
     FROM session_works sw
@@ -514,7 +518,7 @@ async function revenuePerTreatmentByBranch(from, to, tenant_id) {
     JOIN sessions s ON s.id = sw.session_id AND s.tenant_id = sw.tenant_id AND s.branch_id = sw.branch_id
     JOIN branches b ON b.id = s.branch_id
     WHERE s.tenant_id = $3 AND s.created_at >= $1 AND s.created_at < $2 AND sw.is_deleted = false
-    GROUP BY b.name, wc.name
+    GROUP BY b.name, wc.name, s.currency_code
     ORDER BY b.name, total DESC;`;
   const { rows } = await pool.query(query, [from, to, tenant_id]);
   return rows;

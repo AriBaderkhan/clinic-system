@@ -1,9 +1,9 @@
 import Joi from 'joi';
 
 const schemaTemplate = Joi.object({
-  kur_msg: Joi.string().min(1).required(),
-  arb_msg: Joi.string().min(1).required(),
-  eng_msg: Joi.string().min(1).required(),
+  kur_msg: Joi.string().min(1).max(2000).required(),
+  arb_msg: Joi.string().min(1).max(2000).required(),
+  eng_msg: Joi.string().min(1).max(2000).required(),
 });
 
 // Create an invite (keyed per patient). appointment_id is the representative
@@ -37,7 +37,7 @@ const schemaSubmit = Joi.object({
 
 const run = (schema) => (req, res, next) => {
   const { error } = schema.validate(req.body);
-  if (error) return res.status(400).send(error.details[0].message);
+  if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' });
   next();
 };
 

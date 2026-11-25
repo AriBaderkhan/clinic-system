@@ -32,4 +32,16 @@ function paid(req, res, next) {
     next();
 }
 
-export default { update, paid }
+// GET /active?patientId=&type=
+const activeSchema = Joi.object({
+    patientId: Joi.number().integer().positive().required(),
+    type: Joi.string().trim().min(1).max(50).required(),
+}).unknown(true);
+
+function active(req, res, next) {
+    const { error } = activeSchema.validate(req.query);
+    if (error) return res.status(400).json({ message: 'patientId and type are required', code: 'VALIDATION_ERROR' });
+    next();
+}
+
+export default { update, paid, active }

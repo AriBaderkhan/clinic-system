@@ -124,7 +124,7 @@ async function getByToken(token, client = pool) {
       COALESCE(t.name_en, t.name) AS clinic_name_en,
       b.name AS branch_name
     FROM feedbacks f
-    JOIN patients p ON f.patient_id = p.id
+    JOIN patients p ON f.patient_id = p.id AND p.tenant_id = f.tenant_id
     JOIN tenants  t ON f.tenant_id  = t.id
     JOIN branches b ON f.branch_id  = b.id
     WHERE f.token = $1
@@ -226,7 +226,7 @@ async function getTenantResponses(tenant_id, client = pool) {
       f.cost_rating,        f.cost_comment,
       f.note
     FROM feedbacks f
-    LEFT JOIN patients p ON f.patient_id = p.id
+    LEFT JOIN patients p ON f.patient_id = p.id AND p.tenant_id = f.tenant_id
     JOIN branches b ON f.branch_id  = b.id
     WHERE f.tenant_id = $1 AND f.submitted_at IS NOT NULL
     ORDER BY f.submitted_at DESC;`;
@@ -272,6 +272,12 @@ async function getBranchSummaries(tenant_id, client = pool) {
   return rows;
 }
 
+// the patient was deleted: keep the feedback, but without the patient (shown with no name, like before)
+async function detachPatient(patient_id, tenant_id, client = pool) {
+  const query = `UPDATE feedbacks SET patient_id = NULL WHERE patient_id = $1 AND tenant_id = $2`;
+  await client.query(query, [patient_id, tenant_id]);
+}
+
 export default {
   getTemplate, upsertTemplate, getClinicNames,
   getPatientsNeedingFeedback, existsForPatient,
@@ -279,4 +285,5 @@ export default {
   getByToken, submitByToken,
   getBranchInfo, insertQrFeedback,
   getTenantResponses, getOverallSummary, getBranchSummaries,
+  detachPatient,
 };

@@ -6,7 +6,7 @@ const createSubscriptionSchema = Joi.object({
 
 function create(req, res, next) {
     const { error, value } = createSubscriptionSchema.validate(req.body)
-    if (error) return res.status(400).json({ message: error.details[0].message })
+    if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' })
     req.body = value
     next()
 }
@@ -25,12 +25,12 @@ function quote(req, res, next) {
 
 const updateSubscriptionSchema = Joi.object({
     plan_id: Joi.number().positive().optional(),
-    status: Joi.string().optional(),
+    status: Joi.string().pattern(/^[a-z_]{1,20}$/).optional(),
 })
 
 function update(req, res, next) {
     const { error, value } = updateSubscriptionSchema.validate(req.body)
-    if (error) return res.status(400).json({ message: error.details[0].message })
+    if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' })
     req.body = value
     next()
 }

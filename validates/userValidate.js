@@ -3,7 +3,7 @@ import Joi from 'joi';
 const schemacreateUser = Joi.object({
     branch_id: Joi.number().positive().required(),
     email: Joi.string().email().required(),
-    password: Joi.string().min(3).required(),
+    password: Joi.string().min(6).max(100).required(),
     confirmPassword: Joi.string().valid(Joi.ref('password')).required().messages({ 'any.only': 'confirmPassword must match password' }),
     role_id: Joi.number().positive().required(),
     full_name: Joi.string().required(),
@@ -15,7 +15,7 @@ const schemacreateUser = Joi.object({
 
 function create(req, res, next) {
     const { error, value } = schemacreateUser.validate(req.body);
-    if (error) return res.status(400).send(error.details[0].message)
+    if (error) return res.status(400).json({ code: 'VALIDATION_ERROR', message: error.details[0].message });
     req.body = value; // apply the defaults (is_active: true, room: 1) — without this a new user was saved inactive
     next();
 }
@@ -33,4 +33,17 @@ function assign(req, res, next) {
     next();
 }
 
-export default { create, assign }
+// editing a user: a NEW password must follow the same rule as everywhere else (other fields as before)
+const schemaUpdate = Joi.object({
+    email: Joi.string().trim().email(),
+    password: Joi.string().min(6).max(100).allow(null), // empty is refused: it would be saved as an empty password
+}).unknown(true);
+
+function update(req, res, next) {
+    const { error, value } = schemaUpdate.validate(req.body);
+    if (error) return res.status(400).json({ code: 'VALIDATION_ERROR', message: error.details[0].message });
+    req.body = value;
+    next();
+}
+
+export default { create, assign, update }

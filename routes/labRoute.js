@@ -21,8 +21,8 @@ router.delete('/orders/:orderId', permissionMiddleware('manage_lab'), validateId
 
 // LABS
 router.post('/', permissionMiddleware('manage_lab'), labValidate.createLab, labController.createLab);
-router.get('/', permissionMiddleware('manage_lab'), labController.getLabs);
-router.get('/search', permissionMiddleware('manage_lab'), labController.searchLabs);
+router.get('/', permissionMiddleware('manage_lab'), labValidate.labsList, labController.getLabs);
+router.get('/search', permissionMiddleware('manage_lab'), labValidate.labsList, labController.searchLabs);
 router.get('/:labId', permissionMiddleware('manage_lab'), validateIdParam('labId'), labController.getLabById);
 router.put('/:labId', permissionMiddleware('manage_lab'), validateIdParam('labId'), labValidate.updateLab, labController.updateLab);
 router.delete('/:labId', permissionMiddleware('manage_lab'), validateIdParam('labId'), labController.deleteLab);

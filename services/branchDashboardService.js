@@ -1,8 +1,8 @@
+import { CLINIC_OFFSET_HOURS } from '../utils/clinicTime.js';
 import branchDashboardModel from '../models/branchDashboardModel.js';
 import subscriptionModel from '../models/subscriptionModel.js';
 
 // Clinic time is UTC+3 (same as the clinic overview in tenantService).
-const CLINIC_TZ_OFFSET_HOURS = 3;
 const DAY_MS = 24 * 3600 * 1000;
 const BUSY_DAYS = 28; // 4 full weeks: every weekday is counted 4 times
 
@@ -11,7 +11,7 @@ const BUSY_DAYS = 28; // 4 full weeks: every weekday is counted 4 times
 // so the month-vs-month comparison is fair while this month is still running.
 function ranges() {
     const now = new Date();
-    const offsetMs = CLINIC_TZ_OFFSET_HOURS * 3600 * 1000;
+    const offsetMs = CLINIC_OFFSET_HOURS * 3600 * 1000;
     const wall = new Date(now.getTime() + offsetMs);
     const y = wall.getUTCFullYear();
     const m = wall.getUTCMonth();

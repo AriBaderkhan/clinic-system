@@ -16,7 +16,7 @@ const schemaAppointmentAdd = Joi.object({
 
 function create(req, res, next) {
     const { error } = schemaAppointmentAdd.validate(req.body);
-    if (error) return res.status(400).json({ message: error.details[0].message })
+    if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' })
     next();
 }
 
@@ -31,7 +31,7 @@ const schemaAppointmentUpdate = schemaAppointmentAdd
 
 function update(req, res, next) {
     const { error } = schemaAppointmentUpdate.validate(req.body);
-    if (error) return res.status(400).json({ message: error.details[0].message })
+    if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' })
     next();
 }
 
@@ -46,7 +46,7 @@ const schemaCancelReason = Joi.object({
 })
 function cancel(req, res, next) {
     const { error } = schemaCancelReason.validate(req.body);
-    if (error) return res.status(400).json({ message: error.details[0].message })
+    if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' })
     next();
 }
 
@@ -90,7 +90,7 @@ const schemaCompleteFillWork = Joi.object({
 
 function complete(req, res, next) {
     const { error } = schemaCompleteFillWork.validate(req.body);
-    if (error) return res.status(400).json({ message: error.details[0].message })
+    if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' })
     next();
 }
 
@@ -115,7 +115,7 @@ const listApptsFiltersSchema = Joi.object({
 
 function filters(req, res, next) {
     const { error } = listApptsFiltersSchema.validate(req.query);
-    if (error) return res.status(400).json({ message: error.details[0].message })
+    if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' })
     next();
 }
 
@@ -140,7 +140,7 @@ const schemaVisitDraft = Joi.object({
 
 function visitDraft(req, res, next) {
     const { error } = schemaVisitDraft.validate(req.body);
-    if (error) return res.status(400).json({ message: error.details[0].message })
+    if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' })
     next();
 }
 

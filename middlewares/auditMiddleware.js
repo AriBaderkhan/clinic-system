@@ -10,10 +10,10 @@ const auditMiddleware = (req, res, next) => {
     res.on('finish', () => {
         if (!MUTATING.has(req.method)) return;       // only changes, not reads
         if (res.statusCode >= 400) return;           // only actions that succeeded
-        if (!req.user?.tenant_id) return;            // only authenticated tenant users
+        if (!req.user?.id) return;                   // only signed-in people (clinic staff and the platform admin)
 
         auditService.record({
-            tenant_id: req.user.tenant_id,
+            tenant_id: req.user.tenant_id ?? null,    // empty = a platform admin action (never shown to a clinic)
             branch_id: req.user.branch_id ?? null,
             actor_id: req.user.id ?? null,
             actor_name: req.user.name ?? null,
@@ -23,6 +23,7 @@ const auditMiddleware = (req, res, next) => {
             status_code: res.statusCode,
             request_id: req.requestId ?? null,
             ip: req.ip ?? null,
+            details: res.locals.auditDetails ?? null, // e.g. a payment's old and new amount
         });
     });
     next();

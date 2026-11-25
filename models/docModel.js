@@ -18,6 +18,19 @@ async function getDoctorById(doctor_id, tenant_id, branch_id) {
   return rows[0] || null;
 }
 
+// same rule as the doctor list on screen: user switched on + still holds a doctor role in this branch
+async function isActiveDoctor(doctor_id, tenant_id, branch_id) {
+  const query = `
+    SELECT 1
+      FROM doctors d
+      JOIN users u ON u.id = d.id AND u.is_active = true
+     WHERE d.id = $1 AND d.tenant_id = $2 AND d.branch_id = $3
+       AND EXISTS (SELECT 1 FROM user_branch_roles ubr JOIN roles r ON r.id = ubr.role_id
+                   WHERE ubr.user_id = d.id AND ubr.branch_id = d.branch_id AND ubr.is_active AND r.is_doctor)`;
+  const { rows } = await pool.query(query, [doctor_id, tenant_id, branch_id]);
+  return rows.length > 0;
+}
+
 async function getAllDocs(tenant_id, branch_id) {
   const query = `SELECT d.id,d.room, p.full_name, d.specialty_id, s.name AS specialty_name
        FROM doctors d
@@ -337,5 +350,4 @@ export default {
   getDoctorSpecialty, getExtraWorkIds, lockDoctor, setSpecialty, deleteExtraWorks, addExtraWorks,
   addDoc, getDoctorById, getAllDocs, activeTodayAppt, openApptsPerDoctor, getDoc,
   findApptsPerDoctorWithFilters, getSessionByApptIdPerDoc,
-  getReportHeader, doctorRevenue, doctorApptCountsByStatus, doctorWorksBreakdown
-}
+  getReportHeader, doctorRevenue, doctorApptCountsByStatus, doctorWorksBreakdown, isActiveDoctor }

@@ -1,11 +1,12 @@
 import pool from '../db_connection.js';
+import { CLINIC_TZ } from '../utils/clinicTime.js';
 
 // Read-only queries feeding the Insights Excel export. Tenant-wide (all branches),
 // period-scoped, and — unlike the widget's revenue helpers — money is ALWAYS kept
 // per currency_code so IQD and USD are never added together.
 // Weekdays/dates are grouped in clinic-local time so "Saturday" means the clinic's
 // Saturday, not UTC's.
-const TZ = 'Asia/Baghdad';
+const TZ = CLINIC_TZ;
 
 // Total revenue per currency = session payments + treatment-plan payments.
 async function revenueByCurrency(from, to, tenant_id) {
@@ -27,7 +28,8 @@ async function revenueByCurrency(from, to, tenant_id) {
 }
 
 // Revenue per doctor, per currency (session + plan payments traced to the doctor
-// via their session). Plan payments with no session are left out here.
+// via their session). Plan payments with no session go to an "Unassigned" row, so
+// the doctors always add up to the total.
 async function revenuePerDoctor(from, to, tenant_id) {
   const query = `
     WITH pay AS (
@@ -42,13 +44,17 @@ async function revenuePerDoctor(from, to, tenant_id) {
       JOIN sessions s ON s.id = tp.session_id AND s.tenant_id = tp.tenant_id AND s.branch_id = tp.branch_id
       JOIN appointments a ON a.id = s.appointment_id AND a.tenant_id = s.tenant_id AND a.branch_id = s.branch_id
       WHERE tp.tenant_id = $3 AND tp.created_at >= $1 AND tp.created_at < $2 AND tp.session_id IS NOT NULL AND tp.is_deleted = false
+      UNION ALL
+      SELECT NULL AS doctor_id, tp.currency_code, tp.amount
+      FROM treatment_payments tp
+      WHERE tp.tenant_id = $3 AND tp.created_at >= $1 AND tp.created_at < $2 AND tp.session_id IS NULL AND tp.is_deleted = false
     )
     SELECT COALESCE(pr.full_name, 'Unassigned') AS doctor,
            pay.currency_code,
            COALESCE(SUM(pay.amount), 0) AS total
     FROM pay
     LEFT JOIN profiles pr ON pr.user_id = pay.doctor_id
-    GROUP BY pr.full_name, pay.currency_code
+    GROUP BY pay.doctor_id, pr.full_name, pay.currency_code
     ORDER BY total DESC`;
   const { rows } = await pool.query(query, [from, to, tenant_id]);
   return rows;
@@ -70,7 +76,7 @@ async function worksRanked(from, to, tenant_id) {
     JOIN sessions s ON s.id = sw.session_id AND s.tenant_id = sw.tenant_id AND s.branch_id = sw.branch_id
     WHERE s.tenant_id = $3 AND s.created_at >= $1 AND s.created_at < $2 AND sw.is_deleted = false
     GROUP BY wc.name, LOWER(wc.code), wc.is_plan, s.currency_code
-    ORDER BY times_done DESC, billed DESC`;
+    ORDER BY times_done DESC, billed DESC, wc.name`;
   const { rows } = await pool.query(query, [from, to, tenant_id]);
   return rows;
 }
@@ -130,7 +136,7 @@ async function apptStatusCounts(from, to, tenant_id) {
 // The single busiest date in the period (most appointments).
 async function busiestDate(from, to, tenant_id) {
   const query = `
-    SELECT (scheduled_start AT TIME ZONE $4)::date AS date, COUNT(*) AS appts
+    SELECT (scheduled_start AT TIME ZONE $4)::date::text AS date, COUNT(*) AS appts
     FROM appointments
     WHERE tenant_id = $3 AND scheduled_start >= $1 AND scheduled_start < $2 AND is_deleted = false
     GROUP BY date

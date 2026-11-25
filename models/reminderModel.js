@@ -21,7 +21,8 @@ async function getUpcoming(tenant_id, branch_id, client = pool) {
       AND a.status = 'scheduled'
       AND a.scheduled_start BETWEEN NOW() AND NOW() + INTERVAL '48 hours'
       AND NOT EXISTS (
-        SELECT 1 FROM reminders r WHERE r.appointment_id = a.id
+        SELECT 1 FROM reminders r
+         WHERE r.appointment_id = a.id AND r.tenant_id = a.tenant_id AND r.branch_id = a.branch_id
       )
     ORDER BY a.scheduled_start ASC;`;
   const { rows } = await client.query(query, [tenant_id, branch_id]);
@@ -41,6 +42,11 @@ async function insertSent(entry, client = pool) {
   ];
   const { rows } = await client.query(query, values);
   return rows[0];
+}
+
+// one "reminder sent" at a time per appointment (held until the transaction ends)
+async function lockAppointmentReminder(appointment_id, client) {
+  await client.query(`SELECT pg_advisory_xact_lock(hashtext('reminder-sent'), $1::int)`, [appointment_id]);
 }
 
 // Has this appointment already been reminded? (guards against double-send.)
@@ -83,4 +89,4 @@ async function upsertTemplate(tenant_id, branch_id, body, updated_by, client = p
   return rows[0];
 }
 
-export default { getUpcoming, insertSent, existsForAppointment, getTemplate, upsertTemplate };
+export default { getUpcoming, insertSent, existsForAppointment, getTemplate, upsertTemplate, lockAppointmentReminder };

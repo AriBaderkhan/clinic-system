@@ -7,13 +7,9 @@ import insightsExcelService from "../services/insightsExcelService.js";
 import reportsModel from "../models/reportsModel.js";
 import asyncWrap from "../utils/asyncWrap.js";
 import appError from "../utils/appError.js";
+import { toYearMonth } from "../utils/clinicTime.js";
 
-// Current year-month and any date's year-month, in clinic-local time.
-const CLINIC_TZ = 'Asia/Baghdad';
-function toYearMonth(date) {
-    return new Intl.DateTimeFormat('en-CA', { timeZone: CLINIC_TZ, year: 'numeric', month: '2-digit' })
-        .format(new Date(date)).slice(0, 7);
-}
+// Current year-month, in clinic-local time.
 function currentYearMonth() {
     return toYearMonth(new Date());
 }
@@ -25,12 +21,15 @@ const downloadMonthlyPdf = asyncWrap(async (req, res) => {
 
     let pdfBuffer;
 
+    const clinicWide = permissions.includes('view_clinic_dashboard');
+
     // whole clinic: people with the clinic-wide numbers tick, when no branch is asked for
-    if (permissions.includes('view_clinic_dashboard') && !branch_id) {
+    if (clinicWide && !branch_id) {
         const reportData = await serviceDetailsReportPdf({ month, from, to }, tenant_id);
         pdfBuffer = await buildMonthlyDetailsReportPdfBuffer(reportData);
     } else {
-        if (!branch_id) {
+        // only clinic-wide people may pick a branch; everyone else always gets their own branch
+        if (!clinicWide || !branch_id) {
             branch_id = req.user.branch_id;
         }
         const reportData = await serviceMonthlyReportPdf({ month, from, to }, tenant_id, branch_id);

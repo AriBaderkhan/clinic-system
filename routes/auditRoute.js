@@ -5,6 +5,7 @@ import authMiddleware from '../middlewares/authMiddleware.js';
 import permissionMiddleware from '../middlewares/permissionMiddleware.js';
 import featureMiddleware from '../middlewares/featureMiddleware.js';
 import auditController from '../controllers/auditController.js';
+import auditValidate from '../validates/auditValidate.js';
 
 router.use(authMiddleware);
 
@@ -15,6 +16,7 @@ router.get(
     '/',
     featureMiddleware.checkFeature('audit_log'),
     permissionMiddleware('view_audit_log'),
+    auditValidate.list,
     auditController.list
 );
 

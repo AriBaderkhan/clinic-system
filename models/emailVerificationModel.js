@@ -23,14 +23,25 @@ async function getLatest(email, purpose) {
     return rows[0] || null;
 }
 
-// A still-valid, unconsumed code matching what the user typed.
-async function findActiveByCode(email, purpose, code) {
+// The NEWEST still-valid code for this email+purpose (an older code stops counting once a new one is sent).
+async function findLatestActive(email, purpose) {
     const { rows } = await pool.query(
         `SELECT * FROM email_verifications
-         WHERE email = $1 AND purpose = $2 AND code = $3
+         WHERE email = $1 AND purpose = $2
            AND consumed = FALSE AND expires_at > NOW()
          ORDER BY created_at DESC LIMIT 1`,
-        [email, purpose, code]
+        [email, purpose]
+    );
+    return rows[0] || null;
+}
+
+// Count one try BEFORE comparing (so tries sent at the same moment are all counted).
+// Returns null when the code already used up its tries.
+async function useTry(id, maxTries) {
+    const { rows } = await pool.query(
+        `UPDATE email_verifications SET attempts = attempts + 1
+         WHERE id = $1 AND attempts < $2 RETURNING *`,
+        [id, maxTries]
     );
     return rows[0] || null;
 }
@@ -59,4 +70,4 @@ async function consume(id) {
     await pool.query(`UPDATE email_verifications SET consumed = TRUE WHERE id = $1`, [id]);
 }
 
-export default { insertCode, getLatest, findActiveByCode, findVerified, markVerified, consume };
+export default { insertCode, getLatest, findLatestActive, useTry, findVerified, markVerified, consume };

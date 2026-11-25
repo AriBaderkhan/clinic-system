@@ -8,7 +8,7 @@ const updateSchema = Joi.object({
 });
 function update(req, res, next) {
     const { error, value } = updateSchema.validate(req.body);
-    if (error) return res.status(400).json({ message: error.details[0].message });
+    if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' });
     req.body = value;
     next();
 }
@@ -19,7 +19,7 @@ const passwordSchema = Joi.object({
 });
 function password(req, res, next) {
     const { error, value } = passwordSchema.validate(req.body);
-    if (error) return res.status(400).json({ message: error.details[0].message });
+    if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' });
     req.body = value;
     next();
 }
@@ -27,7 +27,7 @@ function password(req, res, next) {
 const emailSendSchema = Joi.object({ email: Joi.string().email().required() });
 function emailSend(req, res, next) {
     const { error, value } = emailSendSchema.validate(req.body);
-    if (error) return res.status(400).json({ message: error.details[0].message });
+    if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' });
     req.body = value;
     next();
 }
@@ -38,7 +38,7 @@ const emailChangeSchema = Joi.object({
 });
 function emailChange(req, res, next) {
     const { error, value } = emailChangeSchema.validate(req.body);
-    if (error) return res.status(400).json({ message: error.details[0].message });
+    if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' });
     req.body = value;
     next();
 }

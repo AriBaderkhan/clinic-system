@@ -25,18 +25,20 @@ async function getTenantDetails(client = pool, tenantId) {
     return result.rows[0];
 }
 
-async function updateTenant(fields, tenantId) {
-    await pool.query('BEGIN');
-
-    await pool.query(`
+// the clinic's name / logo (runs inside the service's transaction)
+async function updateTenant(fields, tenantId, client = pool) {
+    await client.query(`
     UPDATE tenants
     SET
       name = COALESCE($1,name),
       logo_url = COALESCE($2,logo_url)
     WHERE id = $3
     `, [fields.name, fields.logo_url, tenantId]);
+}
 
-    const result = await pool.query(`
+// the clinic's time zone / currency (runs inside the service's transaction)
+async function updateTenantSettings(fields, tenantId, client = pool) {
+    const result = await client.query(`
     UPDATE tenant_settings
     SET
       timezone = COALESCE($1,timezone),
@@ -44,10 +46,24 @@ async function updateTenant(fields, tenantId) {
     WHERE tenant_id = $3
     RETURNING *
     `, [fields.timezone, fields.currency_code, tenantId]);
-
-    await pool.query('COMMIT');
-
     return result.rows[0];
+}
+
+// the clinic's branch limit; locks its subscription row so two "add branch" requests run one after the other
+async function lockPlanLimit(tenantId, client = pool) {
+    const query = `
+    SELECT p.max_branches
+    FROM subscriptions s
+    JOIN plans p ON p.id = s.plan_id
+    WHERE s.tenant_id = $1
+    FOR UPDATE OF s`;
+    const result = await client.query(query, [tenantId]);
+    return result.rows[0] || null;
+}
+
+async function countBranches(tenantId, client = pool) {
+    const result = await client.query('SELECT COUNT(*)::int AS n FROM branches WHERE tenant_id = $1', [tenantId]);
+    return result.rows[0].n;
 }
 
 async function getAllBranches(tenantId) {
@@ -90,14 +106,34 @@ async function createBranchSettings(client = pool, branchId, tenantId, timezone,
     return result.rows[0];
 }
 
-async function deleteBranch(branchId, tenantId) {
+// locks the branch row: nobody can add a patient / expense to it until the delete is finished
+async function lockBranch(branchId, tenantId, client = pool) {
+    const query = `SELECT id FROM branches WHERE id = $1 AND tenant_id = $2 FOR UPDATE`;
+    const result = await client.query(query, [branchId, tenantId]);
+    return result.rows[0] || null;
+}
+
+// true when the branch holds any clinic data (deleting it would remove that data with it)
+async function branchHasData(branchId, client = pool) {
+    const query = `
+    SELECT EXISTS (SELECT 1 FROM patients WHERE branch_id = $1)
+        OR EXISTS (SELECT 1 FROM appointments WHERE branch_id = $1)
+        OR EXISTS (SELECT 1 FROM monthly_expenses WHERE branch_id = $1)
+        OR EXISTS (SELECT 1 FROM labs WHERE branch_id = $1)
+        OR EXISTS (SELECT 1 FROM discounts WHERE branch_id = $1)
+        OR EXISTS (SELECT 1 FROM feedbacks WHERE branch_id = $1) AS has_data`;
+    const result = await client.query(query, [branchId]);
+    return result.rows[0].has_data;
+}
+
+async function deleteBranch(branchId, tenantId, client = pool) {
     const query = `
     DELETE FROM branches
     WHERE id = $1 AND tenant_id = $2
     RETURNING *;
     `;
     const values = [branchId, tenantId];
-    const result = await pool.query(query, values);
+    const result = await client.query(query, values);
     return result.rows[0];
 }
 async function updateBranch(branchData, targetBranchId, tenantId) {
@@ -144,17 +180,6 @@ async function updateBranch(branchData, targetBranchId, tenantId) {
     }
 }
 
-async function deleteBranchSettings(branchId, tenantId) {
-    const query = `
-    DELETE FROM branch_settings
-    WHERE branch_id = $1 AND tenant_id = $2
-    RETURNING *;
-    `;
-    const values = [branchId, tenantId];
-    const result = await pool.query(query, values);
-    return result.rows[0];
-}
-
 async function branchBelongsToTenant(branchId, tenantId) {
 
     const query = `
@@ -176,6 +201,6 @@ async function getDashboardStats(tenant_id) {
 }
 
 export default { 
-    findTenantById, getTenantDetails, updateTenant, getAllBranches, 
-    createBranch, createBranchSettings, deleteBranch, deleteBranchSettings, 
+    findTenantById, getTenantDetails, updateTenant, updateTenantSettings, lockPlanLimit, countBranches, getAllBranches, 
+    createBranch, createBranchSettings, lockBranch, branchHasData, deleteBranch, 
     updateBranch, branchBelongsToTenant,  getDashboardStats}

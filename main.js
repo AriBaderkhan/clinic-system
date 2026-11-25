@@ -43,16 +43,22 @@ app.use(auditMiddleware);
 // Serve locally-stored case images in dev (when Supabase Storage env is absent).
 // In production (Supabase) this folder is empty and the route is harmless.
 import path from 'path';
+import storage from './config/storage.js';
 import { fileURLToPath } from 'url';
 const __dirnameMain = path.dirname(fileURLToPath(import.meta.url));
 // Allow the frontend (a different origin in dev: Vite :5173 vs API :1000) to
 // embed these images. Helmet's default Cross-Origin-Resource-Policy is
 // 'same-origin', which otherwise blocks the <img> loads. In prod, images come
 // from Supabase signed URLs, so this only affects locally-served uploads.
-app.use('/uploads', (req, res, next) => {
-    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-    next();
-}, express.static(path.join(__dirnameMain, 'uploads')));
+// Only when files are stored locally (no Supabase Storage settings). With Supabase the folder is not served at all,
+// so nothing can ever be opened from it without a signed link.
+if (!storage.useSupabase) {
+    if (process.env.DATABASE_URL) console.warn('WARNING: hosted database but NO Supabase Storage settings — images are stored on this server and served from /uploads.');
+    app.use('/uploads', (req, res, next) => {
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+        next();
+    }, express.static(path.join(__dirnameMain, 'uploads')));
+}
 
 app.get("/health", (req, res) => {
     res.status(200).json({ ok: true });

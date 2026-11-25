@@ -6,11 +6,15 @@ import appError from '../utils/appError.js';
 
 
 
-async function getPayments(tenant_id, branch_id) {
-  const allPayments = await historyModel.getPaymentsHistory(tenant_id, branch_id);
-  if (allPayments.length == 0) return [];
-
-  return allPayments;
+// one page of the branch's visit payments + the totals over ALL of them
+async function getPayments(tenant_id, branch_id, { page = 1, limit = 50 } = {}) {
+  const [rows, totalsRows] = await Promise.all([
+    historyModel.getPaymentsHistory(tenant_id, branch_id, limit, (page - 1) * limit),
+    historyModel.getPaymentsTotals(tenant_id, branch_id),
+  ]);
+  const totals = totalsRows.map((t) => ({ currency_code: t.currency_code, amount: Number(t.amount), count: t.count }));
+  const total = totals.reduce((sum, t) => sum + t.count, 0);
+  return { rows, total, page, pages: Math.max(1, Math.ceil(total / limit)), totals };
 }
 
 

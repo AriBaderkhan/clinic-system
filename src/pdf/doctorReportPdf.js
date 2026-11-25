@@ -84,7 +84,7 @@ export function buildDoctorReportPdfBuffer(reportData) {
       { text: `${reportData.clinic_name || "Clinic"} — Doctor Report`, style: "header", alignment: "center" },
       {
         text: [
-          reportData.doctor_name ? `Dr. ${reportData.doctor_name}` : "",
+          reportData.doctor_name ? (/^dr\.?\s/i.test(reportData.doctor_name) ? reportData.doctor_name : `Dr. ${reportData.doctor_name}`) : "",
           reportData.branch_name ? `  ·  ${reportData.branch_name}` : "",
         ].join(""),
         style: "subHeader",

@@ -5,6 +5,7 @@ import storage from '../config/storage.js';
 import subscriptionRequestModel from '../models/subscriptionRequestModel.js';
 import subscriptionModel from '../models/subscriptionModel.js';
 import planModel from '../models/planModel.js';
+import tenantModel from '../models/tenantModel.js';
 import subscriptionService, { PERIOD_DAYS } from './subscriptionService.js';
 
 const EXT_BY_MIME = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
@@ -21,6 +22,18 @@ async function createRequest(tenant_id, plan_id, billing_period, file) {
     if (status.pending_request) {
         throw appError('REQUEST_ALREADY_PENDING', 'You already have a request awaiting confirmation.', 409);
     }
+
+    // the clinic must fit the plan it pays for (checked BEFORE paying)
+    const [branches, quote] = await Promise.all([
+        tenantModel.countBranches(tenant_id),
+        subscriptionService.quote(tenant_id, plan_id, billing_period),
+    ]);
+    if (plan.max_branches !== -1 && branches > plan.max_branches) {
+        throw appError('PLAN_TOO_SMALL_BRANCHES', `This plan allows ${plan.max_branches} branches; your clinic has ${branches}.`, 409, { limit: plan.max_branches, have: branches });
+    }
+    if (quote.extra_doctors > 0 && quote.extra_doctor_price < 0) {
+        throw appError('PLAN_TOO_SMALL_DOCTORS', `This plan allows ${quote.included_doctors} doctors; your clinic has ${quote.doctors}.`, 409, { limit: quote.included_doctors, have: quote.doctors });
+    }
     if (!file) throw appError('EVIDENCE_REQUIRED', 'A payment-evidence image is required.', 400);
 
     // store the evidence image, then record the request
@@ -36,7 +49,7 @@ async function createRequest(tenant_id, plan_id, billing_period, file) {
         return await subscriptionRequestModel.createRequest({
             tenant_id, plan_id, billing_period, evidence_path: objectPath,
             // plan (or locked) price + extra doctors — the same calculation the clinic saw in its quote
-            amount: (await subscriptionService.quote(tenant_id, plan_id, billing_period)).total,
+            amount: quote.total,
         });
     } catch (err) {
         await storage.removeObject(objectPath).catch(() => {}); // don't orphan the file

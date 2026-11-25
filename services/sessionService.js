@@ -12,9 +12,12 @@ import dateRange from '../utils/dateRange.js';
 import settingModel from '../models/settingModel.js';
 import discountModel from '../models/discountModel.js';
 import withTransaction from '../utils/withTransaction.js';
-import cents from '../utils/money.js';
+import cents, { roundMoney } from '../utils/money.js';
 import worksService from './worksService.js';
 import { ownId } from '../utils/scope.js';
+
+// the same payment (same visit, amount, person) again within this many seconds = a repeat, not a new payment
+const SAME_PAYMENT_SECONDS = 10;
 
 // lock plan rows always in id order, so two requests can never deadlock
 async function lockPlansInOrder(planIds, tenant_id, branch_id, client) {
@@ -410,9 +413,11 @@ async function editPayment(session_id, payment_id, { amount, note }, tenant_id, 
 
     const updated = await sessionPaymentModel.updatePayment(
       payment_id, newAmount, note !== undefined ? note : payment.note, tenant_id, branch_id, client);
+    // count the new amount first, THEN shrink the discount if it is no longer needed, then the final "paid" flag
+    await sessionPaymentModel.recalcSessionTotals(session_id, tenant_id, branch_id, client);
     await sessionModel.capDiscount(session_id, tenant_id, branch_id, client);
     const totals = await sessionPaymentModel.recalcSessionTotals(session_id, tenant_id, branch_id, client);
-    return { payment: updated, totals: { total: Number(totals.total), total_paid: Number(totals.total_paid), is_paid: totals.is_paid } };
+    return { payment: updated, old_amount: oldAmount, totals: { total: Number(totals.total), total_paid: Number(totals.total_paid), is_paid: totals.is_paid } };
   });
 }
 
@@ -449,7 +454,7 @@ async function editPlanPayment(session_id, payment_id, { amount, note }, tenant_
     if (raising && cents(updatedPlan.total_paid) > cents(updatedPlan.agreed_total)) {
       throw appError("AMOUNT_EXCEEDS_REMAINING", `Plan payments cannot be more than the agreed total (${Number(updatedPlan.agreed_total)})`, 400);
     }
-    return { payment: updated, plan: updatedPlan };
+    return { payment: updated, old_amount: Number(payment.amount), plan: updatedPlan };
   });
 }
 
@@ -508,9 +513,9 @@ async function movePlanWork(session_id, session_work_id, toPlanId, userId, tenan
 
     // lock both plans in id order so two moves can never deadlock
     const [firstId, secondId] = [fromPlanId, Number(toPlanId)].sort((a, b) => a - b);
-    await treatmentPlanModel.getTreatmentPlanByIdForUpdate(firstId, tenant_id, branch_id, client);
-    await treatmentPlanModel.getTreatmentPlanByIdForUpdate(secondId, tenant_id, branch_id, client);
-    const target = await treatmentPlanModel.getTreatmentPlanByIdForUpdate(Number(toPlanId), tenant_id, branch_id, client);
+    const first = await treatmentPlanModel.getTreatmentPlanByIdForUpdate(firstId, tenant_id, branch_id, client);
+    const second = await treatmentPlanModel.getTreatmentPlanByIdForUpdate(secondId, tenant_id, branch_id, client);
+    const target = Number(toPlanId) === firstId ? first : second;
     if (!target) throw appError("PLAN_NOT_FOUND", "Target treatment plan not found", 404);
     if (Number(target.patient_id) !== Number(session.patient_id)) throw appError("PLAN_PATIENT_MISMATCH", "Treatment plan does not belong to this patient", 400);
     if (String(target.type) !== String(work.plan_type)) throw appError("PLAN_TYPE_MISMATCH", `Target plan is not a ${work.plan_type} plan`, 400);
@@ -685,7 +690,7 @@ async function getUnpaid(tenant_id, branch_id, { limit, q, floor_id, viewer } = 
 
       works_summary: ws,
 
-      // âœ… THIS UNBLOCKS YOUR FRONTEND
+      // the plans paid in this visit (shown on the unpaid list)
       treatment_plans: plansBySession[s.session_id] || [],
     };
   });
@@ -694,12 +699,12 @@ async function getUnpaid(tenant_id, branch_id, { limit, q, floor_id, viewer } = 
 
 
 // SERVICE: Pay session
+// ── Taking a payment ─────────────────────────────────────────────────────────
+// One transaction, in this order: normal payment, discount, settle, plan payments.
+// Each step is its own small function below; they all work on the same locked visit.
 async function pay({ sessionId, normalAmount, planPayments, note, settleNormal, discountId, userId }, tenant_id, branch_id) {
-  const client = await pool.connect();
-
-
-  try {
-    await client.query("BEGIN");
+  // the shared helper always ends the transaction — also on the early "nothing due" return
+  return withTransaction(async (client) => {
 
     // prevents double-pay race
     const session = await sessionModel.getSessionWithAppointmentForUpdate(sessionId, tenant_id, branch_id, client);
@@ -712,223 +717,183 @@ async function pay({ sessionId, normalAmount, planPayments, note, settleNormal, 
     const total = Number(session.total) || 0;
     const totalPaid = Number(session.total_paid) || 0;
 
-    const payNormal =
-      normalAmount !== null &&
-      normalAmount !== "" &&
-      Number(normalAmount) > 0;
+    // the validator only lets positive amounts through; null / "" = no normal payment
+    const payNormal = normalAmount !== null && normalAmount !== "" && Number(normalAmount) > 0;
+    const payPlans = Array.isArray(planPayments) && planPayments.length > 0;
 
-    const payPlans =
-      Array.isArray(planPayments) && planPayments.length > 0;
-
-    // what is actually due (has_plan_due comes from the lock query — no extra round-trip)
-    const sessionDue = total > totalPaid;
-    const planDue = session.has_plan_due;
-
-    // â— RULE: allow empty ONLY if nothing is due
+    // RULE: an empty request is only fine when nothing is due (has_plan_due comes from the lock query)
     if (!payNormal && !payPlans && !settleNormal && !discountId) {
-      if (sessionDue || planDue) {
-        throw appError(
-          "NO_PAYMENT_PROVIDED",
-          "No payment amount specified",
-          400
-        );
+      if (total > totalPaid || session.has_plan_due) {
+        throw appError("NO_PAYMENT_PROVIDED", "No payment amount specified", 400);
       }
-
-      // âœ… nothing due â†’ valid request â†’ just exit
-      return { ok: true, message: "Nothing due for this session" };
+      return payResult(session, []);
     }
 
-    // the branch's workflow switches decide if settle / discounts may be used
+    // the branch's workflow switches decide if overpay / settle / discounts may be used
     const workflow = (settleNormal || discountId || payNormal)
       ? await settingModel.getWorkflow(tenant_id, branch_id, client)
       : null;
+    const step = { session, sessionId, total, totalPaid, workflow, note, userId, tenant_id, branch_id, client };
 
-    // -------------------------
-    // 1) NORMAL SESSION PAYMENT
-    // -------------------------
-    if (payNormal) {
-      if (session.is_paid) {
-        throw appError("SESSION_ALREADY_PAID", "This session is already paid", 400);
-      }
+    if (payNormal) await payNormalPart(step, Number(normalAmount));
+    if (discountId && !session.is_paid) await applyDiscountPart(step, Number(discountId));
+    if (settleNormal && !session.is_paid) await settleNormalPart(step);
+    const updatedPlans = payPlans ? await payPlansPart(step, planPayments) : [];
 
-      const numericAmount = Number(normalAmount);
-      if (!numericAmount || numericAmount <= 0) {
-        throw appError("INVALID_PAYMENT_AMOUNT", "Invalid amount", 400);
-      }
+    return payResult(session, updatedPlans);
+  });
+}
 
-      // paying more than what is still owed is allowed unless the branch switched it off
-      const remaining = total - totalPaid - Number(session.discount_amount || 0);
-      if (workflow && !workflow.allow_overpay && cents(numericAmount) > cents(remaining)) {
-        throw appError("PAYMENT_EXCEEDS_REMAINING", `Amount is more than the remaining balance (${remaining})`, 400);
-      }
-
-      // RULE: cannot pay below min_total (unchanged)
-      // if (numericAmount < Number(session.min_total)) {
-      //   throw appError("AMOUNT_BELOW_MIN", "Amount cannot be less than minimum total", 400);
-      // }
-
-
-      await sessionPaymentModel.createSessionPayment(
-        {
-          sessionId,
-          amount: numericAmount,
-          note,
-          createdBy: userId,
-        },
-        tenant_id, branch_id, client
-      );
-
-      const recalc = await sessionPaymentModel.recalcSessionTotals(sessionId, tenant_id, branch_id, client);
-      session.total_paid = recalc.total_paid;
-      session.is_paid = recalc.is_paid;
-    }
-
-    // Apply a named discount to the NORMAL balance (reception picks it at pay time).
-    // Does NOT touch any price/cost — it's recorded as discount_amount on the
-    // session and never exceeds what's still owed. Plan balances are untouched.
-    if (discountId && !session.is_paid) {
-      if (!workflow.allow_discounts) {
-        throw appError("DISCOUNTS_NOT_ALLOWED", "Discounts are turned off in this branch", 403);
-      }
-      const discount = await discountModel.getDiscountById(Number(discountId), tenant_id, branch_id, client);
-      if (!discount || !discount.is_active) throw appError("DISCOUNT_NOT_FOUND", "Discount not found", 404);
-
-      const remainingBefore = Math.max(0, total - Number(session.total_paid || 0));
-      const raw = discount.type === "percent"
-        ? Math.round((total * Number(discount.value)) / 100)
-        : Number(discount.value);
-      const discountAmount = Math.min(raw, remainingBefore); // cap: never exceed what's owed
-
-      // never more than the branch's biggest allowed discount (% of the visit total,
-      // rounded the same way a percent discount is rounded above)
-      const maxAmount = Math.round((total * Number(workflow.max_discount_percent)) / 100);
-      if (cents(discountAmount) > cents(maxAmount)) {
-        throw appError("DISCOUNT_OVER_MAX", `The biggest discount allowed in this branch is ${workflow.max_discount_percent}%`, 400);
-      }
-
-      const applied = await sessionModel.applyDiscount(sessionId, discount.id, discountAmount, tenant_id, branch_id, client);
-      session.total_paid = applied.total_paid;
-      session.is_paid = applied.is_paid;
-    }
-
-    // Settle the normal balance (checkbox in the pay modal): close it as done even
-    // if paid less than the total — a discount. Treatment-plan balances are NOT
-    // touched here; they stay tracked separately.
-    if (settleNormal && !session.is_paid) {
-      if (!workflow.allow_settle_unpaid) {
-        throw appError("SETTLE_NOT_ALLOWED", "Closing a visit without the full payment is turned off in this branch", 403);
-      }
-      const settled = await sessionModel.markSessionSettled(sessionId, tenant_id, branch_id, client);
-      session.total_paid = settled.total_paid;
-      session.is_paid = settled.is_paid;
-    }
-
-    // -------------------------
-    // 2) TREATMENT PLAN PAYMENTS
-    // -------------------------
-    let updatedPlans = [];
-
-    if (payPlans) {
-      const plansInSession = await sessionModel.getTreatmentPlansForSession(sessionId, tenant_id, branch_id, client);
-      const allowedPlanIds = new Set(plansInSession.map((tp) => Number(tp.id)));
-      await lockPlansInOrder(planPayments.map((d) => d.plan_id).filter((id) => allowedPlanIds.has(Number(id))), tenant_id, branch_id, client);
-
-      for (const detail of planPayments) {
-        const plan_id = Number(detail.plan_id);
-        const amount = Number(detail.amount);
-
-        if (!plan_id || !Number.isFinite(plan_id)) {
-          throw appError("INVALID_PLAN_ID", `Invalid treatment plan ID: ${detail.plan_id}`, 400);
-        }
-
-        if (!allowedPlanIds.has(plan_id)) {
-          throw appError(
-            "PLAN_NOT_IN_SESSION",
-            `Treatment plan ID ${plan_id} is not associated with session ${sessionId}`,
-            400
-          );
-        }
-
-        if (!Number.isFinite(amount) || amount <= 0) {
-          throw appError("INVALID_PLAN_AMOUNT", `Invalid amount for treatment plan ID ${plan_id}`, 400);
-        }
-
-        // âœ… lock plan row (prevents race overpay on same plan)
-        const plan = await treatmentPlanModel.getTreatmentPlanByIdForUpdate(plan_id, tenant_id, branch_id, client);
-        if (!plan) {
-          throw appError("PLAN_NOT_FOUND", `Treatment plan ID ${plan_id} not found`, 404);
-        }
-
-        // if (plan.status !== "active") {
-        //   throw appError("PLAN_NOT_ACTIVE", `Treatment plan ID ${plan_id} is not active`);
-        // }
-
-        // RULE: plan must belong to same patient
-        if (Number(plan.patient_id) !== Number(session.patient_id)) {
-          throw appError(
-            "PLAN_PATIENT_MISMATCH",
-            `Treatment plan ID ${plan_id} does not belong to the same patient as session ${sessionId}`,
-            400
-          );
-        }
-
-        // RULE: cannot exceed remaining (unchanged from your latest)
-        const remainingAmount = Number(plan.agreed_total) - Number(plan.total_paid);
-        if (cents(amount) > cents(remainingAmount)) {
-          throw appError(
-            "AMOUNT_EXCEEDS_REMAINING",
-            `Amount for treatment plan ID ${plan_id} exceeds remaining balance of ${remainingAmount}`, 400
-          );
-        }
-
-
-        await treatmentPlanPaymentModel.createTreatmentPlanPayment(
-          {
-            treatmentPlanId: plan_id,
-            sessionId,
-            amount,
-            note,
-            createdBy: userId,
-          },
-          tenant_id, branch_id, client
-        );
-
-        const updatedPlan = await treatmentPlanPaymentModel.recalcTreatmentPlanTotals(plan_id, tenant_id, branch_id, client);
-        updatedPlans.push(updatedPlan);
-      }
-    }
-
-    await client.query("COMMIT");
-
-    return {
-      session: {
-        session_id: session.session_id,
-        totals: {
-          min_total: Number(session.min_total),
-          total: Number(session.total),
-          total_paid: Number(session.total_paid),
-          is_paid: session.is_paid,
-        },
-      },
-      treatment_plans: updatedPlans.map((p) => ({
-        id: p.id,
-        type: p.type,
-        agreed_total: Number(p.agreed_total),
-        total_paid: Number(p.total_paid),
-        is_paid: p.is_paid,
-        is_completed: p.is_completed,
-        status: p.status,
-      })),
-
-    };
-
-
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
+// 1) the normal visit payment
+async function payNormalPart({ session, sessionId, total, totalPaid, workflow, note, userId, tenant_id, branch_id, client }, amount) {
+  if (session.is_paid) {
+    throw appError("SESSION_ALREADY_PAID", "This session is already paid", 400);
   }
+
+  // paying more than what is still owed is allowed unless the branch switched it off
+  const remaining = total - totalPaid - Number(session.discount_amount || 0);
+  if (workflow && !workflow.allow_overpay && cents(amount) > cents(remaining)) {
+    throw appError("PAYMENT_EXCEEDS_REMAINING", `Amount is more than the remaining balance (${remaining})`, 400);
+  }
+
+  // RULE: cannot pay below min_total (unchanged)
+  // if (amount < Number(session.min_total)) {
+  //   throw appError("AMOUNT_BELOW_MIN", "Amount cannot be less than minimum total", 400);
+  // }
+
+  // the same payment arriving twice (network retry, two tabs) is saved once; the visit row lock makes the 2nd wait and see the 1st
+  const twin = await sessionPaymentModel.findRecentSame(sessionId, amount, userId, SAME_PAYMENT_SECONDS, client);
+  if (twin) throw appError("PAYMENT_DUPLICATE", "This payment was already saved", 409);
+
+  await sessionPaymentModel.createSessionPayment({ sessionId, amount, note, createdBy: userId }, tenant_id, branch_id, client);
+
+  const recalc = await sessionPaymentModel.recalcSessionTotals(sessionId, tenant_id, branch_id, client);
+  session.total_paid = recalc.total_paid;
+  session.is_paid = recalc.is_paid;
+}
+
+// 2) a named discount on the NORMAL balance (reception picks it at pay time).
+// Does NOT touch any price/cost — it's recorded as discount_amount on the
+// session and never exceeds what's still owed. Plan balances are untouched.
+async function applyDiscountPart({ session, sessionId, total, workflow, tenant_id, branch_id, client }, discountId) {
+  if (!workflow.allow_discounts) {
+    throw appError("DISCOUNTS_NOT_ALLOWED", "Discounts are turned off in this branch", 403);
+  }
+  const discount = await discountModel.getDiscountById(discountId, tenant_id, branch_id, client);
+  if (!discount || !discount.is_active) throw appError("DISCOUNT_NOT_FOUND", "Discount not found", 404);
+
+  const remainingBefore = Math.max(0, total - Number(session.total_paid || 0));
+  const raw = discount.type === "percent"
+    ? roundMoney((total * Number(discount.value)) / 100, session.currency_code)
+    : Number(discount.value);
+  const discountAmount = Math.min(raw, remainingBefore); // cap: never exceed what's owed
+
+  // never more than the branch's biggest allowed discount (% of the visit total,
+  // rounded the same way a percent discount is rounded above)
+  const maxAmount = roundMoney((total * Number(workflow.max_discount_percent)) / 100, session.currency_code);
+  if (cents(discountAmount) > cents(maxAmount)) {
+    throw appError("DISCOUNT_OVER_MAX", `The biggest discount allowed in this branch is ${workflow.max_discount_percent}%`, 400);
+  }
+
+  const applied = await sessionModel.applyDiscount(sessionId, discount.id, discountAmount, tenant_id, branch_id, client);
+  session.total_paid = applied.total_paid;
+  session.is_paid = applied.is_paid;
+}
+
+// 3) settle the normal balance (checkbox in the pay modal): close it as done even
+// if paid less than the total — a discount. Treatment-plan balances are NOT
+// touched here; they stay tracked separately.
+async function settleNormalPart({ session, sessionId, workflow, tenant_id, branch_id, client }) {
+  if (!workflow.allow_settle_unpaid) {
+    throw appError("SETTLE_NOT_ALLOWED", "Closing a visit without the full payment is turned off in this branch", 403);
+  }
+  const settled = await sessionModel.markSessionSettled(sessionId, tenant_id, branch_id, client);
+  session.total_paid = settled.total_paid;
+  session.is_paid = settled.is_paid;
+}
+
+// 4) treatment-plan payments (the validator already made sure every plan_id / amount is a positive number)
+async function payPlansPart({ session, sessionId, note, userId, tenant_id, branch_id, client }, planPayments) {
+  const plansInSession = await sessionModel.getTreatmentPlansForSession(sessionId, tenant_id, branch_id, client);
+  const allowedPlanIds = new Set(plansInSession.map((tp) => Number(tp.id)));
+  await lockPlansInOrder(planPayments.map((d) => d.plan_id).filter((id) => allowedPlanIds.has(Number(id))), tenant_id, branch_id, client);
+
+  const updatedPlans = [];
+  for (const detail of planPayments) {
+    const plan_id = Number(detail.plan_id);
+    const amount = Number(detail.amount);
+
+    if (!allowedPlanIds.has(plan_id)) {
+      throw appError(
+        "PLAN_NOT_IN_SESSION",
+        `Treatment plan ID ${plan_id} is not associated with session ${sessionId}`,
+        400
+      );
+    }
+
+    // lock the plan row (prevents a race overpaying the same plan)
+    const plan = await treatmentPlanModel.getTreatmentPlanByIdForUpdate(plan_id, tenant_id, branch_id, client);
+    if (!plan) {
+      throw appError("PLAN_NOT_FOUND", `Treatment plan ID ${plan_id} not found`, 404);
+    }
+
+    // if (plan.status !== "active") {
+    //   throw appError("PLAN_NOT_ACTIVE", `Treatment plan ID ${plan_id} is not active`);
+    // }
+
+    // RULE: plan must belong to same patient
+    if (Number(plan.patient_id) !== Number(session.patient_id)) {
+      throw appError(
+        "PLAN_PATIENT_MISMATCH",
+        `Treatment plan ID ${plan_id} does not belong to the same patient as session ${sessionId}`,
+        400
+      );
+    }
+
+    // RULE: a plan payment can't be more than what is still owed on the plan
+    const remainingAmount = Number(plan.agreed_total) - Number(plan.total_paid);
+    if (cents(amount) > cents(remainingAmount)) {
+      throw appError(
+        "AMOUNT_EXCEEDS_REMAINING",
+        `Amount for treatment plan ID ${plan_id} exceeds remaining balance of ${remainingAmount}`, 400
+      );
+    }
+
+    const twinPlan = await treatmentPlanPaymentModel.findRecentSame(plan_id, sessionId, amount, userId, SAME_PAYMENT_SECONDS, client);
+    if (twinPlan) throw appError("PAYMENT_DUPLICATE", "This payment was already saved", 409);
+
+    await treatmentPlanPaymentModel.createTreatmentPlanPayment(
+      { treatmentPlanId: plan_id, sessionId, amount, note, createdBy: userId },
+      tenant_id, branch_id, client
+    );
+
+    updatedPlans.push(await treatmentPlanPaymentModel.recalcTreatmentPlanTotals(plan_id, tenant_id, branch_id, client));
+  }
+  return updatedPlans;
+}
+
+// the answer of a payment: the visit's totals + the plans that got money (one shape, also when nothing was due)
+function payResult(session, updatedPlans) {
+  return {
+    session: {
+      session_id: session.session_id,
+      totals: {
+        min_total: Number(session.min_total),
+        total: Number(session.total),
+        total_paid: Number(session.total_paid),
+        is_paid: session.is_paid,
+      },
+    },
+    treatment_plans: updatedPlans.map((p) => ({
+      id: p.id,
+      type: p.type,
+      agreed_total: Number(p.agreed_total),
+      total_paid: Number(p.total_paid),
+      is_paid: p.is_paid,
+      is_completed: p.is_completed,
+      status: p.status,
+    })),
+  };
 }
 
 export default {

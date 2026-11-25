@@ -4,6 +4,7 @@ import appError from '../utils/appError.js';
 import storage from '../config/storage.js';
 import profileModel from '../models/profileModel.js';
 import authModel from '../models/authModel.js';
+import refreshTokenModel from '../models/refreshTokenModel.js';
 import verificationService from './verificationService.js';
 
 const EXT_BY_MIME = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
@@ -55,6 +56,7 @@ async function changePassword(user, currentPassword, newPassword) {
     if (!ok) throw appError('WRONG_PASSWORD', 'Current password is incorrect', 400);
     const hash = await bcrypt.hash(newPassword, 10);
     await authModel.updatePassword(user.id, hash);
+    await refreshTokenModel.revokeAllForUser(user.id); // other devices (maybe a stolen session) must log in again
     return { changed: true };
 }
 

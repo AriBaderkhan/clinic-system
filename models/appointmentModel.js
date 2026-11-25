@@ -1,10 +1,11 @@
 import pool from '../db_connection.js';
+import appError from '../utils/appError.js';
 
 
-async function createAppointment(patient_id, doctor_id, scheduled_start, created_by, appointment_type, complaint, tenant_id, branch_id) {
+async function createAppointment(patient_id, doctor_id, scheduled_start, created_by, appointment_type, complaint, tenant_id, branch_id, client = pool) {
   const query = `INSERT INTO appointments (patient_id, doctor_id, scheduled_start, created_by, appointment_type, complaint, tenant_id, branch_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`;
   const values = [patient_id, doctor_id, scheduled_start, created_by, appointment_type, complaint, tenant_id, branch_id];
-  const { rows } = await pool.query(query, values);
+  const { rows } = await client.query(query, values);
   return rows[0];
 }
 
@@ -61,12 +62,12 @@ async function getAppointment(appointmentId, tenant_id, branch_id, client = pool
   return rows[0];
 }
 
-async function updateAppointment(appointmentId, fields, updatedBy, tenant_id, branch_id) {
+async function updateAppointment(appointmentId, fields, updatedBy, tenant_id, branch_id, client = pool) {
   const keys = Object.keys(fields);
   const values = Object.values(fields);
 
   if (keys.length === 0) {
-    throw createError('NO_FIELDS_TO_UPDATE', 'No fields provided to update');
+    throw appError('NO_FIELDS_TO_UPDATE', 'No fields provided to update', 400);
   }
 
   // add updated_by column
@@ -86,7 +87,7 @@ async function updateAppointment(appointmentId, fields, updatedBy, tenant_id, br
   `;
 
   const allValues = [...values, appointmentId, tenant_id, branch_id];
-  const { rows } = await pool.query(query, allValues);
+  const { rows } = await client.query(query, allValues);
   return rows[0] || null;
 }
 
@@ -149,19 +150,27 @@ async function voidAppointmentRow(appointmentId, deletedBy, tenant_id, branch_id
 
 // Checking availability for doctor — across ALL branches of the clinic:
 // a doctor who works in two branches cannot be in both at the same time.
-async function isDoctorSlotTakenExact(doctor_id, scheduled_start, tenant_id, branch_id) {
+// one booking at a time per doctor: a second booking of the same doctor waits until the first is saved
+async function lockDoctorBookings(doctor_id, client) {
+  await client.query(`SELECT pg_advisory_xact_lock(hashtext('appointment-doctor'), $1::int)`, [doctor_id]);
+}
+
+// Is this doctor already booked at exactly this time (in any branch of the clinic)?
+// exceptAppointmentId: when moving an appointment, it doesn't count itself.
+async function isDoctorSlotTaken(doctor_id, scheduled_start, tenant_id, exceptAppointmentId = null, client = pool) {
   const query = `
     SELECT 1
     FROM appointments
     WHERE doctor_id = $1
+      AND ($3::bigint IS NULL OR id <> $3)
       AND status NOT IN ('cancelled', 'no_show','completed')
       AND is_deleted = false
       AND scheduled_start = $2
-      AND tenant_id = $3
+      AND tenant_id = $4
     LIMIT 1;
   `;
-  const values = [doctor_id, scheduled_start, tenant_id];
-  const { rows } = await pool.query(query, values);
+  const values = [doctor_id, scheduled_start, exceptAppointmentId, tenant_id];
+  const { rows } = await client.query(query, values);
   return rows.length > 0; // true = slot already taken
 }
 
@@ -185,24 +194,6 @@ async function isDoctorAvailableInOneHourWindow(doctor_id, scheduled_start, tena
   const { rows } = await pool.query(query, values);
 
   return rows.length === 0;
-}
-
-async function isDoctorSlotTakenExactForUpdate(doctor_id, scheduled_start, appointmentId, tenant_id, branch_id) {
-  // <> like != means (not equal); across all branches of the clinic (same reason as above)
-  const query = `
-    SELECT 1
-      FROM appointments
-     WHERE doctor_id = $1
-       AND id <> $3
-       AND status NOT IN ('cancelled', 'no_show','completed')
-       AND is_deleted = false
-       AND scheduled_start = $2
-       AND tenant_id = $4
-     LIMIT 1;
-  `;
-  const values = [doctor_id, scheduled_start, appointmentId, tenant_id];
-  const { rows } = await pool.query(query, values);
-  return rows.length > 0; // true = some other appointment already at that exact time
 }
 
 async function isDoctorAvailableInOneHourWindowForUpdate(
@@ -272,7 +263,7 @@ async function setAppointmentCancel(appointmentId, userId, cancel_reason, tenant
   const query = `
     UPDATE appointments
        SET status='cancelled', cancel_reason=$3, updated_by=$2
-     WHERE id=$1 AND status IN ('scheduled','checked_in') AND tenant_id = $4 AND branch_id = $5
+     WHERE id=$1 AND status IN ('scheduled','checked_in','in_progress') AND tenant_id = $4 AND branch_id = $5
      RETURNING *`;
   const values = [appointmentId, userId, cancel_reason, tenant_id, branch_id];
   const { rows } = await pool.query(query, values);
@@ -496,12 +487,12 @@ export default {
   setAppointmentComplete,
   setAppointmentCancel,
   setAppointmentNoShow,
-  isDoctorSlotTakenExact,
+  isDoctorSlotTaken,
   isDoctorAvailableInOneHourWindow,
-  isDoctorSlotTakenExactForUpdate,
   isDoctorAvailableInOneHourWindowForUpdate,
   findAppointmentsWithFilters,
   findAppointmentsForCalendar,
   activeTodayAppt,
-  getSessionByApptId
+  getSessionByApptId,
+  lockDoctorBookings,
 };

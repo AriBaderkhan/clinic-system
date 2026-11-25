@@ -132,11 +132,11 @@ async function updatePatient(patientId, fields, updatedBy, tenant_id, branch_id)
   return rows[0] || null;
 }
 
-async function deletePatient(patientId, tenant_id, branch_id) {
+async function deletePatient(patientId, tenant_id, branch_id, client = pool) {
   // home branch only (a branch the patient is shared with cannot delete them)
   const query = `DELETE FROM patients WHERE id=$1 AND tenant_id = $2 AND branch_id = $3 RETURNING *;`;
   const value = [patientId, tenant_id, branch_id];
-  const { rows } = await pool.query(query, value);
+  const { rows } = await client.query(query, value);
   return rows[0] || null;
 }
 

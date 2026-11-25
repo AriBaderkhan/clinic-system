@@ -5,7 +5,7 @@ const sendCodeSchema = Joi.object({
 });
 function sendCode(req, res, next) {
     const { error, value } = sendCodeSchema.validate(req.body);
-    if (error) return res.status(400).json({ message: error.details[0].message });
+    if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' });
     req.body = value;
     next();
 }
@@ -16,7 +16,7 @@ const verifyCodeSchema = Joi.object({
 });
 function verifyCode(req, res, next) {
     const { error, value } = verifyCodeSchema.validate(req.body);
-    if (error) return res.status(400).json({ message: error.details[0].message });
+    if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' });
     req.body = value;
     next();
 }

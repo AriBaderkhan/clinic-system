@@ -18,7 +18,10 @@ function deriveAction(method, path) {
 // Fire-and-forget: logging must never block or break the real request.
 function record(ctx) {
     const { action, entity_type, entity_id } = deriveAction(ctx.method, ctx.path);
-    auditModel.record({ ...ctx, action, entity_type, entity_id }).catch(() => {});
+    // never breaks the request, but a missing log line must leave a trace (no personal data in it)
+    auditModel.record({ ...ctx, action, entity_type, entity_id }).catch((err) => {
+        console.error(`audit log failed: ${err.code || err.message} (action: ${action}, request: ${ctx.request_id || '-'})`);
+    });
 }
 
 // Paginated, tenant-scoped read for the activity-log UI.

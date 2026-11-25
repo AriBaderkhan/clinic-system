@@ -8,12 +8,16 @@ import dateRange from '../utils/dateRange.js';
 import settingModel from '../models/settingModel.js';
 import workCatalogModel from '../models/workCatalogModel.js';
 import treatmentPlanModel from '../models/treatmentPlanModel.js';
+import userModel from '../models/userModel.js';
 import prescriptionModel from '../models/prescriptionModel.js';
 import notificationService from './notificationService.js';
 import worksService from './worksService.js';
 import pool from '../db_connection.js';
+import withTransaction from '../utils/withTransaction.js';
 import { ownId } from '../utils/scope.js';
 
+
+const MAX_CALENDAR_DAYS = 93;
 
 async function create(appointmentData, tenant_id, branch_id) {
     const { patient_id, doctor_id, scheduled_start, created_by, appointment_type, complaint } = appointmentData;
@@ -23,6 +27,7 @@ async function create(appointmentData, tenant_id, branch_id) {
 
     const doctor = await doctorModel.getDoctorById(doctor_id, tenant_id, branch_id);
     if (!doctor) throw appError('DOCTOR_NOT_FOUND', 'Doctor not found', 404);
+    if (!await doctorModel.isActiveDoctor(doctor_id, tenant_id, branch_id)) throw appError('DOCTOR_NOT_ACTIVE', 'This doctor is not active', 400);
 
     // branch switch: no new booking while the patient owes for a finished visit here
     const workflow = await settingModel.getWorkflow(tenant_id, branch_id);
@@ -30,14 +35,17 @@ async function create(appointmentData, tenant_id, branch_id) {
         throw appError('PATIENT_HAS_UNPAID', 'This patient must pay the unpaid visit before a new booking', 409);
     }
 
-    const slotTaken = await appointmentModel.isDoctorSlotTakenExact(doctor_id, scheduled_start, tenant_id, branch_id);
-    if (slotTaken) {
-        throw appError(
-            'APPOINTMENT_OVERLAP',
-            'Doctor already has an appointment at this exact time',
-            409
-        );
-    }
+    // check the time and save it as one step; a second booking of the same doctor waits, then sees this one
+    return withTransaction(async (client) => {
+        await appointmentModel.lockDoctorBookings(doctor_id, client);
+        const slotTaken = await appointmentModel.isDoctorSlotTaken(doctor_id, scheduled_start, tenant_id, null, client);
+        if (slotTaken) {
+            throw appError(
+                'APPOINTMENT_OVERLAP',
+                'Doctor already has an appointment at this exact time',
+                409
+            );
+        }
 
     // if (appointment_type === 'normal') {
     //     const doctorIsFree = await appointmentModel.isDoctorAvailableInOneHourWindow(
@@ -55,9 +63,10 @@ async function create(appointmentData, tenant_id, branch_id) {
     //     }
     // }
 
-    const appointment = await appointmentModel.createAppointment(patient_id, doctor_id, scheduled_start, created_by, appointment_type, complaint, tenant_id, branch_id);
-    if (!appointment) throw appError('APPOINTMENT_CREATE_FAILED', 'Appointment create failed', 500);
-    return appointment;
+        const appointment = await appointmentModel.createAppointment(patient_id, doctor_id, scheduled_start, created_by, appointment_type, complaint, tenant_id, branch_id, client);
+        if (!appointment) throw appError('APPOINTMENT_CREATE_FAILED', 'Appointment create failed', 500);
+        return appointment;
+    });
 }
 
 async function getById(appointmentId, tenant_id, branch_id) {
@@ -121,16 +130,16 @@ async function update(appointmentDataForUpdate, tenant_id, branch_id) {
         if (!doctor) {
             throw appError('DOCTOR_NOT_FOUND', 'Doctor not found', 404);
         }
+        if (Number(doctor_id) !== Number(appt.doctor_id) && !await doctorModel.isActiveDoctor(doctor_id, tenant_id, branch_id)) {
+            throw appError('DOCTOR_NOT_ACTIVE', 'This doctor is not active', 400);
+        }
     }
 
     // 6) Rule A: NEVER allow two appts at EXACT same time for same doctor
-    const slotTaken = await appointmentModel.isDoctorSlotTakenExactForUpdate(
-        newDoctorId,
-        newScheduledStart,
-        appointmentId,
-        tenant_id,
-        branch_id
-    );
+    // check the time and save it as one step (same lock as a new booking)
+    return withTransaction(async (client) => {
+    await appointmentModel.lockDoctorBookings(newDoctorId, client);
+    const slotTaken = await appointmentModel.isDoctorSlotTaken(newDoctorId, newScheduledStart, tenant_id, appointmentId, client);
     if (slotTaken) {
         throw appError(
             'APPOINTMENT_OVERLAP',
@@ -158,7 +167,7 @@ async function update(appointmentDataForUpdate, tenant_id, branch_id) {
     // }
 
     // 8) Perform the update
-    const updated = await appointmentModel.updateAppointment(appointmentId, fields, updatedBy, tenant_id, branch_id);
+    const updated = await appointmentModel.updateAppointment(appointmentId, fields, updatedBy, tenant_id, branch_id, client);
     if (!updated) {
         throw appError(
             'APPOINTMENT_UPDATE_FAILED',
@@ -168,6 +177,7 @@ async function update(appointmentDataForUpdate, tenant_id, branch_id) {
     }
 
     return updated;
+    });
 }
 
 async function _delete(appointmentId, deletedBy, tenant_id, branch_id) {
@@ -201,7 +211,7 @@ async function checkIn(appointmentId, userId, tenant_id, branch_id) {
     if (appt.status !== 'scheduled') throw appError('INVALID_APPOINTMENT_STATUS', 'Only scheduled appointments can be checked in', 400);
 
     const updatedAppointmentStatus = await appointmentModel.setAppointmentCheckIn(appointmentId, userId, tenant_id, branch_id);
-    if (!updatedAppointmentStatus) throw appError('APPOINTMENT_CHECKIN_FAILED', 'Check-in failed', 500);
+    if (!updatedAppointmentStatus) throw appError('INVALID_APPOINTMENT_STATUS', 'This appointment was already checked in', 400);
 
     // Tell the patient's doctor, live. Best-effort: a notification failure never
     // fails the check-in itself (handled inside notify()).
@@ -228,7 +238,7 @@ async function start(appointmentId, userId, tenant_id, branch_id) {
     if (appt.status !== 'checked_in') throw appError('INVALID_APPOINTMENT_STATUS', 'Only checked_in appointments can be started', 400);
 
     const updatedAppointment = await appointmentModel.setAppointmentStart(appointmentId, userId, tenant_id, branch_id);
-    if (!updatedAppointment) throw appError('APPOINTMENT_START_FAILED', 'Appointment start failed', 500);
+    if (!updatedAppointment) throw appError('INVALID_APPOINTMENT_STATUS', 'This visit was already started', 400);
     return updatedAppointment;
 }
 
@@ -236,7 +246,7 @@ async function start(appointmentId, userId, tenant_id, branch_id) {
 // Its job is to:
 // Close an in-progress appointment, 
 // create a session, register all works, manage treatment plans, calculate totals,
-async function complete({ appointmentId, doctorId, next_plan, notes, works, completedPlanIds, prescription }, tenant_id, branch_id) {
+async function complete({ appointmentId, doctorId, callerRoleId, next_plan, notes, works, completedPlanIds, prescription }, tenant_id, branch_id) {
     const client = await pool.connect();
 
     try {
@@ -245,7 +255,11 @@ async function complete({ appointmentId, doctorId, next_plan, notes, works, comp
         const appt = await appointmentModel.getAppointment(appointmentId, tenant_id, branch_id, client);
         if (!appt) throw appError('APPOINTMENT_NOT_FOUND', 'Appointment not found', 404);
         if (appt.status !== 'in_progress') throw appError('INVALID_APPOINTMENT_STATUS', 'Only in_progress appointments can be completed', 400);
-        // if (appt.doctor_id !== doctorId) throw appError('FORBIDDEN', 'You are not allowed to complete this appointment');  // important 
+        // a doctor finishes only his OWN visits; reception and managers may finish any doctor's visit
+        const callerRole = await userModel.checkRoleIfDoc(callerRoleId, client);
+        if (callerRole?.is_doctor && Number(appt.doctor_id) !== Number(doctorId)) {
+            throw appError('NOT_YOUR_VISIT', "Only the visit's own doctor can finish it", 403);
+        }
 
         const createdSession = await sessionModel.createSession(appointmentId, next_plan, notes, doctorId, tenant_id, branch_id, client);
         if (!createdSession) throw appError('SESSION_CREATE_FAILED', 'session create failed', 500);
@@ -424,10 +438,10 @@ async function cancel(appointmentId, userId, cancel_reason, tenant_id, branch_id
     if (!appt) throw appError('APPOINTMENT_NOT_FOUND', 'Appointment not found', 404);
 
 
-    if (!['scheduled', 'checked_in', 'in_progress'].includes(appt.status)) throw appError('INVALID_APPOINTMENT_STATUS', 'Only scheduled or checked_in appointments can be cancelled', 400);
+    if (!['scheduled', 'checked_in', 'in_progress'].includes(appt.status)) throw appError('INVALID_APPOINTMENT_STATUS', 'Only booked, checked-in or in-progress appointments can be cancelled', 400);
 
     const updatedAppointment = await appointmentModel.setAppointmentCancel(appointmentId, userId, cancel_reason, tenant_id, branch_id);
-    if (!updatedAppointment) throw appError('APPOINTMENT_CANCEL_FAILED', 'Appointment cancel failed', 500);
+    if (!updatedAppointment) throw appError('INVALID_APPOINTMENT_STATUS', 'This appointment changed meanwhile and cannot be cancelled', 400);
     return updatedAppointment;
 }
 
@@ -440,7 +454,7 @@ async function noShow(appointmentId, userId, cancel_reason, tenant_id, branch_id
     if (!['scheduled'].includes(appt.status)) throw appError('INVALID_APPOINTMENT_STATUS', 'Only scheduled appointments can be marked as no_show', 400);
 
     const updatedAppointment = await appointmentModel.setAppointmentNoShow(appointmentId, userId, cancel_reason, tenant_id, branch_id);
-    if (!updatedAppointment) throw appError('APPOINTMENT_NO_SHOW_FAILED', 'Appointment no show failed', 500);
+    if (!updatedAppointment) throw appError('INVALID_APPOINTMENT_STATUS', 'This appointment changed meanwhile', 400);
     return updatedAppointment;
 }
 // END OF STATUS CHANGING
@@ -476,6 +490,7 @@ async function getCalendar({ from, to, floor_id, viewer }, tenant_id, branch_id)
 
     if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) throw appError('INVALID_CALENDAR_RANGE', 'from and to must be valid dates', 400);
     if (fromDate >= toDate) throw appError('INVALID_CALENDAR_RANGE', 'from must be before to', 400);
+    if (toDate - fromDate > MAX_CALENDAR_DAYS * 86400000) throw appError('INVALID_CALENDAR_RANGE', `At most ${MAX_CALENDAR_DAYS} days at a time`, 400);
 
     const appointments = await appointmentModel.findAppointmentsForCalendar({
         from: fromDate.toISOString(),

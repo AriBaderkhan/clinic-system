@@ -79,6 +79,16 @@ async function updatePayment(paymentId, amount, note, tenant_id, branch_id, clie
   return rows[0] || null;
 }
 
+// the same payment (same visit, amount and person) saved a few seconds ago = a repeat of it
+async function findRecentSame(sessionId, amount, userId, seconds, client = pool) {
+  const { rows } = await client.query(
+    `SELECT id FROM session_payments
+      WHERE session_id = $1 AND amount = $2 AND created_by = $3
+        AND created_at > NOW() - make_interval(secs => $4) LIMIT 1`,
+    [sessionId, amount, userId, seconds]);
+  return rows[0] || null;
+}
+
 async function deletePayment(paymentId, tenant_id, branch_id, client = pool) {
   const { rows } = await client.query(
     `DELETE FROM session_payments WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 RETURNING *`,
@@ -98,5 +108,5 @@ async function deleteAllForSession(sessionId, tenant_id, branch_id, client = poo
 
 export default {
   createSessionPayment, recalcSessionTotals, listForSession, getByIdForUpdate,
-  updatePayment, deletePayment, deleteAllForSession,
+  updatePayment, deletePayment, deleteAllForSession, findRecentSame,
 }

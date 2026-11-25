@@ -1,5 +1,7 @@
 import crypto from 'crypto';
 import feedbackModel from '../models/feedbackModel.js';
+import patientModel from '../models/patientModel.js';
+import appointmentModel from '../models/appointmentModel.js';
 import appError from '../utils/appError.js';
 
 // Turn a raw Iraqi number into E.164 for wa.me. Strip a leading 0 / 964, then
@@ -85,7 +87,18 @@ async function getPatientsNeedingFeedback(tenant_id, branch_id, page = 1, limit 
 }
 
 // ── Create / dismiss invites (keyed per patient) ─────────────────────────────
+// the patient (and the visit, when given) must be this branch's — never another clinic's or branch's
+const mustBeBranchPatient = async (tenant_id, branch_id, patient_id, appointment_id) => {
+  const patient = await patientModel.getPatient(patient_id, tenant_id, branch_id);
+  if (!patient) throw appError('PATIENT_NOT_FOUND', 'Patient not found', 404);
+  if (appointment_id) {
+    const appt = await appointmentModel.getAppointment(appointment_id, tenant_id, branch_id);
+    if (!appt || Number(appt.patient_id) !== Number(patient_id)) throw appError('APPOINTMENT_NOT_FOUND', 'Appointment not found', 404);
+  }
+};
+
 async function createInvite({ tenant_id, branch_id, patient_id, appointment_id, source, language, sent_by }) {
+  await mustBeBranchPatient(tenant_id, branch_id, patient_id, appointment_id);
   const already = await feedbackModel.existsForPatient(tenant_id, branch_id, patient_id);
   if (already) throw appError('FEEDBACK_ALREADY_HANDLED', 'Feedback already handled for this patient', 409);
 
@@ -97,6 +110,7 @@ async function createInvite({ tenant_id, branch_id, patient_id, appointment_id, 
 }
 
 async function dismiss({ tenant_id, branch_id, patient_id, appointment_id, source, sent_by }) {
+  await mustBeBranchPatient(tenant_id, branch_id, patient_id, appointment_id);
   const already = await feedbackModel.existsForPatient(tenant_id, branch_id, patient_id);
   if (already) throw appError('FEEDBACK_ALREADY_HANDLED', 'Feedback already handled for this patient', 409);
 

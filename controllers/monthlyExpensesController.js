@@ -43,7 +43,9 @@ const _delete = asyncWrap(async (req, res) => {
     const expensesId = Number(req.params.expensesId)
     const { tenant_id, branch_id } = req.user;
 
-    await monthlyExpensesService.delete(expensesId, tenant_id, branch_id)
+    const deleted = await monthlyExpensesService.delete(expensesId, tenant_id, branch_id)
+    const { type, amount, currency_code, expense_date, note } = deleted;
+    res.locals.auditDetails = { expense_id: expensesId, type, amount: Number(amount), currency_code, expense_date, note };
     res.status(200).json({ ok: true });
 })
 

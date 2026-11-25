@@ -8,6 +8,11 @@ import appError from '../utils/appError.js';
 const CODE_TTL_MIN = 10;        // a fresh code lives 10 minutes
 const VERIFIED_TTL_MIN = 30;    // once verified, you have 30 min to finish the flow
 const RESEND_COOLDOWN_SEC = 60; // anti-spam: min seconds between code requests
+const MAX_TRIES = 5;            // a code stops working after 5 tries (a 6-digit code must not be guessable)
+
+// Codes are stored as a keyed hash, never as the plain digits.
+const hashCode = (email, purpose, code) =>
+    crypto.createHmac('sha256', process.env.JWT_SECRET).update(`${purpose}:${email}:${code}`).digest('hex');
 
 function sixDigit() {
     return String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
@@ -24,15 +29,18 @@ async function requestCode(email, purpose) {
     }
     const code = sixDigit();
     const expiresAt = new Date(Date.now() + CODE_TTL_MIN * 60_000);
-    await emailVerificationModel.insertCode(email, code, purpose, expiresAt);
+    await emailVerificationModel.insertCode(email, hashCode(email, purpose, code), purpose, expiresAt);
     await emailService.sendVerificationCode(email, code, purpose);
     return { sent: true };
 }
 
 // Check the typed code; on success the email stays "verified" for VERIFIED_TTL_MIN.
 async function confirmCode(email, code, purpose) {
-    const row = await emailVerificationModel.findActiveByCode(email, purpose, code);
-    if (!row) throw appError('CODE_INVALID', 'Invalid or expired code.', 400);
+    const latest = await emailVerificationModel.findLatestActive(email, purpose);
+    if (!latest) throw appError('CODE_INVALID', 'Invalid or expired code.', 400);
+    const row = await emailVerificationModel.useTry(latest.id, MAX_TRIES);
+    if (!row) throw appError('CODE_LOCKED', 'Too many wrong tries. Please ask for a new code.', 400);
+    if (row.code !== hashCode(email, purpose, code)) throw appError('CODE_INVALID', 'Invalid or expired code.', 400);
     const expiresAt = new Date(Date.now() + VERIFIED_TTL_MIN * 60_000);
     await emailVerificationModel.markVerified(row.id, expiresAt);
     return { verified: true };

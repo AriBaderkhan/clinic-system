@@ -6,7 +6,7 @@ function validateIdParam(paramName) {
   return (req, res, next) => {
     const { error } = idSchema.validate(req.params[paramName]);
     if (error) {
-      return res.status(400).json({ message: `Invalid ${paramName}` });
+      return res.status(400).json({ message: `Invalid ${paramName}`, code: 'VALIDATION_ERROR' });
     }
     next();
   };

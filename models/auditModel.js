@@ -4,19 +4,19 @@ import pool from '../db_connection.js';
 async function record(entry) {
     const {
         tenant_id, branch_id, actor_id, actor_name, actor_role,
-        action, entity_type, entity_id, method, path, status_code, request_id, ip,
+        action, entity_type, entity_id, method, path, status_code, request_id, ip, details,
     } = entry;
 
     const { rows } = await pool.query(
         `INSERT INTO audit_logs
             (tenant_id, branch_id, actor_id, actor_name, actor_role,
-             action, entity_type, entity_id, method, path, status_code, request_id, ip)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+             action, entity_type, entity_id, method, path, status_code, request_id, ip, details)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
          RETURNING *`,
         [
             tenant_id, branch_id ?? null, actor_id ?? null, actor_name ?? null, actor_role ?? null,
             action, entity_type ?? null, entity_id ?? null, method ?? null, path ?? null,
-            status_code ?? null, request_id ?? null, ip ?? null,
+            status_code ?? null, request_id ?? null, ip ?? null, details ? JSON.stringify(details) : null,
         ]
     );
     return rows[0];

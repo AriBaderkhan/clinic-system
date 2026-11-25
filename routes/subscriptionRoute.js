@@ -7,7 +7,7 @@ import idValidate from '../validates/idValidate.js';
 import subscriptionValidate from '../validates/subscriptionValidate.js';
 import subscriptionController from '../controllers/subscriptionController.js';
 import subscriptionRequestController from '../controllers/subscriptionRequestController.js';
-import { uploadImages } from '../middlewares/uploadMiddleware.js';
+import { uploadOneImage } from '../middlewares/uploadMiddleware.js';
 
 router.use(authMiddleware)
 
@@ -15,7 +15,7 @@ router.use(authMiddleware)
 router.get('/me', subscriptionController.myStatus)
 router.get('/me/quote', permissionMiddleware('manage_subscription'), subscriptionValidate.quote, subscriptionController.myQuote)
 router.get('/me/features', subscriptionController.myFeatures)
-router.post('/request', permissionMiddleware('manage_subscription'), uploadImages, subscriptionValidate.request, subscriptionRequestController.create)
+router.post('/request', permissionMiddleware('manage_subscription'), uploadOneImage, subscriptionValidate.request, subscriptionRequestController.create)
 
 // --- platform admin: review the manual payment requests (manage_system) ---
 router.get('/requests', permissionMiddleware('manage_system'), subscriptionRequestController.listPending)

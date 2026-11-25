@@ -1,6 +1,6 @@
 import tenantService from "../services/tenantService.js";
 import asyncWrap from "../utils/asyncWrap.js";
-import jwt from 'jsonwebtoken';
+import authService from "../services/authService.js";
 
 const getDetails = asyncWrap(async (req, res) => {
     const tenantId = req.user.tenant_id;
@@ -34,7 +34,8 @@ const updateBranch = asyncWrap(async (req, res) => {
 
 const deleteBranch = asyncWrap(async (req, res) => {
     const { tenant_id } = req.user;
-    await tenantService.deleteBranch(req.params.id, tenant_id);
+    const branchId = Number(req.params.id);
+    await tenantService.deleteBranch(branchId, tenant_id);
     res.status(200).json({ ok: true });
 });
 
@@ -42,16 +43,12 @@ const switchBranch = asyncWrap(async (req, res) => {
     const { tenant_id } = req.user;
     const branchId = req.params.branchId;
     const branch = await tenantService.switchBranch(tenant_id, branchId);
-    const payload = {
-        id: req.user.id,
-        tenant_id: tenant_id,
-        branch_id: branchId,
-        role: req.user.role,
-        name: req.user.name,
-        permissions: req.user.permissions
-    }
-    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '10h' })
-    res.status(200).json({ ok: true, token, data: branch });
+    // same tokens as every sign-in: a short access token + a renewal token for THIS branch
+    // (permissions are not put in the token: they are read live on every request)
+    const identity = { id: req.user.id, tenant_id, branch_id: Number(branchId), role: req.user.role, name: req.user.name };
+    const token = authService.signAccessToken(identity);
+    const refreshToken = await authService.issueRefreshToken(identity);
+    res.status(200).json({ ok: true, token, refreshToken, data: branch });
 })
 
 const getDashboard = asyncWrap(async (req, res) => {

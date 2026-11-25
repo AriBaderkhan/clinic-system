@@ -68,10 +68,15 @@ async function serviceDetailsReportPdf({ month, from, to }, tenant_id) {
         g.total_treatment_plans += f.total_treatment_plans;
         g.total_revenue += f.total_revenue;
         g.total_expense += f.total_expense;
-        g.profit += f.profit;
-        g.loss += f.loss;
     });
-    const grandTotals = [...gmap.values()].sort((a, b) => a.currency_code.localeCompare(b.currency_code));
+    // the WHOLE clinic's result: one branch's loss is set against the other branches' profit
+    const grandTotals = [...gmap.values()]
+        .map((g) => ({
+            ...g,
+            profit: g.total_revenue > g.total_expense ? g.total_revenue - g.total_expense : 0,
+            loss: g.total_revenue < g.total_expense ? g.total_expense - g.total_revenue : 0,
+        }))
+        .sort((a, b) => a.currency_code.localeCompare(b.currency_code));
 
     return {
         period,

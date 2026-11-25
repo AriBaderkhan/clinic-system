@@ -140,8 +140,18 @@ async function countLiveForPlanInSession(sessionId, planId, tenant_id, branch_id
   return rows[0].n;
 }
 
+// the same plan payment saved a few seconds ago = a repeat of it
+async function findRecentSame(planId, sessionId, amount, userId, seconds, client = pool) {
+  const { rows } = await client.query(
+    `SELECT id FROM treatment_payments
+      WHERE treatment_plan_id = $1 AND session_id = $2 AND amount = $3 AND created_by = $4 AND is_deleted = false
+        AND created_at > NOW() - make_interval(secs => $5) LIMIT 1`,
+    [planId, sessionId, amount, userId, seconds]);
+  return rows[0] || null;
+}
+
 export default {
   createTreatmentPlanPayment, recalcTreatmentPlanTotals, listForSession, getByIdForUpdate,
   updatePayment, voidPayment, voidAllForSession, movePaymentsInSession, countLiveForPlanInSession,
-  getLiveForPlanInSessionForUpdate,
+  getLiveForPlanInSessionForUpdate, findRecentSame,
 };

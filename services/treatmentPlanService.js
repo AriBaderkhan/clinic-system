@@ -1,10 +1,11 @@
-import pool from '../db_connection.js';
 import treatmentPlanModel from '../models/treatmentPlanModel.js';
 import { ownId } from '../utils/scope.js';
 import treatmentPlanPaymentModel from '../models/treatmentPlanPaymentModel.js';
 import sessionModel from '../models/sessionModel.js';
 import appError from '../utils/appError.js';
 import cents from '../utils/money.js';
+import withTransaction from '../utils/withTransaction.js';
+import workCatalogModel from '../models/workCatalogModel.js';
 
 async function getActive(patientId, type, tenant_id, branch_id) {
   // returns ALL active plans of this type (a patient can have several at once)
@@ -14,6 +15,8 @@ async function getActive(patientId, type, tenant_id, branch_id) {
 
 
 async function getSessions(tpId, tenant_id, branch_id) {
+  const plan = await treatmentPlanModel.getPlanById(tpId, tenant_id, branch_id);
+  if (!plan) throw appError('PLAN_NOT_FOUND', 'Treatment plan not found', 404);
 
   const sessionsForTp = await treatmentPlanModel.getSessionsForTp(tpId, tenant_id, branch_id);
 
@@ -32,16 +35,21 @@ async function update(type, agreed_total, is_completed, tpId, tenant_id, branch_
     throw appError('NOTHING_TO_UPDATE', "Nothing to update", 400);
   }
 
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-
+  return withTransaction(async (client) => {
     const plan = await treatmentPlanModel.getTreatmentPlanByIdForUpdate(tpId, tenant_id, branch_id, client);
     if (!plan) throw appError('PLAN_NOT_FOUND', 'Treatment plan not found', 404);
 
     // the agreement can never be lower than what the patient already paid
     if (agreed_total !== undefined && cents(agreed_total) < cents(plan.total_paid)) {
       throw appError('AGREED_BELOW_PAID', `Agreed total cannot be less than the amount already paid (${Number(plan.total_paid)})`, 400);
+    }
+    // ...nor lower than the treatment's minimum price (the same rule as when the plan is created)
+    if (agreed_total !== undefined) {
+      const planType = type !== undefined ? String(type).toLowerCase() : plan.type;
+      const catalog = await workCatalogModel.getWorkByType(planType.toUpperCase(), tenant_id, branch_id, client);
+      if (catalog && cents(agreed_total) < cents(catalog.min_price)) {
+        throw appError('AGREEMENT_TOTAL_BELOW_MIN', `${planType} agreement must be >= ${catalog.min_price}`, 400);
+      }
     }
 
     // status follows is_completed only when the caller actually sent it
@@ -54,31 +62,28 @@ async function update(type, agreed_total, is_completed, tpId, tenant_id, branch_
       agreed_total, is_completed, status,
     }, tenant_id, branch_id, client);
 
-    await client.query('COMMIT');
-    return result;
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+    // "before" lets the controller log the old values (agreed price, type) — the answer stays the same
+    return { plan: result, before: plan };
+  });
 }
 
 async function _delete(tpId, deletedBy, tenant_id, branch_id) {
   // Void (soft-delete): flags the plan + its works + its payments as deleted.
   // No FK block anymore — a plan WITH works/payments is exactly the case we void.
-  const voidedTp = await treatmentPlanModel.voidTp(tpId, deletedBy, tenant_id, branch_id);
-  if (!voidedTp) throw appError('PLAN_NOT_FOUND', 'Treatment plan not found or already deleted', 404);
-  return voidedTp;
+  return withTransaction(async (client) => {
+    const voidedTp = await treatmentPlanModel.voidPlan(tpId, deletedBy, tenant_id, branch_id, client);
+    if (!voidedTp) throw appError('PLAN_NOT_FOUND', 'Treatment plan not found or already deleted', 404);
+    await treatmentPlanModel.voidPlanWorks(tpId, deletedBy, tenant_id, branch_id, client);
+    await treatmentPlanModel.voidPlanPayments(tpId, deletedBy, tenant_id, branch_id, client);
+    return voidedTp;
+  });
 }
 
 // Set "paid for this plan in this visit" to an amount (0 removes it). Works on the
 // single live payment row of that plan+visit; if a visit has several plan payments
 // they must be edited one by one in the session editor (never merged/multiplied).
 async function updatePaidSession(tpId, sessionId, amount, userId, tenant_id, branch_id) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+  return withTransaction(async (client) => {
 
     const session = await sessionModel.lockLiveSession(sessionId, tenant_id, branch_id, client);
     if (!session) throw appError('SESSION_NOT_FOUND', 'Session not found', 404);
@@ -112,14 +117,8 @@ async function updatePaidSession(tpId, sessionId, amount, userId, tenant_id, bra
       throw appError('AMOUNT_EXCEEDS_REMAINING', `Amount exceeds the plan's agreed total of ${Number(updatedPlan.agreed_total)}`, 400);
     }
 
-    await client.query('COMMIT');
     return { payment, tp_total_paid: Number(updatedPlan.total_paid) };
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+  });
 }
 
 

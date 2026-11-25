@@ -1,4 +1,6 @@
 import reportsModel from '../models/reportsModel.js'
+import tenantModel from '../models/tenantModel.js'
+import appError from '../utils/appError.js'
 import resolveReportDateRange from '../utils/reportsDateRange.js'
 
 // Fold per-currency money rows into one financials list. Each currency is kept
@@ -25,6 +27,10 @@ function buildFinancials(sessionRows, planRows, expenseRows) {
 }
 
 async function serviceMonthlyReportPdf({ month, from, to }, tenant_id, branch_id) {
+
+    // the branch must be one of this clinic's branches
+    const belongs = await tenantModel.branchBelongsToTenant(branch_id, tenant_id);
+    if (!belongs) throw appError('BRANCH_NOT_FOUND', 'Branch not found', 404);
 
     // Phase 1 — resolve the period first (every query below needs the window).
     const period = await resolveReportDateRange({ month, from, to })

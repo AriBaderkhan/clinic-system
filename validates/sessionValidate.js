@@ -100,7 +100,7 @@ const listSessionsFiltersSchema = Joi.object({
 
 function filters(req, res, next) {
     const { error } = listSessionsFiltersSchema.validate(req.query);
-    if (error) return res.status(400).json({ message: error.details[0].message })
+    if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' })
     next();
 }
 

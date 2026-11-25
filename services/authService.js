@@ -14,7 +14,7 @@ import verificationService from './verificationService.js';
 // ── Token settings ──────────────────────────────────────────────────────────
 // Access token is short-lived (a leaked one dies in a day). Refresh token is the
 // long-lived, REVOCABLE key that silently mints new access tokens.
-const ACCESS_TOKEN_EXPIRES = '1d';
+const ACCESS_TOKEN_EXPIRES = '1h';
 const REFRESH_TOKEN_DAYS = 30;
 // Separate secret keeps a refresh token from ever being accepted as an access
 // token; falls back to JWT_SECRET if not set (the type check still protects us).
@@ -46,6 +46,7 @@ async function issueRefreshToken(identity) {
         expiresIn: `${REFRESH_TOKEN_DAYS}d`,
     });
     const expires_at = new Date(Date.now() + REFRESH_TOKEN_DAYS * 24 * 60 * 60 * 1000);
+    await refreshTokenModel.deleteDeadForUser(identity.id); // old revoked/expired rows are never needed again
     await refreshTokenModel.insert(identity.id, hashToken(refreshToken), expires_at);
     return refreshToken;
 }
@@ -64,11 +65,11 @@ async function rotateAccessToken(refreshToken) {
 
     const row = await refreshTokenModel.findByHash(hashToken(refreshToken));
     if (!row || row.revoked) throw appError('REFRESH_INVALID', 'Refresh token revoked', 401);
-    // a deleted (deactivated) user gets no new access token
-    if (payload.tenant_id) {
-        const user = await authModel.selectAUser(payload.id, payload.tenant_id);
-        if (!user || !user.is_active) throw appError('USER_NOT_ACTIVE', 'User is not active', 401);
-    }
+    // a deleted (deactivated) user gets no new access token — clinic staff AND platform admins
+    const user = payload.tenant_id
+        ? await authModel.selectAUser(payload.id, payload.tenant_id)
+        : await authModel.getCredById(payload.id);
+    if (!user || !user.is_active) throw appError('USER_NOT_ACTIVE', 'User is not active', 401);
 
     const identity = {
         id: payload.id,
@@ -204,8 +205,10 @@ async function switchBranch(user_id, tenant_id, branch_id) {
 const USER_LOCKED = { role: null, permissions: [], scopes: {}, is_active: false, user_active: false };
 
 async function getLiveContext(user_id, tenant_id, branch_id) {
-    // Platform admin (no tenant) keeps system-wide access, same as login.
+    // Platform admin (no tenant) keeps system-wide access, same as login — while the account is active.
     if (!tenant_id) {
+        const admin = await authModel.getCredById(user_id);
+        if (!admin || !admin.is_active) return USER_LOCKED;
         return { role: 'platform_admin', permissions: ['manage_system'], scopes: {}, is_active: true };
     }
 
@@ -256,6 +259,7 @@ async function resetPassword(email, code, newPassword) {
     if (!user) throw appError('USER_NOT_FOUND', 'No account for this email', 404);
     const hash = await bcrypt.hash(newPassword, 10);
     await authModel.updatePassword(user.id, hash);
+    await refreshTokenModel.revokeAllForUser(user.id); // every old session (maybe the thief's) is logged out
     await verificationService.consume(row.id);
     return { reset: true };
 }

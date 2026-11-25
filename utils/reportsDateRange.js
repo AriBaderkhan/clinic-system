@@ -6,8 +6,8 @@
 // The app is Iraq-based (Asia/Baghdad, a fixed +03:00 with no DST — matches the
 // timezone hard-coded across reminders/dashboards). If multi-timezone clinics
 // are added later, thread the tenant's timezone in here.
-const CLINIC_TZ = 'Asia/Baghdad';
-const CLINIC_OFFSET = '+03:00';
+import appError from './appError.js';
+import { CLINIC_TZ, CLINIC_OFFSET } from './clinicTime.js';
 
 const pad = (n) => String(n).padStart(2, '0');
 
@@ -27,20 +27,20 @@ export default async function resolveReportDateRange({ month, from, to }) {
         // "to" is inclusive of that whole day → query is "< next day".
         const queryTo = new Date(toStart.getTime() + 24 * 60 * 60 * 1000);
         if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toStart.getTime())) {
-            throw new Error('Invalid Date Selection');
+            throw appError('INVALID_PERIOD', 'Invalid date selection', 400);
         }
         return {
             from: fromDate,
             to: queryTo,
             label: `Custom: ${formatDate(fromDate)} - ${formatDate(toStart)}`,
-            rangeText: `${formatDate(fromDate)} → ${formatDate(toStart)}`,
+            rangeText: `${formatDate(fromDate)} – ${formatDate(toStart)}`,
         };
     }
 
     // 2. Month — first-of-month .. first-of-next-month, both at clinic midnight.
     if (month) {
         const [y, m] = String(month).split('-').map(Number); // month = 'YYYY-MM-01'
-        if (!y || !m) throw new Error('Invalid Date Selection');
+        if (!y || !m || m > 12) throw appError('INVALID_PERIOD', 'Invalid date selection', 400);
 
         const from = new Date(`${y}-${pad(m)}-01T00:00:00${CLINIC_OFFSET}`);
         const ny = m === 12 ? y + 1 : y;
@@ -48,7 +48,7 @@ export default async function resolveReportDateRange({ month, from, to }) {
         const nextMonth = new Date(`${ny}-${pad(nm)}-01T00:00:00${CLINIC_OFFSET}`);
 
         const now = new Date();
-        if (from > now) throw new Error('Future month not allowed');
+        if (from > now) throw appError('MONTH_IN_FUTURE', 'Cannot report a future month', 400);
 
         // Current month → cap 'to' at now; past month → full month.
         const effectiveTo = now < nextMonth ? now : nextMonth;
@@ -57,9 +57,9 @@ export default async function resolveReportDateRange({ month, from, to }) {
             from,
             to: effectiveTo,
             label: formatMonthLabel(from),
-            rangeText: `${formatDate(from)} → ${formatDate(effectiveTo)}`,
+            rangeText: `${formatDate(from)} – ${formatDate(new Date(effectiveTo.getTime() - 1))}`,
         };
     }
 
-    throw new Error('Invalid Date Selection');
+    throw appError('INVALID_PERIOD', 'Invalid date selection', 400);
 }

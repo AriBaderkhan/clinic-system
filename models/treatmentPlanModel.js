@@ -89,6 +89,13 @@ async function markCompleted(planId, tenant_id, branch_id, client = pool) {
   return rows[0] || null;
 }
 
+// a live plan of this branch (no lock)
+async function getPlanById(planId, tenant_id, branch_id, client = pool) {
+  const query = `SELECT id FROM treatment_plans WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 AND is_deleted = false`;
+  const { rows } = await client.query(query, [planId, tenant_id, branch_id]);
+  return rows[0] || null;
+}
+
 async function getSessionsForTp(tpId, tenant_id, branch_id) {
   const query = `
     SELECT
@@ -247,49 +254,40 @@ async function voidPlanIfEmpty(tpId, deletedBy, tenant_id, branch_id, client = p
 // is kept and the action is reversible; but every normal read hides these rows,
 // so the plan disappears from the screens and its money drops out of the reports.
 // All three tables flip together in one transaction (all-or-nothing).
-async function voidTp(tpId, deletedBy, tenant_id, branch_id) {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
+async function voidPlan(tpId, deletedBy, tenant_id, branch_id, client = pool) {
+  const { rows } = await client.query(
+    `UPDATE treatment_plans
+        SET is_deleted = true, deleted_at = NOW(), deleted_by = $1
+      WHERE id = $2 AND tenant_id = $3 AND branch_id = $4 AND is_deleted = false
+      RETURNING *`,
+    [deletedBy, tpId, tenant_id, branch_id]
+  );
+  return rows[0] || null;
+}
 
-    // 1) the plan itself — RETURNING tells the service if a live plan was hit
-    const planRes = await client.query(
-      `UPDATE treatment_plans
-          SET is_deleted = true, deleted_at = NOW(), deleted_by = $1
-        WHERE id = $2 AND tenant_id = $3 AND branch_id = $4 AND is_deleted = false
-        RETURNING *`,
-      [deletedBy, tpId, tenant_id, branch_id]
-    );
+// the plan's work rows inside visits
+async function voidPlanWorks(tpId, deletedBy, tenant_id, branch_id, client = pool) {
+  await client.query(
+    `UPDATE session_works
+        SET is_deleted = true, deleted_at = NOW(), deleted_by = $1
+      WHERE treatment_plan_id = $2 AND tenant_id = $3 AND branch_id = $4 AND is_deleted = false`,
+    [deletedBy, tpId, tenant_id, branch_id]
+  );
+}
 
-    // 2) its work rows inside sessions
-    await client.query(
-      `UPDATE session_works
-          SET is_deleted = true, deleted_at = NOW(), deleted_by = $1
-        WHERE treatment_plan_id = $2 AND tenant_id = $3 AND branch_id = $4 AND is_deleted = false`,
-      [deletedBy, tpId, tenant_id, branch_id]
-    );
-
-    // 3) its money ledger
-    await client.query(
-      `UPDATE treatment_payments
-          SET is_deleted = true, deleted_at = NOW(), deleted_by = $1
-        WHERE treatment_plan_id = $2 AND tenant_id = $3 AND branch_id = $4 AND is_deleted = false`,
-      [deletedBy, tpId, tenant_id, branch_id]
-    );
-
-    await client.query("COMMIT");
-    return planRes.rows[0] || null;
-  } catch (e) {
-    await client.query("ROLLBACK");
-    throw e;
-  } finally {
-    client.release();
-  }
+// the plan's money ledger
+async function voidPlanPayments(tpId, deletedBy, tenant_id, branch_id, client = pool) {
+  await client.query(
+    `UPDATE treatment_payments
+        SET is_deleted = true, deleted_at = NOW(), deleted_by = $1
+      WHERE treatment_plan_id = $2 AND tenant_id = $3 AND branch_id = $4 AND is_deleted = false`,
+    [deletedBy, tpId, tenant_id, branch_id]
+  );
 }
 
 export default {
-  getActivePlan, getActivePlans, createPlan, getTreatmentPlanByIdForUpdate, markCompleted, getSessionsForTp, getAllTreatmentPlansForSection,
-  editTp, voidTp, voidPlanIfEmpty
+  getActivePlan, getActivePlans, createPlan, getPlanById, getTreatmentPlanByIdForUpdate, markCompleted, getSessionsForTp, getAllTreatmentPlansForSection,
+  editTp, voidPlan, voidPlanWorks, voidPlanPayments, voidPlanIfEmpty
 }
 
 

@@ -13,7 +13,7 @@ router.use(authMiddleware)
 router.use(branchAssigmentMiddleware)
 
 router.get('/', permissionMiddleware('manage_tp'), treatmentController.getAll);
-router.get('/active', permissionMiddleware('manage_tp'), scopeMiddleware.patient, treatmentController.getActive);
+router.get('/active', permissionMiddleware('manage_tp'), tPValidate.active, scopeMiddleware.patient, treatmentController.getActive);
 router.get('/:treatmentPlanId/sessions', permissionMiddleware('manage_tp'), validateIdParam('treatmentPlanId'), scopeMiddleware.plan, treatmentController.getSessions);
 router.patch('/:treatmentPlanId', permissionMiddleware('manage_tp'), validateIdParam('treatmentPlanId'), tPValidate.update, scopeMiddleware.plan, treatmentController.update);
 router.delete('/:treatmentPlanId', permissionMiddleware('manage_tp'), validateIdParam('treatmentPlanId'), scopeMiddleware.plan, treatmentController.delete);

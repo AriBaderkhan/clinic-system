@@ -7,6 +7,8 @@ export default function setupSocket(io) {
             if (!token) return socket.disconnect(true);
 
             const payload = jwt.verify(token, process.env.JWT_SECRET);
+            // the long-lived refresh token is only for /refresh, never a login
+            if (payload.type === 'refresh') return socket.disconnect(true);
 
             socket.user = {
                 id: payload.id,

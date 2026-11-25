@@ -4,17 +4,11 @@ const router = express.Router();
 import authController from '../controllers/authController.js';
 import authValidate from '../validates/authValidate.js';
 import authMiddleware from '../middlewares/authMiddleware.js';
-import rateLimit from 'express-rate-limit';
-
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,   // 15 min
-  max: 10,                    // 10 tries per IP
-  message: { message: 'Too many attempts, try again later', code: 'RATE_LIMITED' },
-});
+import { loginLimiter, codeLimiter } from '../utils/rateLimiters.js';
 
 router.post('/login', loginLimiter,authValidate.login, authController.login)
-router.post('/forgot-password', loginLimiter, authValidate.forgotPassword, authController.forgotPassword)
-router.post('/reset-password', loginLimiter, authValidate.resetPassword, authController.resetPassword)
+router.post('/forgot-password', codeLimiter, authValidate.forgotPassword, authController.forgotPassword)
+router.post('/reset-password', codeLimiter, authValidate.resetPassword, authController.resetPassword)
 router.post('/switch-branch', authMiddleware, authController.switchBranch)
 router.get('/me', authMiddleware, authController.me)
 router.post('/refresh', authController.refresh)   // no authMiddleware: access token may be expired

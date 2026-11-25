@@ -12,6 +12,7 @@ const mustReach = (targetBranchId, caller) => {
 async function getById(targetBranchId, tenant_id, caller) {
     mustReach(targetBranchId, caller);
     const branch = await branchModel.getBranchDetails(targetBranchId, tenant_id);
+    if (!branch) throw appError('BRANCH_NOT_FOUND', 'Branch not found', 404);
     return branch;
 }
 

@@ -65,7 +65,7 @@ const complete = asyncWrap(async (req, res) => {
     const userId = req.user.id;
     const { tenant_id, branch_id } = req.user
 
-    const result = await appointmentService.complete({ appointmentId, doctorId: userId, next_plan, notes, works, completedPlanIds, prescription }, tenant_id, branch_id);
+    const result = await appointmentService.complete({ appointmentId, doctorId: userId, callerRoleId: req.user.role_id, next_plan, notes, works, completedPlanIds, prescription }, tenant_id, branch_id);
 
     // Notify the front desk (everyone who takes payments in this branch), live +
     // saved to their bell.

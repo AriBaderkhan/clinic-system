@@ -1,6 +1,6 @@
 import pool from '../db_connection.js'
 
-async function createMonthlyExpneses(monthlyExpensesDetail, tenant_id, branch_id) {
+async function createMonthlyExpenses(monthlyExpensesDetail, tenant_id, branch_id) {
     const { type, amount, expense_date, note, created_by } = monthlyExpensesDetail
 
     const query = `
@@ -12,7 +12,7 @@ async function createMonthlyExpneses(monthlyExpensesDetail, tenant_id, branch_id
     return created.rows[0] || null;
 }
 
-async function getAllMonthlyExpneses(tenant_id, branch_id, type, month) {
+async function getAllMonthlyExpenses(tenant_id, branch_id, type, month) {
     const baseQuery = `SELECT * FROM monthly_expenses WHERE tenant_id = $1 AND branch_id = $2 `;
 
     const where = [];
@@ -40,14 +40,14 @@ async function getAllMonthlyExpneses(tenant_id, branch_id, type, month) {
     return result.rows
 }
 
-async function getMonthlyExpneses(expensesId, tenant_id, branch_id) {
+async function getMonthlyExpenses(expensesId, tenant_id, branch_id) {
     const query = `SELECT * FROM monthly_expenses WHERE id = $1 AND tenant_id = $2 AND branch_id = $3;`
     const value = [expensesId, tenant_id, branch_id]
     const feteched = await pool.query(query, value)
     return feteched.rows[0] || null;
 }
 
-async function updateMonthlyExpneses(expensesId, fields, updated_by, tenant_id, branch_id) {
+async function updateMonthlyExpenses(expensesId, fields, updated_by, tenant_id, branch_id) {
     const keys = Object.keys(fields);
     const values = Object.values(fields);
 
@@ -64,8 +64,9 @@ async function updateMonthlyExpneses(expensesId, fields, updated_by, tenant_id, 
     return updated.rows[0] || null;
 }
 
-async function deleteMonthlyExpneses(expensesId, tenant_id, branch_id) {
-    const query = `DELETE FROM monthly_expenses WHERE id=$1 AND tenant_id = $2 AND branch_id = $3 RETURNING *;`;
+async function deleteMonthlyExpenses(expensesId, tenant_id, branch_id) {
+    const query = `DELETE FROM monthly_expenses WHERE id=$1 AND tenant_id = $2 AND branch_id = $3
+    RETURNING id, type, amount, currency_code, expense_date::text AS expense_date, note;`;
     const value = [expensesId, tenant_id, branch_id];
     const deleted = await pool.query(query, value);
     return deleted.rows[0] || null;
@@ -91,4 +92,4 @@ async function getAvailableTypes(tenant_id, branch_id) {
     return result.rows
 }
 
-export default { createMonthlyExpneses, getAllMonthlyExpneses, getMonthlyExpneses, updateMonthlyExpneses, deleteMonthlyExpneses, getAvailableMonths, getAvailableTypes }
+export default { createMonthlyExpenses, getAllMonthlyExpenses, getMonthlyExpenses, updateMonthlyExpenses, deleteMonthlyExpenses, getAvailableMonths, getAvailableTypes }

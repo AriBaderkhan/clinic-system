@@ -30,4 +30,10 @@ async function revokeAllForUser(user_id, client = pool) {
     await client.query(query, [user_id]);
 }
 
-export default { insert, findByHash, revokeByHash, revokeAllForUser };
+// Housekeeping: a user's tokens that can never be used again (revoked or expired).
+async function deleteDeadForUser(user_id, client = pool) {
+    const query = `DELETE FROM refresh_tokens WHERE user_id = $1 AND (revoked = true OR expires_at < NOW())`;
+    await client.query(query, [user_id]);
+}
+
+export default { insert, findByHash, revokeByHash, revokeAllForUser, deleteDeadForUser };

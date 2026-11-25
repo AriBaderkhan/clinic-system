@@ -604,6 +604,7 @@ async function getSessionWithAppointmentForUpdate(sessionId, tenant_id, branch_i
       s.is_paid,
       s.is_settled,
       s.discount_amount,
+      s.currency_code,
       a.status AS appointment_status,
       a.patient_id,
       EXISTS (

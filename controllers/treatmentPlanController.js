@@ -4,10 +4,6 @@ import asyncWrap from '../utils/asyncWrap.js';
 const getActive = asyncWrap(async (req, res) => {
     const patientId = Number(req.query.patientId);
     const type = req.query.type;
-
-    if (!patientId || !type) {
-        return res.status(400).json({ ok: false, error: 'VALIDATION_ERROR', message: 'patientId and type are required' });
-    }
     const result = await treatmentPlanService.getActive(patientId, type, req.user.tenant_id, req.user.branch_id);
     res.status(200).json({ ok: true, data: result });
 })
@@ -50,8 +46,13 @@ const update = asyncWrap(async (req, res) => {
     const tpId = Number(req.params.treatmentPlanId)
     const { tenant_id, branch_id } = req.user;
 
-    const result = await treatmentPlanService.update(type, agreed_total, is_completed, tpId, tenant_id, branch_id);
-    res.status(200).json({ ok: true, data: result });
+    const { plan, before } = await treatmentPlanService.update(type, agreed_total, is_completed, tpId, tenant_id, branch_id);
+    // the old agreed price and type go to the activity log (they would be lost otherwise)
+    res.locals.auditDetails = {
+      old_agreed_total: Number(before.agreed_total), new_agreed_total: Number(plan?.agreed_total),
+      old_type: before.type, new_type: plan?.type,
+    };
+    res.status(200).json({ ok: true, data: plan });
 })
 
 const _delete = asyncWrap(async (req, res) => {

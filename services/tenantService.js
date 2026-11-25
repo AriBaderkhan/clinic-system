@@ -1,9 +1,10 @@
+import { CLINIC_OFFSET_HOURS } from '../utils/clinicTime.js';
 import tenantModel from '../models/tenantModel.js';
 import reportsModel from '../models/reportsModel.js';
-import pool from '../db_connection.js';
 import branchModel from '../models/branchModel.js';
 import permissionsModel from '../models/permissionsModel.js';
 import appError from '../utils/appError.js';
+import withTransaction from '../utils/withTransaction.js';
 
 async function getDetails(tenantId) {
     // Pass undefined as first arg to use the default 'pool' defined in the model
@@ -11,9 +12,12 @@ async function getDetails(tenantId) {
     return tenant;
 }
 
+// name / logo and time zone / currency are saved together or not at all (one connection, one transaction)
 async function update(fields, tenantId) {
-    const tenant = await tenantModel.updateTenant(fields, tenantId);
-    return tenant;
+    return withTransaction(async (client) => {
+        await tenantModel.updateTenant(fields, tenantId, client);
+        return tenantModel.updateTenantSettings(fields, tenantId, client);
+    });
 }
 
 async function getBranches(tenantId) {
@@ -22,9 +26,18 @@ async function getBranches(tenantId) {
 }
 
 async function createBranch(tenantId, branchData) {
-    const client = await pool.connect();
-    try {
-        await client.query('BEGIN');
+    return withTransaction(async (client) => {
+        // the plan's branch limit: the subscription row stays locked until this branch is saved,
+        // so several "add branch" clicks at once can never go over the limit
+        const plan = await tenantModel.lockPlanLimit(tenantId, client);
+        if (!plan) throw appError('NO_active_PLAN', 'No active subscription found.', 403);
+        if (plan.max_branches !== -1) {
+            const count = await tenantModel.countBranches(tenantId, client);
+            if (count >= plan.max_branches) {
+                throw appError('PLAN_LIMIT_REACHED', `Upgrade Plan: Max branches reached (${plan.max_branches}).`, 403);
+            }
+        }
+
         const { name, location, timezone, currency_code } = branchData;
         const branch = await tenantModel.createBranch(client, tenantId, name, location);
         const branchId = branch.id;
@@ -41,14 +54,8 @@ async function createBranch(tenantId, branchData) {
         await tenantModel.createBranchSettings(client, branchId, tenantId, timezoneUse, currency_codeUse);
         // the new branch starts with the default ticks of every role
         await permissionsModel.copyDefaultsToBranch(tenantId, branchId, client);
-        await client.query('COMMIT');
         return branch;
-    } catch (error) {
-        await client.query('ROLLBACK');
-        throw error;
-    } finally {
-        client.release();
-    }
+    });
 }
 
 async function updateBranch(branchData, targetBranchId, tenant_id) {
@@ -56,10 +63,22 @@ async function updateBranch(branchData, targetBranchId, tenant_id) {
     return branch;
 }
 
+// only an EMPTY branch can be deleted: a branch with patients, visits, payments or expenses is refused
 async function deleteBranch(branchId, tenantId) {
-    const branch = await tenantModel.deleteBranch(branchId, tenantId);
-    const branchSettings = await tenantModel.deleteBranchSettings(branchId, tenantId);
-    return branch;
+    return withTransaction(async (client) => {
+        const branch = await tenantModel.lockBranch(branchId, tenantId, client);
+        if (!branch) throw appError('BRANCH_NOT_FOUND', 'Branch not found', 404);
+
+        const hasData = await tenantModel.branchHasData(branchId, client);
+        if (hasData) throw appError('BRANCH_HAS_DATA', 'This branch has data, so it cannot be deleted', 409);
+        try {
+            return await tenantModel.deleteBranch(branchId, tenantId, client);
+        } catch (err) {
+            // something else still points to the branch (specialties, floors, shared patients...)
+            if (err.code === '23503') throw appError('BRANCH_HAS_DATA', 'This branch has data, so it cannot be deleted', 409);
+            throw err;
+        }
+    });
 }
 
 
@@ -81,14 +100,13 @@ return branch;
 
 // Asia/Baghdad is UTC+3 with no daylight-saving, so a fixed offset is safe and
 // keeps "today" / "this month" aligned with the clinic's real calendar day.
-const CLINIC_TZ_OFFSET_HOURS = 3;
 
 // Boundaries (as UTC Date objects) for the clinic's local "today" and "this
 // month". Queries compare against timestamp columns, so we shift the local
 // wall-clock day start back into UTC.
 function clinicDateRanges() {
     const now = new Date();
-    const offsetMs = CLINIC_TZ_OFFSET_HOURS * 3600 * 1000;
+    const offsetMs = CLINIC_OFFSET_HOURS * 3600 * 1000;
     const wall = new Date(now.getTime() + offsetMs); // Baghdad wall-clock in UTC fields
     const todayStartUtc = Date.UTC(wall.getUTCFullYear(), wall.getUTCMonth(), wall.getUTCDate());
     const monthStartUtc = Date.UTC(wall.getUTCFullYear(), wall.getUTCMonth(), 1);

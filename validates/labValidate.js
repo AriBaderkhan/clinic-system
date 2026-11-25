@@ -24,7 +24,7 @@ const schemaLabCreate = Joi.object({
 
 function createLab(req, res, next) {
     const { error } = schemaLabCreate.validate(req.body);
-    if (error) return res.status(400).json({ message: error.details[0].message })
+    if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' })
     next();
 }
 
@@ -36,7 +36,7 @@ const schemaLabUpdate = Joi.object({
 
 function updateLab(req, res, next) {
     const { error } = schemaLabUpdate.validate(req.body);
-    if (error) return res.status(400).json({ message: error.details[0].message })
+    if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' })
     next();
 }
 
@@ -67,7 +67,7 @@ const schemaOrderCreate = Joi.object({
 
 function createOrder(req, res, next) {
     const { error } = schemaOrderCreate.validate(req.body);
-    if (error) return res.status(400).json({ message: error.details[0].message })
+    if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' })
     next();
 }
 
@@ -78,7 +78,7 @@ const schemaOrderUpdate = Joi.object({
 
 function updateOrder(req, res, next) {
     const { error } = schemaOrderUpdate.validate(req.body);
-    if (error) return res.status(400).json({ message: error.details[0].message })
+    if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' })
     next();
 }
 
@@ -88,7 +88,7 @@ const schemaOrderStatus = Joi.object({
 
 function orderStatus(req, res, next) {
     const { error } = schemaOrderStatus.validate(req.body);
-    if (error) return res.status(400).json({ message: error.details[0].message })
+    if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' })
     next();
 }
 
@@ -102,11 +102,25 @@ const ordersFiltersSchema = Joi.object({
 
 function ordersFilters(req, res, next) {
     const { error } = ordersFiltersSchema.validate(req.query);
-    if (error) return res.status(400).json({ message: error.details[0].message })
+    if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' })
+    next();
+}
+
+// GET / and /search: the list screen's search text and page
+const labsListSchema = Joi.object({
+    q: Joi.string().max(100).allow(''),
+    page: Joi.number().integer().min(1),
+    limit: Joi.number().integer().min(1).max(100),
+}).unknown(true);
+
+function labsList(req, res, next) {
+    const { error } = labsListSchema.validate(req.query);
+    if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' });
     next();
 }
 
 export default {
+  labsList,
     createLab, updateLab,
     createOrder, updateOrder, orderStatus, ordersFilters,
 };

@@ -33,7 +33,7 @@ async function getById(id) {
 
 async function update(id, body) {
     const plan = await planModel.getPlanById(id);
-    if (!plan) throw new appError('PLAN_NOT_FOUND', 'Plan not found', 404);
+    if (!plan) throw appError('PLAN_NOT_FOUND', 'Plan not found', 404);
 
     const updatedPlan = await planModel.updatePlan(id, body);
     if (!updatedPlan) throw appError('PLAN_NOT_FOUND', 'Plan not found', 404);
@@ -42,11 +42,17 @@ async function update(id, body) {
 
 async function _delete(id) {
     const plan = await planModel.getPlanById(id);
-    if (!plan) throw new appError('PLAN_NOT_FOUND', 'Plan not found', 404);
+    if (!plan) throw appError('PLAN_NOT_FOUND', 'Plan not found', 404);
 
-    const deletedPlan = await planModel.deletePlan(id);
-    if (!deletedPlan) throw appError('PLAN_NOT_FOUND', 'Plan not found', 404);
-    return deletedPlan;
+    try {
+        const deletedPlan = await planModel.deletePlan(id);
+        if (!deletedPlan) throw appError('PLAN_NOT_FOUND', 'Plan not found', 404);
+        return deletedPlan;
+    } catch (err) {
+        // clinics (or their requests / announcements) still use this plan
+        if (err.code === '23503') throw appError('PLAN_IN_USE', 'This plan is still used by clinics, so it cannot be deleted', 409);
+        throw err;
+    }
 }
 
 export default { create, getAll, getPublic, getById, update, delete: _delete };

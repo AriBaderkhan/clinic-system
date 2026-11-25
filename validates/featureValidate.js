@@ -8,7 +8,7 @@ const createFeatureSchema = Joi.object({
 
 function create(req, res, next) {
     const { error, value } = createFeatureSchema.validate(req.body);
-    if (error) return res.status(400).json({ message: error.details[0].message });
+    if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' });
     req.body = value;
     next();
 }
@@ -19,7 +19,7 @@ const assignFeatureSchema = Joi.object({
 
 function assign(req, res, next) {
     const { error, value } = assignFeatureSchema.validate(req.body);
-    if (error) return res.status(400).json({ message: error.details[0].message });
+    if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' });
     req.body = value;
     next();
 }

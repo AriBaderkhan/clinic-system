@@ -2,6 +2,7 @@ import ExcelJS from 'exceljs';
 import reportsModel from '../models/reportsModel.js';
 import insightsExcelModel from '../models/insightsExcelModel.js';
 import resolveReportDateRange from '../utils/reportsDateRange.js';
+import cents, { WHOLE_UNIT_CURRENCIES } from '../utils/money.js';
 
 /**
  * INSIGHTS EXCEL EXPORT
@@ -27,7 +28,11 @@ const pct = (part, whole) => (whole ? Math.round((part / whole) * 1000) / 10 : 0
 const prettyType = (t) => ({ normal: 'Normal', urgent: 'Urgent', walk_in: 'Walk-in' }[t] || t);
 
 // ---- styling helpers ------------------------------------------------------
-const F_MONEY = { numFmt: '#,##0', align: 'right' };
+// money: whole numbers for IQD, cents for other currencies (the currency is in column curIdx of the row)
+const moneyAt = (curIdx) => ({
+  numFmt: (row) => (row[curIdx] && row[curIdx] !== '—' && !WHOLE_UNIT_CURRENCIES.includes(row[curIdx]) ? '#,##0.00' : '#,##0'),
+  align: 'right',
+});
 const F_COUNT = { numFmt: '#,##0', align: 'center' };
 const F_PCT = { numFmt: '0.0"%"', align: 'center' };
 const F_TEXT = { align: 'left' };
@@ -83,7 +88,7 @@ function dataRows(ws, start, rows, formats) {
       const c = row.getCell(ci + 1);
       c.value = val;
       const f = formats[ci] || {};
-      if (f.numFmt) c.numFmt = f.numFmt;
+      if (f.numFmt) c.numFmt = typeof f.numFmt === 'function' ? f.numFmt(r) : f.numFmt;
       c.alignment = { vertical: 'middle', horizontal: f.align || (ci === 0 ? 'left' : 'center') };
       c.border = box();
       c.font = { color: { argb: THEME.ink }, size: 11 };
@@ -152,16 +157,16 @@ async function buildInsightsWorkbook({ month, from, to }, tenant_id) {
     const totalRows = [...curs].map((cur) => {
       const s = num(revByCur.sessions.find((x) => x.currency_code === cur)?.total);
       const p = num(revByCur.plans.find((x) => x.currency_code === cur)?.total);
-      return [cur, s, p, s + p];
+      return [cur, s, p, (cents(s) + cents(p)) / 100];
     });
     r = sectionHeader(ws, r, 4, 'Total revenue (per currency)');
     r = tableHeader(ws, r, ['Currency', 'From visits', 'From plans', 'Total']);
-    r = dataRows(ws, r, totalRows.length ? totalRows : [['—', 0, 0, 0]], [F_TEXT, F_MONEY, F_MONEY, F_MONEY]);
+    r = dataRows(ws, r, totalRows.length ? totalRows : [['—', 0, 0, 0]], [F_TEXT, moneyAt(0), moneyAt(0), moneyAt(0)]);
 
     r = sectionHeader(ws, r, 4, 'Revenue per doctor');
     r = tableHeader(ws, r, ['Doctor', 'Currency', 'Revenue', '']);
     const docRows = revDoctor.map((d) => [d.doctor, d.currency_code, num(d.total), '']);
-    r = dataRows(ws, r, docRows.length ? docRows : [['—', '—', 0, '']], [F_TEXT, { align: 'center' }, F_MONEY, {}]);
+    r = dataRows(ws, r, docRows.length ? docRows : [['—', '—', 0, '']], [F_TEXT, { align: 'center' }, moneyAt(1), {}]);
   }
 
   // ===================== SHEET 2: WORKS =====================
@@ -182,7 +187,7 @@ async function buildInsightsWorkbook({ month, from, to }, tenant_id) {
         : num(w.billed);
       return [i + 1, w.work, num(w.times_done), revenue, w.currency_code];
     });
-    r = dataRows(ws, r, rows.length ? rows : [[1, '—', 0, 0, '—']], [F_COUNT, F_TEXT, F_COUNT, F_MONEY, { align: 'center' }]);
+    r = dataRows(ws, r, rows.length ? rows : [[1, '—', 0, 0, '—']], [F_COUNT, F_TEXT, F_COUNT, moneyAt(4), { align: 'center' }]);
     const note = ws.getCell(r, 1);
     note.value = 'Plan works (implant, ortho, RCT…) show money actually collected; other works show billed value.';
     note.font = { italic: true, size: 10, color: { argb: THEME.sub } };
@@ -232,7 +237,7 @@ async function buildInsightsWorkbook({ month, from, to }, tenant_id) {
     r = kpi(ws, r, 5, 'Total appointments', totalAppts);
     r = kpi(ws, r, 5, 'Completed', completed);
     r = kpi(ws, r, 5, 'Cancelled + No-show', `${cancelled + noShow}  (${pct(cancelled + noShow, totalAppts)}%)`);
-    if (busiest) r = kpi(ws, r, 5, 'Busiest day', `${new Date(busiest.date).toISOString().slice(0, 10)}  (${num(busiest.appts)} appointments)`);
+    if (busiest) r = kpi(ws, r, 5, 'Busiest day', `${busiest.date}  (${num(busiest.appts)} appointments)`);
     r += 1;
 
     // By weekday, ranked most → least productive

@@ -5,7 +5,8 @@
   "main": "main.js",
   "scripts": {
     "start": "node main.js",
-    "test": "cross-env NODE_ENV=test vitest"
+    "test": "cross-env NODE_ENV=test vitest",
+    "seed:test": "node tests/seed/seedTestClinics.js"
   },
   "keywords": [],
   "author": "",
@@ -25,15 +26,17 @@
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.1",
     "multer": "^2.2.0",
-    "nodemailer": "^9.0.1",
+    "nodemailer": "^10.6.1",
     "pdfmake": "^0.2.20",
     "pg": "^8.16.3",
-    "puppeteer": "^24.34.0",
     "socket.io": "^4.8.3"
   },
   "devDependencies": {
     "cross-env": "^10.1.0",
     "supertest": "^7.2.2",
     "vitest": "^4.1.9"
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
   }
 }

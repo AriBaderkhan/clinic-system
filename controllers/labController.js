@@ -120,7 +120,9 @@ const deleteOrder = asyncWrap(async (req, res) => {
     const orderId = Number(req.params.orderId);
     const { tenant_id, branch_id } = req.user;
 
-    await labService.deleteOrder(orderId, tenant_id, branch_id);
+    const deleted = await labService.deleteOrder(orderId, tenant_id, branch_id);
+    const { lab_id, patient_id, doctor_id, total_cost, currency_code, status } = deleted;
+    res.locals.auditDetails = { lab_order_id: orderId, lab_id, patient_id, doctor_id, total_cost: Number(total_cost), currency_code, status };
     res.status(200).json({ ok: true });
 })
 

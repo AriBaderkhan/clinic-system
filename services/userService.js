@@ -7,6 +7,7 @@ import withTransaction from '../utils/withTransaction.js';
 import appError from '../utils/appError.js';
 import subscriptionService from './subscriptionService.js';
 import subscriptionModel from '../models/subscriptionModel.js';
+import tenantModel from '../models/tenantModel.js';
 
 // a built-in role, or a custom role of THIS clinic (never another clinic's role)
 const roleOfClinic = async (role_id, tenant_id, client) => {
@@ -21,6 +22,8 @@ const roleOfClinic = async (role_id, tenant_id, client) => {
 async function create(userData, tenant_id) {
 
     const { branch_id, full_name, email, password, role_id, phone, address, room, is_active } = userData;
+    // only a branch of THIS clinic (never another clinic's branch)
+    if (!await tenantModel.branchBelongsToTenant(branch_id, tenant_id)) throw appError('BRANCH_NOT_FOUND', 'Branch not found', 404);
     const role = await roleOfClinic(role_id, tenant_id); // checked BEFORE anything is created
     if (role.is_doctor && is_active !== false) await subscriptionService.assertDoctorSeat(tenant_id);
     const hashedPassword = await bcrypt.hash(String(password || ''), 10);
@@ -46,6 +49,7 @@ async function getAll(tenant_id) {
 
 async function getById(user_id, tenant_id) {
     const user = await userModel.getUserById(user_id, tenant_id);
+    if (!user) throw appError('USER_NOT_FOUND', 'User not found', 404);
     return user;
 }
 
@@ -60,6 +64,7 @@ async function update(user_id, tenant_id, userData) {
         await subscriptionService.assertDoctorSeat(tenant_id, user_id);
     }
     const user = await userModel.updateUser(user_id, tenant_id, userData);
+    if (!user) throw appError('USER_NOT_FOUND', 'User not found', 404);
     return user;
 }
 

@@ -12,7 +12,7 @@ const workflowSchema = Joi.object({
 
 function workflow(req, res, next) {
   const { error, value } = workflowSchema.validate(req.body);
-  if (error) return res.status(400).json({ message: error.details[0].message });
+  if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' });
   req.body = value;
   next();
 }

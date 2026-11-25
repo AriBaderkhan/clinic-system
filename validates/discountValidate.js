@@ -19,14 +19,14 @@ const updateSchema = Joi.object({
 
 function create(req, res, next) {
   const { error, value } = createSchema.validate(req.body);
-  if (error) return res.status(400).json({ message: error.details[0].message });
+  if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' });
   req.body = value;
   next();
 }
 
 function update(req, res, next) {
   const { error, value } = updateSchema.validate(req.body);
-  if (error) return res.status(400).json({ message: error.details[0].message });
+  if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' });
   req.body = value;
   next();
 }

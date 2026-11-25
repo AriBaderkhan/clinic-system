@@ -1,5 +1,7 @@
 import reminderModel from '../models/reminderModel.js';
+import appointmentModel from '../models/appointmentModel.js';
 import appError from '../utils/appError.js';
+import withTransaction from '../utils/withTransaction.js';
 
 // Clinic timezone for formatting the date/time inside the message. Iraq = UTC+3.
 // (Stored as TIMESTAMPTZ; we format explicitly so it never shows UTC.)
@@ -102,13 +104,21 @@ async function updateTemplate(tenant_id, branch_id, body, updated_by) {
   return reminderModel.upsertTemplate(tenant_id, branch_id, body, updated_by);
 }
 
-async function markSent({ tenant_id, branch_id, appointment_id, patient_id, language, message, sent_by }) {
-  const already = await reminderModel.existsForAppointment(tenant_id, branch_id, appointment_id);
-  if (already) throw appError('REMINDER_ALREADY_SENT', 'Reminder already sent for this appointment', 409);
+async function markSent({ tenant_id, branch_id, appointment_id, language, message, sent_by }) {
+  // only this branch's appointments; the patient always comes from the appointment itself
+  const appt = await appointmentModel.getAppointment(appointment_id, tenant_id, branch_id);
+  if (!appt) throw appError('APPOINTMENT_NOT_FOUND', 'Appointment not found', 404);
 
-  return reminderModel.insertSent({
-    tenant_id, branch_id, appointment_id, patient_id,
-    channel: 'whatsapp', language, message, sent_by,
+  // check + save are one step (clicks at the same moment wait for each other)
+  return withTransaction(async (client) => {
+    await reminderModel.lockAppointmentReminder(appointment_id, client);
+    const already = await reminderModel.existsForAppointment(tenant_id, branch_id, appointment_id, client);
+    if (already) throw appError('REMINDER_ALREADY_SENT', 'Reminder already sent for this appointment', 409);
+
+    return reminderModel.insertSent({
+      tenant_id, branch_id, appointment_id, patient_id: appt.patient_id,
+      channel: 'whatsapp', language, message, sent_by,
+    }, client);
   });
 }
 

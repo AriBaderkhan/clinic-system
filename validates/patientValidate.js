@@ -34,7 +34,7 @@ function create(req, res, next) {
         stripUnknown: true
     });
 
-    if (error) return res.status(400).json({ message: error.details[0].message })
+    if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' })
     next();
 }
 
@@ -46,7 +46,7 @@ function update(req, res, next) {
         stripUnknown: true
     });
 
-    if (error) return res.status(400).json({ message: error.details[0].message })
+    if (error) return res.status(400).json({ message: error.details[0].message, code: 'VALIDATION_ERROR' })
     req.body = value;
     next();
 }

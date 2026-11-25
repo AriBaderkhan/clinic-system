@@ -15,7 +15,8 @@ import resolveReportDateRange from '../utils/reportsDateRange.js'
  *
  * Shapes returned to the frontend:
  *   - count    → { unit, value, branches:[{branch_name,value}], compare? }
- *   - revenue  → same as count, unit:'money'
+ *   - revenue  → { unit:'money', currencies:[{ currency_code, ...count shape }] }
+ *   - money breakdowns (revenue per doctor / treatment) → { unit:'money', currencies:[{ currency_code, ...breakdown shape }] }
  *   - breakdown→ { unit, value, breakdown:[{label,value,rate}], branches:[...] }
  *   - split    → { unit, items:[{label,value,rate}], branches:[...], compare? }
  * rate meaning: share % on breakdowns/splits, growth % on compares.
@@ -192,15 +193,15 @@ const METRICS = {
 
     // ---------------- REVENUE ----------------
     revenue_total: {
-        category: 'revenue', label: 'Total revenue', type: 'revenue', supportsCompare: true,
+        category: 'revenue', label: 'Total revenue', type: 'revenue', supportsCompare: true, money: true,
         fetch: (p, t) => fetchRevenueTotalByBranch(p.from, p.to, t),
     },
     revenue_per_doctor: {
-        category: 'revenue', label: 'Revenue per doctor', type: 'breakdown', unit: 'money',
+        category: 'revenue', label: 'Revenue per doctor', type: 'breakdown', unit: 'money', money: true,
         fetch: (p, t) => reportsModel.revenuePerDoctorByBranch(p.from, p.to, t),
     },
     revenue_per_treatment: {
-        category: 'revenue', label: 'Revenue per treatment', type: 'breakdown', unit: 'money',
+        category: 'revenue', label: 'Revenue per treatment', type: 'breakdown', unit: 'money', money: true,
         fetch: (p, t) => reportsModel.revenuePerTreatmentByBranch(p.from, p.to, t),
     },
 };
@@ -223,18 +224,56 @@ async function mapCancelNoShow(promise) {
         }));
 }
 
-// Total revenue per branch = session payments + treatment-plan payments.
+// Total revenue per branch AND currency = session payments + treatment-plan payments.
 async function fetchRevenueTotalByBranch(from, to, tenant_id) {
     const [sessions, plans] = await Promise.all([
         reportsModel.sumOfSessionsAmountByBranch(from, to, tenant_id),
         reportsModel.sumOfTreatmentPlansAmountByBranch(from, to, tenant_id),
     ]);
-    const names = new Set([...sessions.map((s) => s.branch_name), ...plans.map((p) => p.branch_name)]);
-    return Array.from(names).map((name) => {
-        const s = Number(sessions.find((i) => i.branch_name === name)?.total_paid || 0);
-        const p = Number(plans.find((i) => i.branch_name === name)?.total_paid || 0);
-        return { branch_name: name, total: s + p };
+    const totals = new Map();
+    for (const r of [...sessions, ...plans]) {
+        const currency_code = r.currency_code || 'IQD';
+        const key = `${r.branch_name}|${currency_code}`;
+        const row = totals.get(key) || { branch_name: r.branch_name, currency_code, total: 0 };
+        row.total += Number(r.total_paid || 0);
+        totals.set(key, row);
+    }
+    return [...totals.values()];
+}
+
+// shape the rows of one question (count / revenue -> totals, breakdown -> ranked list)
+function shapeRows(metric, rows, branches) {
+    if (metric.type === 'count' || metric.type === 'revenue') {
+        return shapeCount(rows, branches, metric.type === 'revenue' ? 'money' : 'count');
+    }
+    return shapeBreakdown(rows, branches, {
+        unit: metric.unit || 'count',
+        pick: metric.pick || 'all',
+        limit: metric.limit || null,
     });
+}
+
+// growth vs the comparison period
+function compareWith(current, prevRows, cmp) {
+    const previous = sumField(prevRows, 'total');
+    return {
+        previous,
+        current,
+        change: round1(current - previous),
+        rate: growthRate(current, previous),
+        period: { label: cmp.label, rangeText: cmp.rangeText },
+    };
+}
+
+// money rows split by currency: Map(currency_code -> rows)
+function groupByCurrency(rows) {
+    const map = new Map();
+    for (const r of rows) {
+        const code = r.currency_code || 'IQD';
+        if (!map.has(code)) map.set(code, []);
+        map.get(code).push(r);
+    }
+    return map;
 }
 
 // ---- public API -----------------------------------------------------------
@@ -268,32 +307,30 @@ async function runInsight(metricId, query, tenant_id) {
 
     if (metric.type === 'split') {
         result = await runSplit(period, query, tenant_id, branches, metric);
-    } else if (metric.type === 'count' || metric.type === 'revenue') {
-        const unit = metric.type === 'revenue' ? 'money' : 'count';
-        const rows = await metric.fetch(period, tenant_id);
-        result = shapeCount(rows, branches, unit);
-        if (metric.supportsCompare) {
-            const cmp = await resolveComparePeriod(query, period);
-            if (cmp) {
-                const prevRows = await metric.fetch(cmp, tenant_id);
-                const previous = sumField(prevRows, 'total');
-                result.compare = {
-                    previous,
-                    current: result.value,
-                    change: round1(result.value - previous),
-                    rate: growthRate(result.value, previous),
-                    period: { label: cmp.label, rangeText: cmp.rangeText },
-                };
-            }
-        }
     } else {
-        // breakdown
         const rows = await metric.fetch(period, tenant_id);
-        result = shapeBreakdown(rows, branches, {
-            unit: metric.unit || 'count',
-            pick: metric.pick || 'all',
-            limit: metric.limit || null,
-        });
+        // growth vs another period: only counts / revenue that support it
+        const canCompare = (metric.type === 'count' || metric.type === 'revenue') && metric.supportsCompare;
+        const cmp = canCompare ? await resolveComparePeriod(query, period) : null;
+        const prevRows = cmp ? await metric.fetch(cmp, tenant_id) : [];
+
+        if (metric.money) {
+            // money: one answer PER CURRENCY (dinars and dollars are never added together)
+            const now = groupByCurrency(rows);
+            const before = groupByCurrency(prevRows);
+            const codes = [...new Set([...now.keys(), ...before.keys()])].sort();
+            result = {
+                unit: 'money',
+                currencies: codes.map((code) => {
+                    const shaped = shapeRows(metric, now.get(code) || [], branches);
+                    if (cmp) shaped.compare = compareWith(shaped.value, before.get(code) || [], cmp);
+                    return { currency_code: code, ...shaped };
+                }),
+            };
+        } else {
+            result = shapeRows(metric, rows, branches);
+            if (cmp) result.compare = compareWith(result.value, prevRows, cmp);
+        }
     }
 
     return {
