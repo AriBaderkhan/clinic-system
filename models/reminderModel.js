@@ -1,10 +1,13 @@
 import pool from '../db_connection.js';
+import { CLINIC_TZ } from '../utils/clinicTime.js';
 
-// Appointments in the next 48h that still NEED a reminder:
+const REMINDER_DAYS = 4; // tomorrow + the 3 days after it
+
+// Appointments that still NEED a reminder:
 //   • status = 'scheduled'  → checked_in / in_progress / completed auto-drop
-//   • within now .. now+48h
+//   • from tomorrow 00:00 to the end of the 4th day, in clinic time
 //   • no reminder already sent for it (NOT EXISTS in reminders)
-// Ordered nearest-first.
+// Ordered nearest-first (tomorrow first).
 async function getUpcoming(tenant_id, branch_id, client = pool) {
   const query = `
     SELECT
@@ -19,13 +22,14 @@ async function getUpcoming(tenant_id, branch_id, client = pool) {
       AND a.branch_id = $2
       AND a.is_deleted = false
       AND a.status = 'scheduled'
-      AND a.scheduled_start BETWEEN NOW() AND NOW() + INTERVAL '48 hours'
+      AND a.scheduled_start >= (date_trunc('day', NOW() AT TIME ZONE $3) + INTERVAL '1 day') AT TIME ZONE $3
+      AND a.scheduled_start <  (date_trunc('day', NOW() AT TIME ZONE $3) + make_interval(days => $4 + 1)) AT TIME ZONE $3
       AND NOT EXISTS (
         SELECT 1 FROM reminders r
          WHERE r.appointment_id = a.id AND r.tenant_id = a.tenant_id AND r.branch_id = a.branch_id
       )
     ORDER BY a.scheduled_start ASC;`;
-  const { rows } = await client.query(query, [tenant_id, branch_id]);
+  const { rows } = await client.query(query, [tenant_id, branch_id, CLINIC_TZ, REMINDER_DAYS]);
   return rows;
 }
 

@@ -404,7 +404,7 @@ describe('the same actions inside your OWN clinic still work (regression for the
 
     it('a reminder for an own appointment is saved with the appointment\'s patient and leaves the "to remind" list', async () => {
         const appt = await newTestVisit(VISIT_MARK, S1, { patient_id: v.patient, doctor_id: v.doctor });
-        await query(`UPDATE appointments SET status = 'scheduled', check_in_time = NULL, started_at = NULL, scheduled_start = NOW() + INTERVAL '5 hours' WHERE id = $1`, [appt]);
+        await query(`UPDATE appointments SET status = 'scheduled', check_in_time = NULL, started_at = NULL, scheduled_start = NOW() + INTERVAL '1 day' WHERE id = $1`, [appt]);
         const hadTemplate = await one(`SELECT 1 AS x FROM reminder_templates WHERE tenant_id = $1 AND branch_id = $2`, [S1.tenant_id, S1.id]);
         expect((await call('PUT', '/api/reminders/template', S1.manager, { kur_msg: 'k {patient_name}', arb_msg: 'a {patient_name}', eng_msg: 'e {patient_name}' })).status).toBe(200);
         const listed = async () => (await call('GET', '/api/reminders/upcoming', S1.reception)).body.data.some((a) => Number(a.appointment_id) === appt);

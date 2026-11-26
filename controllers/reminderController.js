@@ -1,7 +1,7 @@
 import reminderService from '../services/reminderService.js';
 import asyncWrap from '../utils/asyncWrap.js';
 
-// GET /api/reminders/upcoming — the 48h list (nearest first), each with a
+// GET /api/reminders/upcoming — tomorrow + the next 3 days (nearest first), each with a
 // ready-to-send message per language and a normalized phone number.
 const getUpcoming = asyncWrap(async (req, res) => {
   const { tenant_id, branch_id } = req.user;
